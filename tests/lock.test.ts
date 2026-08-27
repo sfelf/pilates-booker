@@ -30,7 +30,7 @@ const filesystemError = (code: string): NodeJS.ErrnoException =>
   Object.assign(new Error("synthetic private filesystem message"), { code });
 
 describe("acquireProfileLock", () => {
-  test.each(["write", "sync", "stat"] as const)(
+  test.each(["write", "sync"] as const)(
     "durably removes the lock when acquisition %s fails",
     async (failureStage) => {
       const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
@@ -60,10 +60,8 @@ describe("acquireProfileLock", () => {
           if (failureStage === "sync") throw filesystemError("EIO");
           await handle.sync();
         },
-        statFile: async (handle: Parameters<LockOperations["close"]>[0]) => {
-          if (failureStage === "stat") throw filesystemError("EIO");
-          return handle.stat();
-        }
+        statFile: async (handle: Parameters<LockOperations["close"]>[0]) =>
+          handle.stat()
       } as LockOperations;
 
       await expect(
@@ -73,6 +71,50 @@ describe("acquireProfileLock", () => {
       await expect(readFile(path, "utf8")).rejects.toThrow();
     }
   );
+
+  test("preserves the pathname when acquisition ownership cannot be established", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectoryDurable,
+        operations({
+          statFile: async () => {
+            throw filesystemError("EIO");
+          }
+        })
+      )
+    ).rejects.toThrow();
+    expect(await readFile(path, "utf8")).toBe("");
+  });
+
+  test("does not remove a replacement lock during acquisition cleanup", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectoryDurable,
+        operations({
+          writeFile: async () => {
+            throw filesystemError("EIO");
+          },
+          close: async (handle) => {
+            await handle.close();
+            await unlink(path);
+            await writeFile(path, '{"version":1,"replacement":true}\n');
+          }
+        })
+      )
+    ).rejects.toThrow();
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+      version: 1,
+      replacement: true
+    });
+  });
 
   test("durably creates the runtime base before creating its lock", async () => {
     const parent = await mkdtemp(join(tmpdir(), "arketa-lock-parent-"));

@@ -52,7 +52,14 @@ const dependencies = (
 ): CliDependencies => ({
   baseDir,
   loadRequest: vi.fn(async () => ({ request_id: requestId })),
-  validateRequest: vi.fn((value) => value as BookingRequest),
+  validateRequest: vi.fn(
+    (value) =>
+      ({
+        ...(value as object),
+        permitted_actions: ["book", "waitlist"],
+        dry_run: false
+      }) as unknown as BookingRequest
+  ),
   execute: vi.fn(execute)
 });
 
@@ -118,6 +125,47 @@ const lockWithRelease = (
 ): ProfileLock => ({ release });
 
 describe("runCli", () => {
+  test("processes distinct request IDs in one persistent runtime", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const requestIds = [
+      requestId,
+      "00000000-0000-4000-8000-000000000004"
+    ] as const;
+    const executions: string[] = [];
+
+    for (const currentRequestId of requestIds) {
+      const deps: CliDependencies = {
+        baseDir: base,
+        loadRequest: async () => ({ request_id: currentRequestId }),
+        validateRequest: (value) =>
+          ({
+            ...(value as object),
+            permitted_actions: ["book", "waitlist"],
+            dry_run: false
+          }) as unknown as BookingRequest,
+        execute: async ({ advance }) => {
+          executions.push(currentRequestId);
+          await advance("VALIDATED");
+          return {
+            ...result("TECHNICAL_FAILURE"),
+            request_id: currentRequestId
+          };
+        }
+      };
+
+      await expect(runCli(["request.json"], deps)).resolves.toBe(30);
+    }
+
+    expect(executions).toEqual(requestIds);
+    for (const currentRequestId of requestIds) {
+      expect(
+        JSON.parse(
+          await readFile(join(base, `results/${currentRequestId}.json`), "utf8")
+        )
+      ).toMatchObject({ request_id: currentRequestId });
+    }
+  });
+
   test.each([
     ["SAFE_STOP", 20],
     ["TECHNICAL_FAILURE", 30]
@@ -142,7 +190,9 @@ describe("runCli", () => {
 
       expect(await runCli(["request.json"], orderedDeps)).toBe(code);
       expect(
-        JSON.parse(await readFile(join(base, "results/current.json"), "utf8"))
+        JSON.parse(
+          await readFile(join(base, `results/${requestId}.json`), "utf8")
+        )
       ).toEqual(result(outcome));
       expect(order).toEqual(["validate", "execute"]);
       await expect(access(join(base, "run.lock"))).rejects.toThrow();
@@ -174,7 +224,7 @@ describe("runCli", () => {
 
       expect(await runCli(["request.json"], deps)).toBe(code);
       const written = JSON.parse(
-        await readFile(join(base, "results/current.json"), "utf8")
+        await readFile(join(base, `results/${requestId}.json`), "utf8")
       ) as BookingResult;
       expect(written.outcome).toBe(outcome);
       expect(written.details).toBe(
@@ -252,7 +302,7 @@ describe("runCli", () => {
       const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
       await mkdir(join(base, "journals"));
       await writeFile(
-        join(base, "journals/current.json"),
+        join(base, `journals/${requestId}.json`),
         JSON.stringify({
           schema_version: 1,
           request_id: requestId,
@@ -265,7 +315,7 @@ describe("runCli", () => {
       expect(await runCli(["request.json"], deps)).toBe(40);
       expect(deps.execute).not.toHaveBeenCalled();
       const written = JSON.parse(
-        await readFile(join(base, "results/current.json"), "utf8")
+        await readFile(join(base, `results/${requestId}.json`), "utf8")
       ) as BookingResult;
       expect(written.outcome).toBe("CONFIRMATION_UNCERTAIN");
       expect(written.retryable).toBe(false);
@@ -299,7 +349,7 @@ describe("runCli", () => {
 
     expect(await runCli(["request.json"], deps)).toBe(30);
     const written = JSON.parse(
-      await readFile(join(base, "results/current.json"), "utf8")
+      await readFile(join(base, `results/${requestId}.json`), "utf8")
     ) as BookingResult;
     expect(written.outcome).toBe("TECHNICAL_FAILURE");
   });
@@ -346,7 +396,7 @@ describe("runCli", () => {
 
     expect(await runCli(["request.json"], deps)).toBe(30);
     const written = JSON.parse(
-      await readFile(join(base, "results/current.json"), "utf8")
+      await readFile(join(base, `results/${requestId}.json`), "utf8")
     ) as BookingResult;
     expect(written.outcome).toBe("TECHNICAL_FAILURE");
   });
@@ -398,7 +448,7 @@ describe("runCli", () => {
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results"));
     await writeFile(
-      join(base, "journals/current.json"),
+      join(base, `journals/${requestId}.json`),
       JSON.stringify({
         schema_version: 1,
         request_id: requestId,
@@ -424,13 +474,17 @@ describe("runCli", () => {
       details: "Booking confirmed."
     } as const;
     const serialized = `${JSON.stringify(durableResult)}\n`;
-    await writeFile(join(base, "results/current.json"), serialized, "utf8");
+    await writeFile(
+      join(base, `results/${requestId}.json`),
+      serialized,
+      "utf8"
+    );
     const deps = dependencies(base, vi.fn());
 
     expect(await runCli(["request.json"], deps)).toBe(0);
-    expect(await readFile(join(base, "results/current.json"), "utf8")).toBe(
-      serialized
-    );
+    expect(
+      await readFile(join(base, `results/${requestId}.json`), "utf8")
+    ).toBe(serialized);
     expect(deps.execute).not.toHaveBeenCalled();
   });
 
@@ -445,17 +499,21 @@ describe("runCli", () => {
       state: "SUBMITTING"
     });
     const priorResult = '{"opaque":"prior-authoritative-result"}';
-    await writeFile(join(base, "journals/current.json"), journal, "utf8");
-    await writeFile(join(base, "results/current.json"), priorResult, "utf8");
+    await writeFile(join(base, `journals/${requestId}.json`), journal, "utf8");
+    await writeFile(
+      join(base, `results/${requestId}.json`),
+      priorResult,
+      "utf8"
+    );
     const deps = dependencies(base, vi.fn());
 
     expect(await runCli(["request.json"], deps)).toBe(30);
-    expect(await readFile(join(base, "journals/current.json"), "utf8")).toBe(
-      journal
-    );
-    expect(await readFile(join(base, "results/current.json"), "utf8")).toBe(
-      priorResult
-    );
+    expect(
+      await readFile(join(base, `journals/${requestId}.json`), "utf8")
+    ).toBe(journal);
+    expect(
+      await readFile(join(base, `results/${requestId}.json`), "utf8")
+    ).toBe(priorResult);
   });
 
   test.each(["malformed", "unreadable"] as const)(
@@ -464,7 +522,7 @@ describe("runCli", () => {
       const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
       await mkdir(join(base, "journals"));
       await mkdir(join(base, "results"));
-      const journalPath = join(base, "journals/current.json");
+      const journalPath = join(base, `journals/${requestId}.json`);
       if (journalFailure === "malformed") {
         await writeFile(journalPath, '{"request_id":', "utf8");
       } else {
@@ -472,7 +530,7 @@ describe("runCli", () => {
       }
       const priorResult =
         '{"opaque":"existing result evidence must remain byte-for-byte"}\n';
-      const resultPath = join(base, "results/current.json");
+      const resultPath = join(base, `results/${requestId}.json`);
       await writeFile(resultPath, priorResult, "utf8");
       const deps = dependencies(base, vi.fn());
 
@@ -487,7 +545,7 @@ describe("runCli", () => {
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results"));
     await writeFile(
-      join(base, "journals/current.json"),
+      join(base, `journals/${requestId}.json`),
       JSON.stringify({
         schema_version: 1,
         request_id: requestId,
@@ -500,7 +558,7 @@ describe("runCli", () => {
       request_id: "00000000-0000-4000-8000-000000000004",
       unexpected_private_field: "must not be reserialized"
     })}\n`;
-    const resultPath = join(base, "results/current.json");
+    const resultPath = join(base, `results/${requestId}.json`);
     await writeFile(resultPath, foreignInvalidResult, "utf8");
     const deps = dependencies(base, vi.fn());
 
@@ -524,7 +582,7 @@ describe("runCli", () => {
       await mkdir(join(base, "journals"));
       await mkdir(join(base, "results"));
       await writeFile(
-        join(base, "journals/current.json"),
+        join(base, `journals/${requestId}.json`),
         JSON.stringify({
           schema_version: 1,
           request_id: requestId,
@@ -533,7 +591,7 @@ describe("runCli", () => {
         "utf8"
       );
       await writeFile(
-        join(base, "results/current.json"),
+        join(base, `results/${requestId}.json`),
         JSON.stringify({
           ...result("TECHNICAL_FAILURE"),
           unexpected_private_field: "must not survive replacement"
@@ -545,7 +603,7 @@ describe("runCli", () => {
         runCli(["request.json"], dependencies(base, vi.fn()))
       ).resolves.toBe(exitCode);
       const written = JSON.parse(
-        await readFile(join(base, "results/current.json"), "utf8")
+        await readFile(join(base, `results/${requestId}.json`), "utf8")
       ) as Record<string, unknown>;
       expect(written.outcome).toBe(outcome);
       expect(written.details).toBe(details);
@@ -558,7 +616,7 @@ describe("runCli", () => {
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results"));
     await writeFile(
-      join(base, "journals/current.json"),
+      join(base, `journals/${requestId}.json`),
       JSON.stringify({
         schema_version: 1,
         request_id: requestId,
@@ -584,14 +642,18 @@ describe("runCli", () => {
       details: "Booking confirmation is uncertain."
     } as const;
     const serialized = JSON.stringify(recovered);
-    await writeFile(join(base, "results/current.json"), serialized, "utf8");
+    await writeFile(
+      join(base, `results/${requestId}.json`),
+      serialized,
+      "utf8"
+    );
 
     expect(await runCli(["request.json"], dependencies(base, vi.fn()))).toBe(
       40
     );
-    expect(await readFile(join(base, "results/current.json"), "utf8")).toBe(
-      serialized
-    );
+    expect(
+      await readFile(join(base, `results/${requestId}.json`), "utf8")
+    ).toBe(serialized);
   });
 
   test("replaces recovered diagnostic text while preserving legitimate catalog fields", async () => {
@@ -599,7 +661,7 @@ describe("runCli", () => {
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results"));
     await writeFile(
-      join(base, "journals/current.json"),
+      join(base, `journals/${requestId}.json`),
       JSON.stringify({
         schema_version: 1,
         request_id: requestId,
@@ -645,7 +707,7 @@ describe("runCli", () => {
       details: "synthetic /private/runtime/session-token"
     } as const satisfies BookingResult;
     await writeFile(
-      join(base, "results/current.json"),
+      join(base, `results/${requestId}.json`),
       JSON.stringify(recovered),
       "utf8"
     );
@@ -653,7 +715,7 @@ describe("runCli", () => {
 
     await expect(runCli(["request.json"], deps)).resolves.toBe(0);
     const written = JSON.parse(
-      await readFile(join(base, "results/current.json"), "utf8")
+      await readFile(join(base, `results/${requestId}.json`), "utf8")
     ) as BookingResult;
     expect(written.details).toBe("Booking confirmed.");
     expect(written.observed_class).toEqual(observedClass);
@@ -694,7 +756,7 @@ describe("runCli", () => {
 
       await expect(runCli(["request.json"], deps)).resolves.toBe(0);
       const written = JSON.parse(
-        await readFile(join(base, "results/current.json"), "utf8")
+        await readFile(join(base, `results/${requestId}.json`), "utf8")
       ) as BookingResult;
       expect(written.details).toBe("Booking confirmed.");
       expect(JSON.stringify(written)).not.toContain(unsafeDetails);
@@ -706,7 +768,7 @@ describe("runCli", () => {
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results"));
     await writeFile(
-      join(base, "journals/current.json"),
+      join(base, `journals/${requestId}.json`),
       JSON.stringify({
         schema_version: 1,
         request_id: requestId,
@@ -718,22 +780,26 @@ describe("runCli", () => {
       ...result("TECHNICAL_FAILURE"),
       request_id: "00000000-0000-4000-8000-000000000004"
     });
-    await writeFile(join(base, "results/current.json"), otherResult, "utf8");
+    await writeFile(
+      join(base, `results/${requestId}.json`),
+      otherResult,
+      "utf8"
+    );
 
     expect(await runCli(["request.json"], dependencies(base, vi.fn()))).toBe(
       30
     );
-    expect(await readFile(join(base, "results/current.json"), "utf8")).toBe(
-      otherResult
-    );
+    expect(
+      await readFile(join(base, `results/${requestId}.json`), "utf8")
+    ).toBe(otherResult);
   });
 
   test("returns uncertainty when recovered result I/O fails after submission", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     await mkdir(join(base, "journals"));
-    await mkdir(join(base, "results/current.json"), { recursive: true });
+    await mkdir(join(base, `results/${requestId}.json`), { recursive: true });
     await writeFile(
-      join(base, "journals/current.json"),
+      join(base, `journals/${requestId}.json`),
       JSON.stringify({
         schema_version: 1,
         request_id: requestId,
@@ -753,9 +819,9 @@ describe("runCli", () => {
       await advance("VALIDATED");
       await advance("READY_TO_SUBMIT");
       await advance("SUBMITTING");
-      await mkdir(join(base, "results/current.json"), { recursive: true });
+      await mkdir(join(base, `results/${requestId}.json`), { recursive: true });
       await writeFile(
-        join(base, "journals/current.json"),
+        join(base, `journals/${requestId}.json`),
         "{synthetic malformed journal",
         "utf8"
       );
@@ -819,7 +885,7 @@ describe("runCli", () => {
       await expect(runCli(["request.json"], deps)).resolves.toBe(exitCode);
       expect(releaseAttempts).toBe(1);
       expect(
-        await readFile(join(base, "results/current.json"), "utf8")
+        await readFile(join(base, `results/${requestId}.json`), "utf8")
       ).not.toContain(privateMessage);
     }
   );

@@ -92,12 +92,14 @@ export async function acquireProfileLock(
 
   let acquired;
   try {
+    acquired = await operations.statFile(handle);
     await operations.writeFile(handle, '{"version":1}\n');
     await operations.syncFile(handle);
-    acquired = await operations.statFile(handle);
   } catch (error) {
     await operations.close(handle).catch(() => undefined);
-    await removeLockPathDurably(path, operations);
+    if (acquired !== undefined) {
+      await removeLockPathDurably(path, operations, acquired);
+    }
     throw error;
   }
 
