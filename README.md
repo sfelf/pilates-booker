@@ -8,6 +8,10 @@ Synthetic sample data is used in source code, tests, documentation, issues, pull
 
 Browser profiles, authenticated state, booking policies, runtime requests and results, journals, logs, screenshots, traces, and live page captures remain outside Git.
 
+## Local checks
+
+The repository targets Node.js 22. Run `npm ci`, then use `npm run format:check`, `npm run lint`, `npm run typecheck`, and `npm test`. These checks do not install or access a browser profile.
+
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE), identified by the SPDX expression `AGPL-3.0-or-later`.
