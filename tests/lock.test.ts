@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -93,6 +100,7 @@ describe("acquireProfileLock", () => {
   test("does not remove a replacement lock during acquisition cleanup", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
     const path = join(directory, "run.lock");
+    const replacementPath = join(directory, "replacement.lock");
 
     await expect(
       acquireProfileLock(
@@ -103,9 +111,13 @@ describe("acquireProfileLock", () => {
             throw filesystemError("EIO");
           },
           close: async (handle) => {
+            await writeFile(
+              replacementPath,
+              '{"version":1,"replacement":true}\n'
+            );
             await handle.close();
             await unlink(path);
-            await writeFile(path, '{"version":1,"replacement":true}\n');
+            await rename(replacementPath, path);
           }
         })
       )
