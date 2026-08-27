@@ -1,0 +1,226 @@
+import { mkdtemp, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
+
+import {
+  LockUnavailableError,
+  acquireProfileLock,
+  type LockOperations
+} from "../src/lock.js";
+import {
+  ensureDirectoryDurable,
+  syncDirectoryDurable
+} from "../src/atomic-json.js";
+
+const operations = (
+  overrides: Partial<LockOperations> = {}
+): LockOperations => ({
+  writeFile: (handle, contents) => handle.writeFile(contents, "utf8"),
+  syncFile: (handle) => handle.sync(),
+  statFile: (handle) => handle.stat(),
+  close: (handle) => handle.close(),
+  stat,
+  unlink,
+  syncDirectory: syncDirectoryDurable,
+  ...overrides
+});
+
+const filesystemError = (code: string): NodeJS.ErrnoException =>
+  Object.assign(new Error("synthetic private filesystem message"), { code });
+
+describe("acquireProfileLock", () => {
+  test.each(["write", "sync", "stat"] as const)(
+    "durably removes the lock when acquisition %s fails",
+    async (failureStage) => {
+      const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+      const path = join(directory, "run.lock");
+      const events: string[] = [];
+      const injectedOperations = {
+        ...operations({
+          close: async (handle) => {
+            events.push("close");
+            await handle.close();
+          },
+          unlink: async (removedPath) => {
+            events.push("unlink");
+            await unlink(removedPath);
+          },
+          syncDirectory: async (syncedDirectory) => {
+            events.push("sync-directory");
+            expect(syncedDirectory).toBe(directory);
+            await expect(readFile(path, "utf8")).rejects.toThrow();
+          }
+        }),
+        writeFile: async (handle: Parameters<LockOperations["close"]>[0]) => {
+          if (failureStage === "write") throw filesystemError("EIO");
+          await handle.writeFile('{"version":1}\n', "utf8");
+        },
+        syncFile: async (handle: Parameters<LockOperations["close"]>[0]) => {
+          if (failureStage === "sync") throw filesystemError("EIO");
+          await handle.sync();
+        },
+        statFile: async (handle: Parameters<LockOperations["close"]>[0]) => {
+          if (failureStage === "stat") throw filesystemError("EIO");
+          return handle.stat();
+        }
+      } as LockOperations;
+
+      await expect(
+        acquireProfileLock(path, ensureDirectoryDurable, injectedOperations)
+      ).rejects.toThrow();
+      expect(events).toEqual(["close", "unlink", "sync-directory"]);
+      await expect(readFile(path, "utf8")).rejects.toThrow();
+    }
+  );
+
+  test("durably creates the runtime base before creating its lock", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "arketa-lock-parent-"));
+    const base = join(parent, "private-runtime");
+    const path = join(base, "run.lock");
+    let initializedBeforeLock = false;
+
+    const lock = await acquireProfileLock(path, async (directory) => {
+      await expect(readFile(path, "utf8")).rejects.toThrow();
+      await ensureDirectoryDurable(directory);
+      initializedBeforeLock = true;
+    });
+
+    expect(initializedBeforeLock).toBe(true);
+    await lock.release();
+  });
+
+  test("syncs the lock directory after removing the lock", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    let syncedAfterRemoval = false;
+    const lock = await acquireProfileLock(
+      path,
+      ensureDirectoryDurable,
+      operations({
+        syncDirectory: async (syncedDirectory) => {
+          expect(syncedDirectory).toBe(directory);
+          await expect(readFile(path, "utf8")).rejects.toThrow();
+          syncedAfterRemoval = true;
+        }
+      })
+    );
+
+    await expect(lock.release()).resolves.toEqual({ released: true });
+    expect(syncedAfterRemoval).toBe(true);
+  });
+
+  test.each([
+    [
+      "close",
+      operations({
+        close: async (handle) => {
+          await handle.close();
+          throw filesystemError("EIO");
+        }
+      })
+    ],
+    [
+      "stat",
+      operations({
+        stat: async () => {
+          throw filesystemError("EACCES");
+        }
+      })
+    ],
+    [
+      "unlink",
+      operations({
+        unlink: async () => {
+          throw filesystemError("EPERM");
+        }
+      })
+    ],
+    [
+      "sync",
+      operations({
+        syncDirectory: async () => {
+          throw filesystemError("EIO");
+        }
+      })
+    ]
+  ] as const)(
+    "returns the typed %s stage for a release failure",
+    async (stage, injectedOperations) => {
+      const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+      const path = join(directory, "run.lock");
+      const lock = await acquireProfileLock(
+        path,
+        ensureDirectoryDurable,
+        injectedOperations
+      );
+
+      await expect(lock.release()).resolves.toEqual({
+        released: false,
+        stage
+      });
+    }
+  );
+
+  test("treats only an ENOENT stat failure as an already absent pathname", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const lock = await acquireProfileLock(
+      path,
+      ensureDirectoryDurable,
+      operations({
+        stat: async () => {
+          throw filesystemError("ENOENT");
+        }
+      })
+    );
+
+    await expect(lock.release()).resolves.toEqual({ released: true });
+    await expect(lock.release()).resolves.toEqual({ released: true });
+  });
+
+  test("does not treat an ENOENT unlink failure as a successful release", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const lock = await acquireProfileLock(
+      path,
+      ensureDirectoryDurable,
+      operations({
+        unlink: async () => {
+          throw filesystemError("ENOENT");
+        }
+      })
+    );
+
+    await expect(lock.release()).resolves.toEqual({
+      released: false,
+      stage: "unlink"
+    });
+  });
+
+  test("exclusively acquires and releases a lock without storing paths", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const lock = await acquireProfileLock(path);
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ version: 1 });
+    await expect(acquireProfileLock(path)).rejects.toBeInstanceOf(
+      LockUnavailableError
+    );
+
+    await lock.release();
+    const reacquired = await acquireProfileLock(path);
+    await reacquired.release();
+  });
+
+  test("diagnoses a stale-looking lock without deleting it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    await writeFile(path, '{"version":1}', "utf8");
+
+    await expect(acquireProfileLock(path)).rejects.toThrow(
+      "runtime lock is already held"
+    );
+    expect(await readFile(path, "utf8")).toBe('{"version":1}');
+  });
+});
