@@ -103,20 +103,58 @@ export async function acquireProfileLock(
 
   let released = false;
   let closed = false;
-  return {
-    async release() {
-      if (released) return { released: true };
-      if (!closed) {
-        try {
-          await operations.close(handle);
-        } catch {
-          return { released: false, stage: "close" };
-        }
-        closed = true;
+  let pathRemoved = false;
+  let releaseInFlight: Promise<LockReleaseResult> | undefined;
+
+  const performRelease = async (): Promise<LockReleaseResult> => {
+    if (released) return { released: true };
+    if (!closed) {
+      try {
+        await operations.close(handle);
+      } catch {
+        return { released: false, stage: "close" };
       }
-      const result = await removeLockPathDurably(path, operations, acquired);
-      if (result.released) released = true;
-      return result;
+      closed = true;
+    }
+    if (!pathRemoved) {
+      let current: Stats;
+      try {
+        current = await operations.stat(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          released = true;
+          return { released: true };
+        }
+        return { released: false, stage: "stat" };
+      }
+      if (current.dev !== acquired.dev || current.ino !== acquired.ino) {
+        released = true;
+        return { released: true };
+      }
+      try {
+        await operations.unlink(path);
+      } catch {
+        return { released: false, stage: "unlink" };
+      }
+      pathRemoved = true;
+    }
+    try {
+      await operations.syncDirectory(dirname(path));
+    } catch {
+      return { released: false, stage: "sync" };
+    }
+    released = true;
+    return { released: true };
+  };
+
+  return {
+    release() {
+      if (released) return Promise.resolve({ released: true });
+      if (releaseInFlight !== undefined) return releaseInFlight;
+      releaseInFlight = performRelease().finally(() => {
+        releaseInFlight = undefined;
+      });
+      return releaseInFlight;
     }
   };
 }

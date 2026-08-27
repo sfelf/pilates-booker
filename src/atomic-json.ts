@@ -58,6 +58,10 @@ export async function writeJsonAtomic(
   if (!validate(value)) {
     throw new Error("JSON validation failed");
   }
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    throw new Error("JSON serialization failed");
+  }
 
   const directory = dirname(path);
   await ensureDirectoryDurable(directory);
@@ -65,7 +69,7 @@ export async function writeJsonAtomic(
   let handle;
   try {
     handle = await open(temporary, "wx", 0o600);
-    await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8");
+    await handle.writeFile(`${serialized}\n`, "utf8");
     await handle.sync();
     await handle.close();
     handle = undefined;

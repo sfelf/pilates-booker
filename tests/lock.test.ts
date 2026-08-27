@@ -110,6 +110,69 @@ describe("acquireProfileLock", () => {
     expect(syncedAfterRemoval).toBe(true);
   });
 
+  test("retries a failed directory sync without unlinking again", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    let unlinkCalls = 0;
+    let syncCalls = 0;
+    const lock = await acquireProfileLock(
+      path,
+      ensureDirectoryDurable,
+      operations({
+        unlink: async (removedPath) => {
+          unlinkCalls += 1;
+          await unlink(removedPath);
+        },
+        syncDirectory: async () => {
+          syncCalls += 1;
+          if (syncCalls === 1) throw filesystemError("EIO");
+        }
+      })
+    );
+
+    await expect(lock.release()).resolves.toEqual({
+      released: false,
+      stage: "sync"
+    });
+    await expect(lock.release()).resolves.toEqual({ released: true });
+    expect(unlinkCalls).toBe(1);
+    expect(syncCalls).toBe(2);
+  });
+
+  test("serializes concurrent release calls", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    let unlinkCalls = 0;
+    let continueClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      continueClose = resolve;
+    });
+    const lock = await acquireProfileLock(
+      path,
+      ensureDirectoryDurable,
+      operations({
+        close: async (handle) => {
+          await closeGate;
+          await handle.close();
+        },
+        unlink: async (removedPath) => {
+          unlinkCalls += 1;
+          await unlink(removedPath);
+        }
+      })
+    );
+
+    const first = lock.release();
+    const second = lock.release();
+    continueClose();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { released: true },
+      { released: true }
+    ]);
+    expect(unlinkCalls).toBe(1);
+  });
+
   test.each([
     [
       "close",

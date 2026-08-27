@@ -55,4 +55,24 @@ describe("writeJsonAtomic", () => {
     ).rejects.toThrow("validation");
     expect(await readFile(path, "utf8")).toBe('{"old":true}');
   });
+
+  test.each([
+    ["undefined", undefined],
+    ["function", () => undefined],
+    ["symbol", Symbol("synthetic")],
+    ["undefined toJSON", { toJSON: () => undefined }]
+  ])(
+    "rejects a non-serializable %s before replacing the destination",
+    async (_label, value) => {
+      const directory = await mkdtemp(join(tmpdir(), "arketa-json-"));
+      const path = join(directory, "result.json");
+      await writeFile(path, '{"old":true}', "utf8");
+
+      await expect(writeJsonAtomic(path, value)).rejects.toThrow(
+        "JSON serialization failed"
+      );
+      expect(await readFile(path, "utf8")).toBe('{"old":true}');
+      expect(await readdir(directory)).toEqual(["result.json"]);
+    }
+  );
 });
