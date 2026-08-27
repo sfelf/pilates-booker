@@ -84,7 +84,7 @@ export async function runCli(
   }
   let paths;
   try {
-    paths = resolveRuntimePaths(dependencies.baseDir, request.request_id);
+    paths = resolveRuntimePaths(dependencies.baseDir);
   } catch {
     return 30;
   }

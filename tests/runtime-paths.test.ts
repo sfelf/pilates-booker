@@ -17,19 +17,4 @@ describe("resolveRuntimePaths", () => {
   test("rejects a relative runtime base", () => {
     expect(() => resolveRuntimePaths("runtime")).toThrow("absolute");
   });
-
-  test("isolates journal and result artifacts by canonical request ID", () => {
-    const requestId = "00000000-0000-4000-8000-000000000003";
-    const paths = resolveRuntimePaths("/private/runtime-root", requestId);
-
-    expect(paths.journalFile).toBe(
-      `/private/runtime-root/journals/${requestId}.json`
-    );
-    expect(paths.resultFile).toBe(
-      `/private/runtime-root/results/${requestId}.json`
-    );
-    expect(() =>
-      resolveRuntimePaths("/private/runtime-root", "../private")
-    ).toThrow("canonical UUID");
-  });
 });

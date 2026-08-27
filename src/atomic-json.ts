@@ -62,6 +62,10 @@ export async function writeJsonAtomic(
   if (serialized === undefined) {
     throw new Error("JSON serialization failed");
   }
+  const representation: unknown = JSON.parse(serialized);
+  if (!validate(representation)) {
+    throw new Error("JSON validation failed after serialization");
+  }
 
   const directory = dirname(path);
   await ensureDirectoryDurable(directory);

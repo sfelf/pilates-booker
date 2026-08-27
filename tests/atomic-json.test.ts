@@ -75,4 +75,24 @@ describe("writeJsonAtomic", () => {
       expect(await readdir(directory)).toEqual(["result.json"]);
     }
   );
+
+  test("validates the JSON representation produced by toJSON", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-json-"));
+    const path = join(directory, "result.json");
+    await writeFile(path, '{"old":true}', "utf8");
+    const prototype = { toJSON: () => ({}) };
+    const value = Object.assign(Object.create(prototype) as object, {
+      outcome: "SAFE_STOP"
+    });
+    const validate = (candidate: unknown) =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      (candidate as Record<string, unknown>).outcome === "SAFE_STOP";
+
+    await expect(writeJsonAtomic(path, value, validate)).rejects.toThrow(
+      "validation"
+    );
+    expect(await readFile(path, "utf8")).toBe('{"old":true}');
+    expect(await readdir(directory)).toEqual(["result.json"]);
+  });
 });

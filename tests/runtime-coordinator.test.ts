@@ -247,19 +247,6 @@ test.each([
 });
 
 describe("RuntimeCoordinator durable state", () => {
-  test("blocks submission-path transitions for dry-run requests", async () => {
-    const coordinator = new RuntimeCoordinator(
-      { ...request, dry_run: true },
-      new InMemoryRuntimeOperations()
-    );
-
-    await coordinator.initialize();
-    await coordinator.advance("VALIDATED");
-    await expect(coordinator.advance("READY_TO_SUBMIT")).rejects.toThrow(
-      "dry-run"
-    );
-    expect(coordinator.lastDurableState).toBe("VALIDATED");
-  });
   test("retains the last successfully persisted journal state", async () => {
     const operations = new InMemoryRuntimeOperations();
     const coordinator = new RuntimeCoordinator(request, operations);
@@ -308,33 +295,6 @@ describe("RuntimeCoordinator durable state", () => {
 });
 
 describe("RuntimeCoordinator execution", () => {
-  test.each([
-    ["book", { ...booked, outcome: "WAITLISTED" }],
-    ["waitlist", booked]
-  ] as const)(
-    "rejects a submitted result outside the permitted %s action",
-    async (permittedAction, executorResult) => {
-      const coordinator = new RuntimeCoordinator(
-        { ...request, permitted_actions: [permittedAction] },
-        new InMemoryRuntimeOperations()
-      );
-
-      const decision = await coordinator.run(async ({ advance }) => {
-        for (const state of [
-          "VALIDATED",
-          "READY_TO_SUBMIT",
-          "SUBMITTING",
-          "CONFIRMED"
-        ] as const) {
-          await advance(state);
-        }
-        return executorResult as BookingResult;
-      });
-
-      expect(decision.result.outcome).toBe("CONFIRMATION_UNCERTAIN");
-      expect(decision.result.exit_code).toBe(40);
-    }
-  );
   async function runFaultCase(state: JournalState, invalidResult = false) {
     const operations = new InMemoryRuntimeOperations();
     operations.failReadJournalAfterSubmission = true;

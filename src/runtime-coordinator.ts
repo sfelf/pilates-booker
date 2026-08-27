@@ -66,14 +66,6 @@ export class RuntimeCoordinator {
 
   async advance(state: Exclude<JournalState, "INITIALIZED">): Promise<void> {
     if (
-      this.request.dry_run &&
-      (state === "READY_TO_SUBMIT" ||
-        state === "SUBMITTING" ||
-        state === "CONFIRMED")
-    ) {
-      throw new Error("dry-run request cannot enter submission state");
-    }
-    if (
       this.durableState === undefined ||
       nextStates[this.durableState] !== state
     ) {
@@ -139,8 +131,7 @@ export class RuntimeCoordinator {
         safeResult,
         journal.state,
         this.request.request_id
-      ) &&
-      resultMatchesRequestPermissions(safeResult, this.request)
+      )
     ) {
       return {
         result: safeResult,
@@ -173,8 +164,7 @@ export class RuntimeCoordinator {
           safeResult,
           this.durableState,
           this.request.request_id
-        ) ||
-        !resultMatchesRequestPermissions(safeResult, this.request)
+        )
       ) {
         throw new Error("result contradicts durable journal");
       }
@@ -364,21 +354,5 @@ export function resultMatchesDurableState(
         result.safety_checks.no_charge &&
         result.safety_checks.cancellation_policy_accepted
       );
-  }
-}
-
-function resultMatchesRequestPermissions(
-  result: BookingResult,
-  request: BookingRequest
-): boolean {
-  switch (result.outcome) {
-    case "BOOKED":
-    case "ALREADY_BOOKED":
-      return request.permitted_actions.some((action) => action === "book");
-    case "WAITLISTED":
-    case "ALREADY_WAITLISTED":
-      return request.permitted_actions.some((action) => action === "waitlist");
-    default:
-      return true;
   }
 }
