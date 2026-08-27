@@ -128,6 +128,52 @@ describe("schema foundations", () => {
     ).toBe(false);
   });
 
+  it("requires submitted and verified evidence for new successful outcomes", () => {
+    expect(validateResult(validResult)).toBe(true);
+    expect(validateResult({ ...validResult, action_submitted: false })).toBe(
+      false
+    );
+    expect(validateResult({ ...validResult, submission_attempts: 0 })).toBe(
+      false
+    );
+    expect(
+      validateResult({ ...validResult, confirmation_verified: false })
+    ).toBe(false);
+    expect(validateResult({ ...validResult, retryable: true })).toBe(false);
+    expect(
+      validateResult({
+        ...validResult,
+        safety_checks: {
+          ...validResult.safety_checks,
+          approved_package_verified: false
+        }
+      })
+    ).toBe(false);
+  });
+
+  it("requires existing-enrollment outcomes to be verified without submission", () => {
+    const alreadyBooked = {
+      ...validResult,
+      outcome: "ALREADY_BOOKED",
+      action_submitted: false,
+      submission_attempts: 0,
+      safety_checks: {
+        exact_class_match: true,
+        approved_package_verified: false,
+        no_charge: true,
+        cancellation_policy_accepted: false
+      }
+    };
+
+    expect(validateResult(alreadyBooked)).toBe(true);
+    expect(validateResult({ ...alreadyBooked, action_submitted: true })).toBe(
+      false
+    );
+    expect(
+      validateResult({ ...alreadyBooked, confirmation_verified: false })
+    ).toBe(false);
+  });
+
   it("represents valid structural failure and retryability outcomes", () => {
     expect(
       validateResult({
@@ -180,6 +226,14 @@ describe("schema foundations", () => {
     expect(validateResult({ ...confirmationUncertain, retryable: true })).toBe(
       false
     );
+    expect(
+      validateResult({
+        ...confirmationUncertain,
+        outcome: "TECHNICAL_FAILURE",
+        exit_code: 30,
+        retryable: true
+      })
+    ).toBe(false);
   });
 
   it("rejects unknown result outcomes", () => {

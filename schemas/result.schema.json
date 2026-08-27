@@ -97,25 +97,72 @@
     {
       "if": {
         "properties": {
-          "outcome": {
-            "enum": [
-              "BOOKED",
-              "WAITLISTED",
-              "ALREADY_BOOKED",
-              "ALREADY_WAITLISTED"
-            ]
-          }
+          "outcome": { "enum": ["BOOKED", "WAITLISTED"] }
         }
       },
-      "then": { "properties": { "exit_code": { "const": 0 } } }
+      "then": {
+        "properties": {
+          "exit_code": { "const": 0 },
+          "action_submitted": { "const": true },
+          "submission_attempts": { "const": 1 },
+          "confirmation_verified": { "const": true },
+          "retryable": { "const": false },
+          "safety_checks": {
+            "type": "object",
+            "properties": {
+              "exact_class_match": { "const": true },
+              "approved_package_verified": { "const": true },
+              "no_charge": { "const": true },
+              "cancellation_policy_accepted": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": { "enum": ["ALREADY_BOOKED", "ALREADY_WAITLISTED"] }
+        }
+      },
+      "then": {
+        "properties": {
+          "exit_code": { "const": 0 },
+          "action_submitted": { "const": false },
+          "submission_attempts": { "const": 0 },
+          "confirmation_verified": { "const": true },
+          "retryable": { "const": false },
+          "safety_checks": {
+            "type": "object",
+            "properties": {
+              "exact_class_match": { "const": true },
+              "cancellation_policy_accepted": { "const": false }
+            }
+          }
+        }
+      }
     },
     {
       "if": { "properties": { "outcome": { "const": "SAFE_STOP" } } },
-      "then": { "properties": { "exit_code": { "const": 20 } } }
+      "then": {
+        "properties": {
+          "exit_code": { "const": 20 },
+          "action_submitted": { "const": false },
+          "submission_attempts": { "const": 0 },
+          "confirmation_verified": { "const": false }
+        }
+      }
     },
     {
       "if": { "properties": { "outcome": { "const": "TECHNICAL_FAILURE" } } },
-      "then": { "properties": { "exit_code": { "const": 30 } } }
+      "then": {
+        "properties": {
+          "exit_code": { "const": 30 },
+          "action_submitted": { "const": false },
+          "submission_attempts": { "const": 0 },
+          "confirmation_verified": { "const": false }
+        }
+      }
     },
     {
       "if": {

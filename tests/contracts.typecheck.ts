@@ -62,8 +62,8 @@ const emptyPackagePolicy: BookingPolicy = {
 const commonResultFields = {
   schema_version: 1 as const,
   request_id: "00000000-0000-4000-8000-000000000001",
-  action_submitted: false,
-  confirmation_verified: false,
+  action_submitted: false as const,
+  confirmation_verified: false as const,
   retryable: false,
   submission_attempts: 0 as const,
   safety_checks: {
@@ -85,6 +85,39 @@ const validTechnicalFailure: BookingResult = {
   ...commonResultFields,
   outcome: "TECHNICAL_FAILURE",
   exit_code: 30,
+  retryable: true
+};
+
+const validBooked: BookingResult = {
+  ...commonResultFields,
+  outcome: "BOOKED",
+  exit_code: 0,
+  action_submitted: true,
+  confirmation_verified: true,
+  retryable: false,
+  submission_attempts: 1,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: true,
+    cancellation_policy_accepted: true
+  }
+};
+
+// @ts-expect-error BOOKED requires submitted and verified evidence.
+const unverifiedBooked: BookingResult = {
+  ...commonResultFields,
+  outcome: "BOOKED",
+  exit_code: 0
+};
+
+// @ts-expect-error Submitted but unverified results must be confirmation-uncertain.
+const submittedTechnicalFailure: BookingResult = {
+  ...commonResultFields,
+  outcome: "TECHNICAL_FAILURE",
+  exit_code: 30,
+  action_submitted: true,
+  submission_attempts: 1,
   retryable: true
 };
 
@@ -162,6 +195,9 @@ const impossibleOutcomeExitPair: BookingResult = {
 
 void validSafeStop;
 void validTechnicalFailure;
+void validBooked;
+void unverifiedBooked;
+void submittedTechnicalFailure;
 void validConfirmationUncertain;
 void confirmationUncertainWithWrongExitCode;
 void confirmationUncertainWithoutSubmission;

@@ -72,10 +72,6 @@ export type SafetyChecks = Readonly<{
 type BookingResultFields = Readonly<{
   schema_version: 1;
   request_id: string;
-  action_submitted: boolean;
-  confirmation_verified: boolean;
-  retryable: boolean;
-  submission_attempts: 0 | 1;
   observed_class?: ObservedClass;
   package_used?: string | null;
   packages_before?: readonly PackageBalance[];
@@ -84,13 +80,50 @@ type BookingResultFields = Readonly<{
   details: string;
 }>;
 
-type BookingResultForOutcome<
-  TOutcome extends Outcome,
-  TExitCode extends 0 | 20 | 30 | 40
+type ConfirmedSubmissionBookingResult = Readonly<
+  BookingResultFields & {
+    outcome: "BOOKED" | "WAITLISTED";
+    exit_code: 0;
+    action_submitted: true;
+    submission_attempts: 1;
+    confirmation_verified: true;
+    retryable: false;
+    safety_checks: Readonly<{
+      exact_class_match: true;
+      approved_package_verified: true;
+      no_charge: true;
+      cancellation_policy_accepted: true;
+    }>;
+  }
+>;
+
+type ExistingEnrollmentBookingResult = Readonly<
+  BookingResultFields & {
+    outcome: "ALREADY_BOOKED" | "ALREADY_WAITLISTED";
+    exit_code: 0;
+    action_submitted: false;
+    submission_attempts: 0;
+    confirmation_verified: true;
+    retryable: false;
+    safety_checks: SafetyChecks &
+      Readonly<{
+        exact_class_match: true;
+        cancellation_policy_accepted: false;
+      }>;
+  }
+>;
+
+type PreSubmissionBookingResult<
+  TOutcome extends "SAFE_STOP" | "TECHNICAL_FAILURE",
+  TExitCode extends 20 | 30
 > = Readonly<
   BookingResultFields & {
     outcome: TOutcome;
     exit_code: TExitCode;
+    action_submitted: false;
+    submission_attempts: 0;
+    confirmation_verified: false;
+    retryable: boolean;
   }
 >;
 
@@ -106,12 +139,10 @@ type ConfirmationUncertainBookingResult = Readonly<
 >;
 
 export type BookingResult =
-  | BookingResultForOutcome<
-      "BOOKED" | "WAITLISTED" | "ALREADY_BOOKED" | "ALREADY_WAITLISTED",
-      0
-    >
-  | BookingResultForOutcome<"SAFE_STOP", 20>
-  | BookingResultForOutcome<"TECHNICAL_FAILURE", 30>
+  | ConfirmedSubmissionBookingResult
+  | ExistingEnrollmentBookingResult
+  | PreSubmissionBookingResult<"SAFE_STOP", 20>
+  | PreSubmissionBookingResult<"TECHNICAL_FAILURE", 30>
   | ConfirmationUncertainBookingResult;
 
 export type JournalRecord = Readonly<{
