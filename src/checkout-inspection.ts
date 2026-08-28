@@ -98,7 +98,7 @@ function inspectPackages(
       offering.name.length === 0 ||
       names.has(offering.name) ||
       !Number.isFinite(offering.remaining) ||
-      !Number.isInteger(offering.remaining) ||
+      !Number.isSafeInteger(offering.remaining) ||
       offering.remaining < 0
     ) {
       throw new CheckoutInspectionError("AMBIGUOUS_CHECKOUT_STATE");

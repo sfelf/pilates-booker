@@ -59,35 +59,17 @@ class FixtureDryRunPage implements DryRunPage {
     this.ready = true;
   }
 
-  count(selector: string): Promise<number> {
-    if (!this.ready) return Promise.resolve(0);
-    return this.reader.count(selector);
-  }
-
-  texts(selector: string): Promise<readonly string[]> {
-    if (!this.ready) return Promise.resolve([]);
-    return this.reader.texts(selector);
-  }
-
-  attributes(
-    selector: string,
-    name: string
-  ): Promise<readonly (string | null)[]> {
-    if (!this.ready) return Promise.resolve([]);
-    return this.reader.attributes(selector, name);
-  }
-
-  elements(
-    selector: string,
-    attributes: readonly string[]
-  ): ReturnType<FixtureCheckoutPage["elements"]> {
-    if (!this.ready) return Promise.resolve([]);
-    return this.reader.elements(selector, attributes);
-  }
-
-  classes(): ReturnType<FixtureCheckoutPage["classes"]> {
-    if (!this.ready) return Promise.resolve([]);
-    return this.reader.classes();
+  snapshot(): ReturnType<FixtureCheckoutPage["snapshot"]> {
+    if (!this.ready) {
+      return Promise.resolve({
+        authenticated: false,
+        login_required: false,
+        classes: [],
+        actions: [],
+        offerings: []
+      });
+    }
+    return this.reader.snapshot();
   }
 }
 

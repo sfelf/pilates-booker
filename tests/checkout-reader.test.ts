@@ -31,11 +31,7 @@ describe("readCheckoutSnapshot", () => {
       const snapshot = await readCheckoutSnapshot(page);
 
       expect(snapshot.actions).toEqual([action]);
-      expect(
-        page.operations.every((operation) =>
-          /^(count|texts|attributes|elements):|^classes$/.test(operation)
-        )
-      ).toBe(true);
+      expect(page.operations).toEqual(["snapshot"]);
     }
   );
 
@@ -155,6 +151,45 @@ describe("readCheckoutSnapshot", () => {
         timezone: "America/Los_Angeles"
       }
     ]);
+  });
+
+  it("captures authentication, class, action, and offerings in one checkout read", async () => {
+    class MixedRenderPage extends FixtureCheckoutPage {
+      override async count(selector: string): Promise<number> {
+        if (selector === selectors.book) return 0;
+        if (selector === selectors.waitlist) return 1;
+        return super.count(selector);
+      }
+
+      override async elements(
+        selector: string,
+        attributes: readonly string[]
+      ): ReturnType<FixtureCheckoutPage["elements"]> {
+        if (selector === selectors.package) {
+          return [
+            {
+              text: "Pack from another render",
+              attributes: {
+                "data-kind": "class_package",
+                "data-remaining": "8",
+                "data-active": "true"
+              }
+            }
+          ];
+        }
+        return super.elements(selector, attributes);
+      }
+    }
+
+    const page = new MixedRenderPage(bookingFixture());
+    const snapshot = await readCheckoutSnapshot(page);
+
+    expect(snapshot.actions).toEqual(["book"]);
+    expect(snapshot.offerings[0]).toMatchObject({
+      name: "Studio / 10-Class Pack",
+      remaining: 3
+    });
+    expect(page.operations).toEqual(["snapshot"]);
   });
 
   it.each([

@@ -1,4 +1,9 @@
 import type { CheckoutPageReader } from "../../src/checkout-reader.js";
+import type {
+  RawCheckoutSnapshot,
+  RawOffering
+} from "../../src/checkout-inspection.js";
+import type { CheckoutAction } from "../../src/contracts.js";
 import type { ObservedClass } from "../../src/contracts.js";
 
 export const selectors = {
@@ -68,6 +73,46 @@ export class FixtureCheckoutPage implements CheckoutPageReader {
 
   constructor(private readonly fixture: CheckoutFixture) {}
 
+  async snapshot(): Promise<RawCheckoutSnapshot> {
+    this.operations.push("snapshot");
+    const classes = await this.classesFromFixture();
+    const actions = [
+      [selectors.book, "book"],
+      [selectors.waitlist, "waitlist"],
+      [selectors.soldOut, "sold_out"],
+      [selectors.alreadyBooked, "already_booked"],
+      [selectors.alreadyWaitlisted, "already_waitlisted"]
+    ].flatMap(([selector, action]) =>
+      (this.fixture[selector as keyof CheckoutFixture]?.length ?? 0) === 1
+        ? [action as CheckoutAction]
+        : []
+    );
+    const offerings: RawOffering[] = (
+      this.fixture[selectors.package] ?? []
+    ).map(({ text, attributes }) => {
+      const kind = attributes?.["data-kind"];
+      if (kind === "product") return { kind, name: text ?? "" };
+      if (kind !== "class_package") throw new Error("invalid offering fixture");
+      const remaining = Number(attributes?.["data-remaining"]);
+      const active = attributes?.["data-active"];
+      if (
+        !Number.isFinite(remaining) ||
+        (active !== "true" && active !== "false")
+      ) {
+        throw new Error("invalid offering fixture");
+      }
+      return { kind, name: text ?? "", remaining, active: active === "true" };
+    });
+    return {
+      authenticated: (this.fixture[selectors.authenticated]?.length ?? 0) === 1,
+      login_required:
+        (this.fixture[selectors.loginRequired]?.length ?? 0) === 1,
+      classes,
+      actions,
+      offerings
+    };
+  }
+
   async count(selector: string): Promise<number> {
     this.operations.push(`count:${selector}`);
     return this.fixture[selector as keyof CheckoutFixture]?.length ?? 0;
@@ -112,6 +157,10 @@ export class FixtureCheckoutPage implements CheckoutPageReader {
 
   async classes(): Promise<readonly ObservedClass[]> {
     this.operations.push("classes");
+    return this.classesFromFixture();
+  }
+
+  private async classesFromFixture(): Promise<readonly ObservedClass[]> {
     const fields = [
       this.fixture[selectors.className] ?? [],
       this.fixture[selectors.instructor] ?? [],

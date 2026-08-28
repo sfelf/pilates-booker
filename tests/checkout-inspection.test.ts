@@ -239,6 +239,17 @@ describe("inspectCheckoutSnapshot", () => {
           active: true
         }
       ]
+    ],
+    [
+      "unsafe integer balance",
+      [
+        {
+          kind: "class_package",
+          name: "Pack",
+          remaining: Number.MAX_SAFE_INTEGER + 1,
+          active: true
+        }
+      ]
     ]
   ] satisfies readonly [string, RawCheckoutSnapshot["offerings"]][])(
     "rejects %s",
