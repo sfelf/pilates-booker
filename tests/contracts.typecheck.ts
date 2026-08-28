@@ -291,6 +291,17 @@ const confirmationUncertainWithNoAttempt: BookingResult = {
   submission_attempts: 0
 };
 
+const confirmationUncertainWithMultipleAttempts: BookingResult = {
+  ...commonResultFields,
+  outcome: "CONFIRMATION_UNCERTAIN",
+  exit_code: 40,
+  action_submitted: true,
+  confirmation_verified: false,
+  retryable: false,
+  // @ts-expect-error CONFIRMATION_UNCERTAIN permits at most one attempt.
+  submission_attempts: 2
+};
+
 // @ts-expect-error CONFIRMATION_UNCERTAIN cannot be verified.
 const confirmationUncertainWithVerification: BookingResult = {
   ...commonResultFields,
@@ -332,6 +343,7 @@ void validExistingEnrollmentDryRun;
 void confirmationUncertainWithWrongExitCode;
 void confirmationUncertainWithoutSubmission;
 void confirmationUncertainWithNoAttempt;
+void confirmationUncertainWithMultipleAttempts;
 void confirmationUncertainWithVerification;
 void retryableConfirmationUncertain;
 void impossibleOutcomeExitPair;

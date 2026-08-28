@@ -186,6 +186,13 @@ describe("schema foundations", () => {
     expect(
       validateResult({
         ...validResult,
+        outcome: "WAITLISTED",
+        confirmation_verified: false
+      })
+    ).toBe(false);
+    expect(
+      validateResult({
+        ...validResult,
         safety_checks: {
           ...validResult.safety_checks,
           approved_package_verified: false
@@ -321,6 +328,9 @@ describe("schema foundations", () => {
     ).toBe(false);
     expect(
       validateResult({ ...confirmationUncertain, submission_attempts: 0 })
+    ).toBe(false);
+    expect(
+      validateResult({ ...confirmationUncertain, submission_attempts: 2 })
     ).toBe(false);
     expect(
       validateResult({ ...confirmationUncertain, confirmation_verified: true })

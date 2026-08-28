@@ -251,6 +251,16 @@ describe("resultMatchesDurableState", () => {
       "SUBMITTING"
     ],
     [
+      "rejects confirmation uncertainty without a submitted action",
+      { ...confirmationUncertain, action_submitted: false },
+      "SUBMITTING"
+    ],
+    [
+      "rejects confirmation uncertainty with more than one attempt",
+      { ...confirmationUncertain, submission_attempts: 2 },
+      "SUBMITTING"
+    ],
+    [
       "rejects uncertainty without every pre-submission safety check",
       {
         ...confirmationUncertain,

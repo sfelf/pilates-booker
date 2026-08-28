@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { BookingPage, BookingPageState } from "../src/booking-page.js";
+import type {
+  BookingBrowser,
+  BookingConfirmation,
+  BookingPage,
+  BookingPageState
+} from "../src/booking-page.js";
 import {
+  BookingWorkflowError,
+  executeBookingWorkflow,
   prepareBookingWorkflow,
   type BookingPreparation
 } from "../src/booking-workflow.js";
@@ -9,10 +16,16 @@ import type { ExecutionContext } from "../src/cli.js";
 import type {
   BookingPolicy,
   BookingRequest,
+  BookingResult,
+  JournalRecord,
   ObservedClass,
   PermittedAction
 } from "../src/contracts.js";
 import type { PackageOption } from "../src/package-selection.js";
+import {
+  RuntimeCoordinator,
+  type RuntimeOperations
+} from "../src/runtime-coordinator.js";
 
 const observedClass: ObservedClass = {
   name: "Synthetic Reformer Flow",
@@ -161,14 +174,17 @@ type Operation =
   | `selectPackage:${number}`
   | "acceptCancellation"
   | `submit:${PermittedAction}`
-  | `confirm:${PermittedAction}`;
+  | `confirm:${PermittedAction}`
+  | "close";
 
 type FailingOperation =
   | "read"
   | "selectMyself"
   | "fillInjuries"
   | "selectPackage"
-  | "acceptCancellation";
+  | "acceptCancellation"
+  | "submit"
+  | "confirm";
 
 class InMemoryBookingPage implements BookingPage {
   readonly operations: Operation[] = [];
@@ -176,7 +192,8 @@ class InMemoryBookingPage implements BookingPage {
 
   constructor(
     private readonly states: readonly BookingPageState[],
-    private readonly failingOperation?: FailingOperation
+    private readonly failingOperation?: FailingOperation,
+    private readonly confirmation: BookingConfirmation = "UNKNOWN"
   ) {
     if (states.length === 0) throw new Error("test page requires state");
   }
@@ -214,11 +231,15 @@ class InMemoryBookingPage implements BookingPage {
 
   async submit(action: PermittedAction): Promise<void> {
     this.operations.push(`submit:${action}`);
+    this.failIfConfigured("submit");
   }
 
-  async waitForConfirmation(action: PermittedAction): Promise<"UNKNOWN"> {
+  async waitForConfirmation(
+    action: PermittedAction
+  ): Promise<BookingConfirmation> {
     this.operations.push(`confirm:${action}`);
-    return "UNKNOWN";
+    this.failIfConfigured("confirm");
+    return this.confirmation;
   }
 
   private failIfConfigured(operation: FailingOperation): void {
@@ -226,6 +247,81 @@ class InMemoryBookingPage implements BookingPage {
       throw new Error("private attendee and injuries values must stay hidden");
     }
   }
+}
+
+function inMemoryBookingBrowser(
+  page: InMemoryBookingPage,
+  failClose = false
+): BookingBrowser {
+  return async (_profileDir, _checkoutUrl, use) => {
+    let result;
+    try {
+      result = await use(page);
+    } catch (error) {
+      page.operations.push("close");
+      throw error;
+    }
+    page.operations.push("close");
+    if (failClose) {
+      throw new Error("private browser close failure");
+    }
+    return result;
+  };
+}
+
+class WorkflowRuntimeOperations implements RuntimeOperations {
+  journal: JournalRecord | undefined;
+
+  async readJournal(): Promise<JournalRecord | undefined> {
+    return this.journal;
+  }
+
+  async writeJournal(record: JournalRecord): Promise<void> {
+    this.journal = record;
+  }
+
+  async readResult(): Promise<{ status: "missing" }> {
+    return { status: "missing" };
+  }
+
+  async writeResult(result: BookingResult): Promise<void> {
+    void result;
+    throw new Error("not used by coordinator execution");
+  }
+}
+
+async function runWorkflowThroughCoordinator(
+  page: InMemoryBookingPage,
+  browser: BookingBrowser = inMemoryBookingBrowser(page)
+): Promise<{
+  decision: Awaited<ReturnType<RuntimeCoordinator["run"]>>;
+  executorError: unknown;
+  durableState: JournalRecord["state"] | undefined;
+}> {
+  const operations = new WorkflowRuntimeOperations();
+  const coordinator = new RuntimeCoordinator(baseRequest, operations);
+  let executorError: unknown;
+  const decision = await coordinator.run(async ({ request, advance }) => {
+    try {
+      return await executeBookingWorkflow(
+        {
+          request,
+          policy,
+          profileDir: "/private/synthetic/Profile",
+          advance
+        },
+        browser
+      );
+    } catch (error) {
+      executorError = error;
+      throw error;
+    }
+  });
+  return {
+    decision,
+    executorError,
+    durableState: operations.journal?.state
+  };
 }
 
 function executionContext(request: BookingRequest = baseRequest): {
@@ -908,5 +1004,244 @@ describe("booking workflow final coherent-read safe stops", () => {
     ]);
     expect(JSON.stringify(preparation)).not.toContain("private");
     expectNoSubmission(page);
+  });
+});
+
+describe("booking workflow confirmed submission", () => {
+  it("returns a terminal preparation unchanged and closes without submission", async () => {
+    const page = new InMemoryBookingPage([bookingState()]);
+    const { context, advances } = executionContext({
+      ...baseRequest,
+      dry_run: true
+    });
+    const browserInputs: unknown[] = [];
+    let callbackResult: unknown;
+    const browser: BookingBrowser = async (profileDir, checkoutUrl, use) => {
+      browserInputs.push(profileDir, checkoutUrl);
+      try {
+        const result = await use(page);
+        callbackResult = result;
+        return result;
+      } finally {
+        page.operations.push("close");
+      }
+    };
+
+    const result = await executeBookingWorkflow(context, browser);
+
+    expect(result).toBe(callbackResult);
+    expect(result).toMatchObject({
+      outcome: "DRY_RUN",
+      action_submitted: false,
+      submission_attempts: 0
+    });
+    expect(browserInputs).toEqual([
+      context.profileDir,
+      context.request.booking_url
+    ]);
+    expect(page.operations).toEqual(["read", "close"]);
+    expect(advances).toEqual(["VALIDATED"]);
+  });
+
+  it.each([
+    ["book", "BOOKED", "Booking confirmed."],
+    ["waitlist", "WAITLISTED", "Waitlist confirmed."]
+  ] as const)(
+    "confirms one exact %s submission without a post-submit reread",
+    async (action, outcome, details) => {
+      const page = new InMemoryBookingPage(
+        [bookingState({ action }), authorizedFinalState({ action })],
+        undefined,
+        outcome
+      );
+      const { context, advances } = executionContext();
+
+      const result = await executeBookingWorkflow(
+        context,
+        inMemoryBookingBrowser(page)
+      );
+
+      expect(result).toEqual({
+        schema_version: 1,
+        request_id: baseRequest.request_id,
+        outcome,
+        exit_code: 0,
+        action_submitted: true,
+        submission_attempts: 1,
+        confirmation_verified: true,
+        retryable: false,
+        observed_class: observedClass,
+        package_used: "Synthetic Priority Pack",
+        packages_before: [
+          {
+            name: "Synthetic Backup Pack",
+            remaining: 8,
+            approved: true
+          },
+          {
+            name: "Synthetic Unapproved Pack",
+            remaining: 20,
+            approved: false
+          },
+          {
+            name: "✨ Synthetic Priority Pack ✨",
+            remaining: 3,
+            approved: true
+          }
+        ],
+        safety_checks: {
+          exact_class_match: true,
+          approved_package_verified: true,
+          no_charge: true,
+          cancellation_policy_accepted: true
+        },
+        details
+      });
+      expect(page.operations.slice(-3)).toEqual([
+        `submit:${action}`,
+        `confirm:${action}`,
+        "close"
+      ]);
+      expect(
+        page.operations.filter((operation) => operation === "read")
+      ).toHaveLength(2);
+      expect(
+        page.operations.filter((operation) => operation === `submit:${action}`)
+      ).toHaveLength(1);
+      expect(advances).toEqual([
+        "VALIDATED",
+        "READY_TO_SUBMIT",
+        "SUBMITTING",
+        "CONFIRMED"
+      ]);
+    }
+  );
+});
+
+describe("booking workflow post-submit uncertainty", () => {
+  it.each([
+    [
+      "timeout/unknown confirmation",
+      undefined,
+      "UNKNOWN",
+      false,
+      "SUBMITTING",
+      1
+    ],
+    [
+      "wrong waitlist confirmation after book",
+      undefined,
+      "WAITLISTED",
+      false,
+      "SUBMITTING",
+      1
+    ],
+    [
+      "conflicting confirmation evidence",
+      undefined,
+      "UNKNOWN",
+      false,
+      "SUBMITTING",
+      1
+    ],
+    ["submission page throw", "submit", "UNKNOWN", false, "SUBMITTING", 0],
+    ["confirmation page throw", "confirm", "BOOKED", false, "SUBMITTING", 1],
+    ["browser close failure", undefined, "BOOKED", true, "CONFIRMED", 1]
+  ] as const)(
+    "classifies %s from durable state without a second click",
+    async (
+      _case,
+      failingOperation,
+      confirmation,
+      failClose,
+      durableState,
+      confirmationCalls
+    ) => {
+      const page = new InMemoryBookingPage(
+        [bookingState(), authorizedFinalState()],
+        failingOperation,
+        confirmation
+      );
+
+      const run = await runWorkflowThroughCoordinator(
+        page,
+        inMemoryBookingBrowser(page, failClose)
+      );
+
+      expect(run.decision).toEqual({
+        result: {
+          schema_version: 1,
+          request_id: baseRequest.request_id,
+          outcome: "CONFIRMATION_UNCERTAIN",
+          exit_code: 40,
+          action_submitted: true,
+          submission_attempts: 1,
+          confirmation_verified: false,
+          retryable: false,
+          safety_checks: {
+            exact_class_match: true,
+            approved_package_verified: true,
+            no_charge: true,
+            cancellation_policy_accepted: true
+          },
+          details: "Booking confirmation is uncertain."
+        },
+        publish: true
+      });
+      expect(run.executorError).toBeInstanceOf(BookingWorkflowError);
+      expect(String(run.executorError)).toBe(
+        "BookingWorkflowError: Booking workflow failed."
+      );
+      expect(run.durableState).toBe(durableState);
+      expect(
+        page.operations.filter((operation) => operation === "submit:book")
+      ).toHaveLength(1);
+      expect(
+        page.operations.filter((operation) => operation === "confirm:book")
+      ).toHaveLength(confirmationCalls);
+      expect(page.operations.at(-1)).toBe("close");
+      expect(JSON.stringify(run)).not.toContain("private browser");
+    }
+  );
+
+  it("classifies a schema-invalid result construction after the click", async () => {
+    const incompleteObservedClass = {
+      ...observedClass,
+      instructor: ""
+    };
+    const page = new InMemoryBookingPage(
+      [
+        bookingState({ observed_class: incompleteObservedClass }),
+        authorizedFinalState({ observed_class: incompleteObservedClass })
+      ],
+      undefined,
+      "BOOKED"
+    );
+
+    const run = await runWorkflowThroughCoordinator(page);
+
+    expect(run.decision).toMatchObject({
+      result: {
+        outcome: "CONFIRMATION_UNCERTAIN",
+        exit_code: 40,
+        action_submitted: true,
+        submission_attempts: 1,
+        confirmation_verified: false,
+        retryable: false
+      }
+    });
+    expect(run.executorError).toBeInstanceOf(BookingWorkflowError);
+    expect(String(run.executorError)).toBe(
+      "BookingWorkflowError: Booking workflow failed."
+    );
+    expect(run.durableState).toBe("CONFIRMED");
+    expect(
+      page.operations.filter((operation) => operation === "submit:book")
+    ).toHaveLength(1);
+    expect(page.operations.slice(-3)).toEqual([
+      "submit:book",
+      "confirm:book",
+      "close"
+    ]);
   });
 });

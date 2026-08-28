@@ -1,4 +1,9 @@
-import type { BookingPage, BookingPageState } from "./booking-page.js";
+import {
+  createBookingBrowser,
+  type BookingBrowser,
+  type BookingPage,
+  type BookingPageState
+} from "./booking-page.js";
 import type { ExecutionContext } from "./cli.js";
 import type {
   BookingResult,
@@ -10,6 +15,7 @@ import {
   normalizePackageNameForComparison,
   type PackageSelection
 } from "./package-selection.js";
+import { validateResult } from "./result-validator.js";
 
 export type AuthorizedBooking = Readonly<{
   status: "authorized";
@@ -33,6 +39,15 @@ type TerminalBookingPreparation = Extract<
 
 export type BookingPreparation = TerminalBookingPreparation | AuthorizedBooking;
 
+export class BookingWorkflowError extends Error {
+  readonly code = "BOOKING_WORKFLOW_FAILED";
+
+  constructor() {
+    super("Booking workflow failed.");
+    this.name = "BookingWorkflowError";
+  }
+}
+
 const DETAILS = {
   BOOKED: "Booking confirmed.",
   WAITLISTED: "Waitlist confirmed.",
@@ -48,6 +63,38 @@ const incompleteSafetyChecks = {
   no_charge: false,
   cancellation_policy_accepted: false
 } as const;
+
+export async function executeBookingWorkflow(
+  context: ExecutionContext,
+  browser: BookingBrowser = createBookingBrowser(context.request.expected_class)
+): Promise<BookingResult> {
+  try {
+    return await browser(
+      context.profileDir,
+      context.request.booking_url,
+      async (page) => {
+        const preparation = await prepareBookingWorkflow(context, page);
+        if ("outcome" in preparation) return preparation;
+
+        await context.advance("READY_TO_SUBMIT");
+        await context.advance("SUBMITTING");
+        await page.submit(preparation.action);
+        const confirmation = await page.waitForConfirmation(preparation.action);
+        const outcome = preparation.action === "book" ? "BOOKED" : "WAITLISTED";
+        if (confirmation !== outcome) throw new BookingWorkflowError();
+        await context.advance("CONFIRMED");
+
+        return confirmedResult(
+          context.request.request_id,
+          preparation,
+          outcome
+        );
+      }
+    );
+  } catch {
+    throw new BookingWorkflowError();
+  }
+}
 
 export async function prepareBookingWorkflow(
   context: ExecutionContext,
@@ -293,4 +340,28 @@ function safeStop(
     },
     details: DETAILS.SAFE_STOP
   };
+}
+
+function confirmedResult(
+  requestId: string,
+  preparation: AuthorizedBooking,
+  outcome: "BOOKED" | "WAITLISTED"
+): BookingResult {
+  const result: BookingResult = {
+    schema_version: 1,
+    request_id: requestId,
+    outcome,
+    exit_code: 0,
+    action_submitted: true,
+    submission_attempts: 1,
+    confirmation_verified: true,
+    retryable: false,
+    observed_class: preparation.observed_class,
+    package_used: preparation.selection.configuredName,
+    packages_before: preparation.selection.balances,
+    safety_checks: preparation.safety_checks,
+    details: outcome === "BOOKED" ? DETAILS.BOOKED : DETAILS.WAITLISTED
+  };
+  if (!validateResult(result)) throw new BookingWorkflowError();
+  return result;
 }
