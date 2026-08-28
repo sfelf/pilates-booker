@@ -1,10 +1,11 @@
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 
 import { runCli, type CliDependencies } from "../src/cli.js";
 import type {
+  BookingPolicy,
   BookingRequest,
   BookingResult,
   JournalState
@@ -12,6 +13,12 @@ import type {
 import type { LockReleaseResult, ProfileLock } from "../src/lock.js";
 
 const requestId = "00000000-0000-4000-8000-000000000003";
+const policy: BookingPolicy = {
+  schema_version: 1,
+  policy_version: "2030-01-01",
+  allowed_packages: ["Synthetic Priority Package"]
+};
+const cliArgs = ["--policy", "policy.json", "request.json"] as const;
 const safetyChecks = {
   exact_class_match: false,
   approved_package_verified: false,
@@ -51,6 +58,8 @@ const dependencies = (
   execute: CliDependencies["execute"]
 ): CliDependencies => ({
   baseDir,
+  cwd: baseDir,
+  loadPolicy: vi.fn(async () => policy),
   loadRequest: vi.fn(async () => ({ request_id: requestId })),
   validateRequest: vi.fn((value) => value as BookingRequest),
   execute: vi.fn(execute)
@@ -118,6 +127,134 @@ const lockWithRelease = (
 ): ProfileLock => ({ release });
 
 describe("runCli", () => {
+  test("requires an explicit policy option and resolves its relative path from the invoking directory", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    await writeFile(join(base, "policy.json"), JSON.stringify(policy), "utf8");
+    const deps = dependencies(base, async ({ advance }) => {
+      await advance("VALIDATED");
+      return result("SAFE_STOP");
+    });
+    const realPolicyDeps = { ...deps };
+    delete realPolicyDeps.loadPolicy;
+
+    await expect(runCli(cliArgs, realPolicyDeps)).resolves.toBe(20);
+    expect(deps.validateRequest).toHaveBeenCalledWith(
+      { request_id: requestId },
+      policy
+    );
+  });
+
+  test("passes the exact validated policy to the executor", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const selectedPolicy: BookingPolicy = {
+      ...policy,
+      allowed_packages: ["Synthetic Selected Package"]
+    };
+    const deps: CliDependencies = {
+      ...dependencies(base, async ({ advance, policy: executedPolicy }) => {
+        expect(executedPolicy).toBe(selectedPolicy);
+        await advance("VALIDATED");
+        return result("SAFE_STOP");
+      }),
+      loadPolicy: vi.fn(async () => selectedPolicy)
+    };
+
+    await expect(runCli(cliArgs, deps)).resolves.toBe(20);
+  });
+
+  test("preserves an explicit absolute policy path", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const policyPath = join(base, "private-policy.json");
+    await writeFile(policyPath, JSON.stringify(policy), "utf8");
+    const deps = dependencies(base, async ({ advance }) => {
+      await advance("VALIDATED");
+      return result("SAFE_STOP");
+    });
+    const realPolicyDeps = { ...deps };
+    delete realPolicyDeps.loadPolicy;
+
+    await expect(
+      runCli(["--policy", policyPath, "request.json"], realPolicyDeps)
+    ).resolves.toBe(20);
+    expect(isAbsolute(policyPath)).toBe(true);
+  });
+
+  test("loads an absolute policy without consulting a missing working directory", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const policyPath = join(base, "private-policy.json");
+    await writeFile(policyPath, JSON.stringify(policy), "utf8");
+    const deps = dependencies(base, async ({ advance }) => {
+      await advance("VALIDATED");
+      return result("SAFE_STOP");
+    });
+    const realPolicyDeps = { ...deps };
+    delete realPolicyDeps.cwd;
+    delete realPolicyDeps.loadPolicy;
+    const cwd = vi.spyOn(process, "cwd").mockImplementation(() => {
+      throw new Error("working directory is unavailable");
+    });
+
+    try {
+      await expect(
+        runCli(["--policy", policyPath, "request.json"], realPolicyDeps)
+      ).resolves.toBe(20);
+      expect(cwd).not.toHaveBeenCalled();
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  test("returns technical failure when a relative policy cannot be resolved", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const deps = dependencies(base, vi.fn());
+    const relativePolicyDeps = { ...deps };
+    delete relativePolicyDeps.cwd;
+    const cwd = vi.spyOn(process, "cwd").mockImplementation(() => {
+      throw new Error("working directory is unavailable");
+    });
+
+    try {
+      await expect(runCli(cliArgs, relativePolicyDeps)).resolves.toBe(30);
+      expect(deps.loadPolicy).not.toHaveBeenCalled();
+      expect(deps.loadRequest).not.toHaveBeenCalled();
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  test("fails before loading a request when the explicit policy cannot be loaded", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const deps = dependencies(base, vi.fn());
+    const failingPolicyPath = "synthetic-private-policy.json";
+    const failingDeps: CliDependencies = {
+      ...deps,
+      loadPolicy: async () => {
+        throw new Error(failingPolicyPath);
+      }
+    };
+
+    await expect(runCli(cliArgs, failingDeps)).resolves.toBe(30);
+    expect(deps.loadRequest).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    [],
+    ["request.json"],
+    ["--policy", "policy.json"],
+    ["request.json", "--policy", "policy.json"],
+    ["--policy", "policy.json", "request.json", "extra.json"]
+  ])(
+    "rejects arguments that do not explicitly select one policy: %j",
+    async (...argv) => {
+      const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+      const deps = dependencies(base, vi.fn());
+
+      await expect(runCli(argv, deps)).resolves.toBe(30);
+      expect(deps.loadPolicy).not.toHaveBeenCalled();
+      expect(deps.loadRequest).not.toHaveBeenCalled();
+    }
+  );
+
   test.each([
     ["SAFE_STOP", 20],
     ["TECHNICAL_FAILURE", 30]
@@ -134,13 +271,13 @@ describe("runCli", () => {
       const originalValidate = deps.validateRequest;
       const orderedDeps = {
         ...deps,
-        validateRequest(value: unknown) {
+        validateRequest(value: unknown, selectedPolicy: BookingPolicy) {
           order.push("validate");
-          return originalValidate(value);
+          return originalValidate(value, selectedPolicy);
         }
       };
 
-      expect(await runCli(["request.json"], orderedDeps)).toBe(code);
+      expect(await runCli(cliArgs, orderedDeps)).toBe(code);
       expect(
         JSON.parse(await readFile(join(base, "results/current.json"), "utf8"))
       ).toEqual(result(outcome));
@@ -172,7 +309,7 @@ describe("runCli", () => {
         throw new Error("synthetic failure with private data");
       });
 
-      expect(await runCli(["request.json"], deps)).toBe(code);
+      expect(await runCli(cliArgs, deps)).toBe(code);
       const written = JSON.parse(
         await readFile(join(base, "results/current.json"), "utf8")
       ) as BookingResult;
@@ -224,14 +361,14 @@ describe("runCli", () => {
             : deps.validateRequest
       };
 
-      await expect(runCli(["request.json"], failingDeps)).resolves.toBe(30);
+      await expect(runCli(cliArgs, failingDeps)).resolves.toBe(30);
       await expect(access(join(base, "run.lock"))).rejects.toThrow();
     }
   );
 
   test("returns technical failure when runtime path resolution fails", async () => {
     const deps = dependencies("relative/runtime", vi.fn());
-    await expect(runCli(["request.json"], deps)).resolves.toBe(30);
+    await expect(runCli(cliArgs, deps)).resolves.toBe(30);
   });
 
   test("diagnoses an existing lock without executing or deleting it", async () => {
@@ -239,7 +376,7 @@ describe("runCli", () => {
     await writeFile(join(base, "run.lock"), '{"version":1}', "utf8");
     const deps = dependencies(base, vi.fn());
 
-    expect(await runCli(["request.json"], deps)).toBe(30);
+    expect(await runCli(cliArgs, deps)).toBe(30);
     expect(deps.execute).not.toHaveBeenCalled();
     expect(await readFile(join(base, "run.lock"), "utf8")).toBe(
       '{"version":1}'
@@ -262,7 +399,7 @@ describe("runCli", () => {
       );
       const deps = dependencies(base, vi.fn());
 
-      expect(await runCli(["request.json"], deps)).toBe(40);
+      expect(await runCli(cliArgs, deps)).toBe(40);
       expect(deps.execute).not.toHaveBeenCalled();
       const written = JSON.parse(
         await readFile(join(base, "results/current.json"), "utf8")
@@ -297,7 +434,7 @@ describe("runCli", () => {
       };
     });
 
-    expect(await runCli(["request.json"], deps)).toBe(30);
+    expect(await runCli(cliArgs, deps)).toBe(30);
     const written = JSON.parse(
       await readFile(join(base, "results/current.json"), "utf8")
     ) as BookingResult;
@@ -334,7 +471,7 @@ describe("runCli", () => {
       };
     });
 
-    expect(await runCli(["request.json"], deps)).toBe(0);
+    expect(await runCli(cliArgs, deps)).toBe(0);
   });
 
   test("rejects an executor result that fails the canonical result schema", async () => {
@@ -344,7 +481,7 @@ describe("runCli", () => {
       return { ...result("SAFE_STOP"), exit_code: 0 } as BookingResult;
     });
 
-    expect(await runCli(["request.json"], deps)).toBe(30);
+    expect(await runCli(cliArgs, deps)).toBe(30);
     const written = JSON.parse(
       await readFile(join(base, "results/current.json"), "utf8")
     ) as BookingResult;
@@ -369,7 +506,7 @@ describe("runCli", () => {
       } as unknown as BookingResult;
     });
 
-    expect(await runCli(["request.json"], deps)).toBe(30);
+    expect(await runCli(cliArgs, deps)).toBe(30);
   });
 
   test("rejects already-booked evidence without an exact class match", async () => {
@@ -390,7 +527,7 @@ describe("runCli", () => {
       } as unknown as BookingResult;
     });
 
-    expect(await runCli(["request.json"], deps)).toBe(30);
+    expect(await runCli(cliArgs, deps)).toBe(30);
   });
 
   test("replays a matching valid durable result without overwriting it", async () => {
@@ -427,7 +564,7 @@ describe("runCli", () => {
     await writeFile(join(base, "results/current.json"), serialized, "utf8");
     const deps = dependencies(base, vi.fn());
 
-    expect(await runCli(["request.json"], deps)).toBe(0);
+    expect(await runCli(cliArgs, deps)).toBe(0);
     expect(await readFile(join(base, "results/current.json"), "utf8")).toBe(
       serialized
     );
@@ -449,7 +586,7 @@ describe("runCli", () => {
     await writeFile(join(base, "results/current.json"), priorResult, "utf8");
     const deps = dependencies(base, vi.fn());
 
-    expect(await runCli(["request.json"], deps)).toBe(30);
+    expect(await runCli(cliArgs, deps)).toBe(30);
     expect(await readFile(join(base, "journals/current.json"), "utf8")).toBe(
       journal
     );
@@ -476,7 +613,7 @@ describe("runCli", () => {
       await writeFile(resultPath, priorResult, "utf8");
       const deps = dependencies(base, vi.fn());
 
-      await expect(runCli(["request.json"], deps)).resolves.toBe(30);
+      await expect(runCli(cliArgs, deps)).resolves.toBe(30);
       expect(await readFile(resultPath, "utf8")).toBe(priorResult);
       expect(deps.execute).not.toHaveBeenCalled();
     }
@@ -504,7 +641,7 @@ describe("runCli", () => {
     await writeFile(resultPath, foreignInvalidResult, "utf8");
     const deps = dependencies(base, vi.fn());
 
-    await expect(runCli(["request.json"], deps)).resolves.toBe(30);
+    await expect(runCli(cliArgs, deps)).resolves.toBe(30);
     expect(await readFile(resultPath, "utf8")).toBe(foreignInvalidResult);
     expect(deps.execute).not.toHaveBeenCalled();
   });
@@ -541,9 +678,9 @@ describe("runCli", () => {
         "utf8"
       );
 
-      await expect(
-        runCli(["request.json"], dependencies(base, vi.fn()))
-      ).resolves.toBe(exitCode);
+      await expect(runCli(cliArgs, dependencies(base, vi.fn()))).resolves.toBe(
+        exitCode
+      );
       const written = JSON.parse(
         await readFile(join(base, "results/current.json"), "utf8")
       ) as Record<string, unknown>;
@@ -586,9 +723,7 @@ describe("runCli", () => {
     const serialized = JSON.stringify(recovered);
     await writeFile(join(base, "results/current.json"), serialized, "utf8");
 
-    expect(await runCli(["request.json"], dependencies(base, vi.fn()))).toBe(
-      40
-    );
+    expect(await runCli(cliArgs, dependencies(base, vi.fn()))).toBe(40);
     expect(await readFile(join(base, "results/current.json"), "utf8")).toBe(
       serialized
     );
@@ -651,7 +786,7 @@ describe("runCli", () => {
     );
     const deps = dependencies(base, vi.fn());
 
-    await expect(runCli(["request.json"], deps)).resolves.toBe(0);
+    await expect(runCli(cliArgs, deps)).resolves.toBe(0);
     const written = JSON.parse(
       await readFile(join(base, "results/current.json"), "utf8")
     ) as BookingResult;
@@ -692,7 +827,7 @@ describe("runCli", () => {
         };
       });
 
-      await expect(runCli(["request.json"], deps)).resolves.toBe(0);
+      await expect(runCli(cliArgs, deps)).resolves.toBe(0);
       const written = JSON.parse(
         await readFile(join(base, "results/current.json"), "utf8")
       ) as BookingResult;
@@ -720,9 +855,7 @@ describe("runCli", () => {
     });
     await writeFile(join(base, "results/current.json"), otherResult, "utf8");
 
-    expect(await runCli(["request.json"], dependencies(base, vi.fn()))).toBe(
-      30
-    );
+    expect(await runCli(cliArgs, dependencies(base, vi.fn()))).toBe(30);
     expect(await readFile(join(base, "results/current.json"), "utf8")).toBe(
       otherResult
     );
@@ -742,9 +875,9 @@ describe("runCli", () => {
       "utf8"
     );
 
-    await expect(
-      runCli(["request.json"], dependencies(base, vi.fn()))
-    ).resolves.toBe(40);
+    await expect(runCli(cliArgs, dependencies(base, vi.fn()))).resolves.toBe(
+      40
+    );
   });
 
   test("returns uncertainty without rereading the journal when result publication fails after submission", async () => {
@@ -762,7 +895,7 @@ describe("runCli", () => {
       throw new Error("synthetic post-submit failure");
     });
 
-    await expect(runCli(["request.json"], deps)).resolves.toBe(40);
+    await expect(runCli(cliArgs, deps)).resolves.toBe(40);
   });
 
   test.each([
@@ -792,7 +925,7 @@ describe("runCli", () => {
           })
       };
 
-      await expect(runCli(["request.json"], deps)).resolves.toBe(exitCode);
+      await expect(runCli(cliArgs, deps)).resolves.toBe(exitCode);
       expect(releaseAttempts).toBe(1);
     }
   );
@@ -812,7 +945,7 @@ describe("runCli", () => {
           })
       };
 
-      await expect(runCli(["request.json"], deps)).resolves.toBe(exitCode);
+      await expect(runCli(cliArgs, deps)).resolves.toBe(exitCode);
       expect(releaseAttempts).toBe(1);
       expect(
         await readFile(join(base, "results/current.json"), "utf8")
