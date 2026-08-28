@@ -38,6 +38,28 @@ async function syntheticPage(html = bookingPageHtml()): Promise<Page> {
 }
 
 describe("BookingPage read boundary", () => {
+  it("inherits disabled state for package and submission controls", async () => {
+    const page = await syntheticPage();
+    await page
+      .locator('[data-testid="offering"]')
+      .first()
+      .evaluate((offering) => offering.setAttribute("aria-disabled", "true"));
+    await page
+      .getByRole("button", { name: "Book", exact: true })
+      .evaluate((button) => {
+        const wrapper = document.createElement("div");
+        wrapper.setAttribute("aria-disabled", "true");
+        button.replaceWith(wrapper);
+        wrapper.append(button);
+      });
+
+    const state = await createBookingPage(page, expectedClass).read();
+
+    expect(state.packages[0]?.control.enabled).toBe(false);
+    expect(state.submission.book.enabled).toBe(false);
+    await page.close();
+  });
+
   it("returns one coherent supported state without projecting attendee identity or injury text", async () => {
     const page = await syntheticPage();
 
@@ -281,6 +303,34 @@ describe("BookingPage read boundary", () => {
 });
 
 describe("BookingPage mutation boundary", () => {
+  it("refuses package selection and submission inside disabled ancestors", async () => {
+    const page = await syntheticPage();
+    await page
+      .locator('[data-testid="offering"]')
+      .first()
+      .evaluate((offering) => offering.setAttribute("aria-disabled", "true"));
+    await page
+      .getByRole("button", { name: "Book", exact: true })
+      .evaluate((button) => {
+        const wrapper = document.createElement("div");
+        wrapper.setAttribute("aria-disabled", "true");
+        button.replaceWith(wrapper);
+        wrapper.append(button);
+      });
+    const booking = createBookingPage(page, expectedClass);
+
+    await expect(booking.selectPackage(0)).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
+    await expect(booking.submit("book")).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
+    expect(
+      await page.locator('input[name="package"]').first().isChecked()
+    ).toBe(true);
+    await page.close();
+  });
+
   it("does not mutate an excluded email textbox with the injuries name", async () => {
     const page = await syntheticPage(
       bookingPageHtml({ injuries: [""], injuriesType: "email" })
@@ -530,7 +580,7 @@ describe("BookingPage mutation boundary", () => {
     await page.close();
   });
 
-  it("does not adopt a changed checkout URL as the pre-click baseline", async () => {
+  it("rejects a changed checkout URL at the pre-submit read boundary", async () => {
     const page = await syntheticPage();
     const button = page.getByRole("button", { name: "Book", exact: true });
     await button.evaluate((element) => {
@@ -542,9 +592,13 @@ describe("BookingPage mutation boundary", () => {
     await booking.read();
     await page.evaluate(() => window.history.pushState({}, "", "#escaped"));
 
-    await expect(booking.submit("book")).rejects.toThrow(
-      "Booking page control is unavailable."
-    );
+    await expect(
+      (
+        booking as BookingPage & {
+          readForSubmission(): Promise<BookingPageState>;
+        }
+      ).readForSubmission()
+    ).rejects.toThrow("Booking page control is unavailable.");
     expect(await button.getAttribute("data-clicked")).toBeNull();
     await page.close();
   });
@@ -553,7 +607,7 @@ describe("BookingPage mutation boundary", () => {
     ["booking", "confirmation-booked"],
     ["waitlist", "confirmation-waitlisted"]
   ] as const)(
-    "does not click when an exact %s confirmation appears after the final read",
+    "rejects an exact %s confirmation at the pre-submit read boundary",
     async (_name, testId) => {
       const page = await syntheticPage();
       const button = page.getByRole("button", { name: "Book", exact: true });
@@ -568,7 +622,7 @@ describe("BookingPage mutation boundary", () => {
         (element as HTMLElement).hidden = false;
       });
 
-      await expect(booking.submit("book")).rejects.toThrow(
+      await expect(booking.readForSubmission()).rejects.toThrow(
         "Booking page control is unavailable."
       );
       expect(await button.getAttribute("data-clicked")).toBeNull();
@@ -657,7 +711,7 @@ describe("BookingPage confirmation boundary", () => {
     await page.close();
   });
 
-  it("refuses submission when confirmation was already visible in the coherent pre-submit read", async () => {
+  it("refuses pre-submit validation when confirmation was already visible", async () => {
     const page = await syntheticPage(
       bookingPageHtml({
         bookedConfirmations: 1,
@@ -675,7 +729,7 @@ describe("BookingPage confirmation boundary", () => {
       bookedVisibleCount: 1,
       waitlistedVisibleCount: 0
     });
-    await expect(booking.submit("book")).rejects.toThrow(
+    await expect(booking.readForSubmission()).rejects.toThrow(
       "Booking page control is unavailable."
     );
     await page.close();

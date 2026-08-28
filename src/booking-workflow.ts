@@ -75,18 +75,24 @@ export async function executeBookingWorkflow(
       async (page) => {
         const preparation = await prepareBookingWorkflow(context, page);
         if ("outcome" in preparation) return preparation;
+        const revalidated = await revalidateAuthorizedBooking(
+          context,
+          page,
+          preparation
+        );
+        if ("outcome" in revalidated) return revalidated;
 
         await context.advance("READY_TO_SUBMIT");
         await context.advance("SUBMITTING");
-        await page.submit(preparation.action);
-        const confirmation = await page.waitForConfirmation(preparation.action);
-        const outcome = preparation.action === "book" ? "BOOKED" : "WAITLISTED";
+        await page.submit(revalidated.action);
+        const confirmation = await page.waitForConfirmation(revalidated.action);
+        const outcome = revalidated.action === "book" ? "BOOKED" : "WAITLISTED";
         if (confirmation !== outcome) throw new BookingWorkflowError();
         await context.advance("CONFIRMED");
 
         return confirmedResult(
           context.request.request_id,
-          preparation,
+          revalidated,
           outcome
         );
       }
@@ -94,6 +100,35 @@ export async function executeBookingWorkflow(
   } catch {
     throw new BookingWorkflowError();
   }
+}
+
+async function revalidateAuthorizedBooking(
+  context: ExecutionContext,
+  page: BookingPage,
+  preparation: AuthorizedBooking
+): Promise<BookingPreparation> {
+  let state: BookingPageState;
+  try {
+    state = await page.readForSubmission();
+  } catch {
+    return safeStop(context.request.request_id, true);
+  }
+  const exactClassMatch = isExactClassMatch(context, state);
+  if (
+    !exactClassMatch ||
+    !isFullyAuthorized(
+      context,
+      state,
+      preparation.action,
+      preparation.selection
+    )
+  ) {
+    return safeStop(context.request.request_id, exactClassMatch);
+  }
+  return {
+    ...preparation,
+    observed_class: state.observation.observed_class
+  };
 }
 
 export async function prepareBookingWorkflow(
@@ -188,7 +223,7 @@ export async function prepareBookingWorkflow(
   const finalClassMatches = isExactClassMatch(context, finalState);
   if (
     !finalClassMatches ||
-    !isFullyAuthorized(context, finalState, action, selection.option.name)
+    !isFullyAuthorized(context, finalState, action, selection)
   ) {
     return safeStop(context.request.request_id, finalClassMatches);
   }
@@ -216,7 +251,9 @@ function hasUsableDryRunControls(
     selection.option.control.visibleCount === 1 &&
     selection.option.control.enabled &&
     state.submission[action].visibleCount === 1 &&
-    state.submission[action].enabled
+    state.submission[action].enabled &&
+    state.confirmation.bookedVisibleCount === 0 &&
+    state.confirmation.waitlistedVisibleCount === 0
   );
 }
 
@@ -240,7 +277,7 @@ function isFullyAuthorized(
   context: ExecutionContext,
   state: BookingPageState,
   action: PermittedAction,
-  initiallySelectedName: string
+  initialSelection: PackageSelection
 ): boolean {
   if (
     state.observation.action !== action ||
@@ -264,8 +301,10 @@ function isFullyAuthorized(
   const finalSelection = choosePackage(context.policy, state.packages);
   return (
     finalSelection !== undefined &&
+    finalSelection.configuredName === initialSelection.configuredName &&
+    finalSelection.option.row === initialSelection.option.row &&
     normalizePackageNameForComparison(finalSelection.option.name) ===
-      normalizePackageNameForComparison(initiallySelectedName) &&
+      normalizePackageNameForComparison(initialSelection.option.name) &&
     state.selectedPackageRow === finalSelection.option.row &&
     finalSelection.option.control.visibleCount === 1 &&
     finalSelection.option.control.selected &&

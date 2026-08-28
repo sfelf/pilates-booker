@@ -53,6 +53,7 @@ export type BookingConfirmation = "BOOKED" | "WAITLISTED" | "UNKNOWN";
 
 export type BookingPage = Readonly<{
   read(): Promise<BookingPageState>;
+  readForSubmission(): Promise<BookingPageState>;
   selectMyself(): Promise<void>;
   fillInjuriesIfEmpty(value: "None"): Promise<void>;
   selectPackage(row: number): Promise<void>;
@@ -152,6 +153,15 @@ export function createBookingPage(
       lastReadConfirmation = state.confirmation;
       return state;
     },
+    readForSubmission: async () => {
+      const state = await readForSubmission(
+        page,
+        expectedClass,
+        validatedCheckoutUrl
+      );
+      lastReadConfirmation = state.confirmation;
+      return state;
+    },
     selectMyself: () =>
       checkExactControl(
         page
@@ -171,7 +181,7 @@ export function createBookingPage(
       ),
     submit: async (action) => {
       preSubmissionUrl = validatedCheckoutUrl;
-      await submitExactAction(page, action, validatedCheckoutUrl);
+      await submitExactAction(page, action);
     },
     waitForConfirmation: (action) =>
       waitForExactConfirmation(
@@ -261,6 +271,27 @@ async function exactEnabledVisible(locator: Locator): Promise<Locator> {
   }
 }
 
+async function readForSubmission(
+  page: Page,
+  expectedClass: ExpectedClass,
+  validatedCheckoutUrl: string
+): Promise<BookingPageState> {
+  try {
+    if (page.url() !== validatedCheckoutUrl) throw new Error("navigated");
+    const state = await readBookingPage(page, expectedClass);
+    if (page.url() !== validatedCheckoutUrl) throw new Error("navigated");
+    if (
+      state.confirmation.bookedVisibleCount !== 0 ||
+      state.confirmation.waitlistedVisibleCount !== 0
+    ) {
+      throw new Error("preexisting confirmation");
+    }
+    return state;
+  } catch {
+    throw new BookingPageControlError();
+  }
+}
+
 async function checkExactControl(locator: Locator): Promise<void> {
   try {
     await (await exactEnabledVisible(locator)).check();
@@ -303,8 +334,7 @@ async function selectPackageRow(page: Page, row: number): Promise<void> {
 
 async function submitExactAction(
   page: Page,
-  action: PermittedAction,
-  validatedCheckoutUrl: string
+  action: PermittedAction
 ): Promise<void> {
   try {
     const button =
@@ -314,47 +344,10 @@ async function submitExactAction(
             name: "Join the waitlist",
             exact: true
           });
-    const exactButton = await exactEnabledVisible(button);
-    const confirmation = await readExactConfirmationCounts(page);
-    if (
-      confirmation.bookedVisibleCount !== 0 ||
-      confirmation.waitlistedVisibleCount !== 0
-    ) {
-      throw new Error("preexisting confirmation");
-    }
-    if (page.url() !== validatedCheckoutUrl) throw new Error("navigated");
-    await exactButton.click();
+    await button.click({ timeout: 250 });
   } catch {
     throw new BookingPageControlError();
   }
-}
-
-async function readExactConfirmationCounts(
-  page: Page
-): Promise<BookingPageState["confirmation"]> {
-  return page.locator("body").evaluate((root) => {
-    const isVisible = (element: Element): element is HTMLElement => {
-      if (!(element instanceof HTMLElement) || element.hidden) return false;
-      const style = getComputedStyle(element);
-      if (style.display === "none" || style.visibility === "hidden") {
-        return false;
-      }
-      const box = element.getBoundingClientRect();
-      return box.width > 0 && box.height > 0;
-    };
-    const exactLeafTextCount = (expected: string): number =>
-      Array.from(root.querySelectorAll("body *")).filter((element) => {
-        if (!isVisible(element)) return false;
-        if ((element.textContent ?? "").trim() !== expected) return false;
-        return !Array.from(element.children).some(
-          (child) => (child.textContent ?? "").trim() === expected
-        );
-      }).length;
-    return {
-      bookedVisibleCount: exactLeafTextCount("You are Booked!"),
-      waitlistedVisibleCount: exactLeafTextCount("You're on the waitlist")
-    };
-  });
 }
 
 type ConfirmationCounts = Readonly<{
@@ -472,7 +465,7 @@ async function readBookingPage(
       };
       const isEnabled = (element: HTMLElement): boolean =>
         !element.matches(":disabled") &&
-        element.getAttribute("aria-disabled") !== "true";
+        element.closest('[aria-disabled="true"]') === null;
       const ensureAtMostOne = <T>(values: readonly T[]): void => {
         if (values.length > 1) throw new Error("ambiguous control");
       };

@@ -242,6 +242,9 @@ describe("runCli", () => {
     };
     const page: BookingPage = {
       read: async () => state,
+      readForSubmission: async () => {
+        throw new Error("dry run must not enter submission validation");
+      },
       selectMyself: async () => {
         throw new Error("dry run must not mutate");
       },
