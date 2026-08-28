@@ -4,12 +4,11 @@ import { randomUUID } from "node:crypto";
 
 export type JsonValidator = (value: unknown) => boolean;
 
-export type DurableDirectoryOperations = Readonly<{
+export type DirectoryOperations = Readonly<{
   createDirectory(path: string): Promise<boolean>;
-  syncDirectory(path: string): Promise<void>;
 }>;
 
-const directoryOperations: DurableDirectoryOperations = {
+const directoryOperations: DirectoryOperations = {
   async createDirectory(path) {
     try {
       await mkdir(path, { mode: 0o700 });
@@ -18,20 +17,12 @@ const directoryOperations: DurableDirectoryOperations = {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
       throw error;
     }
-  },
-  async syncDirectory(path) {
-    const handle = await open(path, "r");
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
   }
 };
 
-export async function ensureDirectoryDurable(
+export async function ensureDirectory(
   path: string,
-  operations: DurableDirectoryOperations = directoryOperations
+  operations: DirectoryOperations = directoryOperations
 ): Promise<void> {
   const absolute = resolve(path);
   const root = parse(absolute).root;
@@ -39,15 +30,9 @@ export async function ensureDirectoryDurable(
   let current = root;
   for (const segment of segments) {
     const child = join(current, segment);
-    if (await operations.createDirectory(child)) {
-      await operations.syncDirectory(current);
-    }
+    await operations.createDirectory(child);
     current = child;
   }
-}
-
-export async function syncDirectoryDurable(path: string): Promise<void> {
-  await directoryOperations.syncDirectory(path);
 }
 
 export async function writeJsonAtomic(
@@ -68,17 +53,15 @@ export async function writeJsonAtomic(
   }
 
   const directory = dirname(path);
-  await ensureDirectoryDurable(directory);
+  await ensureDirectory(directory);
   const temporary = join(directory, `.${basename(path)}.${randomUUID()}.tmp`);
   let handle;
   try {
     handle = await open(temporary, "wx", 0o600);
     await handle.writeFile(`${serialized}\n`, "utf8");
-    await handle.sync();
     await handle.close();
     handle = undefined;
     await rename(temporary, path);
-    await syncDirectoryDurable(directory);
   } catch (error) {
     await handle?.close().catch(() => undefined);
     await unlink(temporary).catch(() => undefined);

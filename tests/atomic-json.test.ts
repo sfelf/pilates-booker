@@ -3,32 +3,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { ensureDirectoryDurable, writeJsonAtomic } from "../src/atomic-json.js";
+import { ensureDirectory, writeJsonAtomic } from "../src/atomic-json.js";
 
 describe("writeJsonAtomic", () => {
-  test("syncs each parent after creating a nested runtime directory", async () => {
-    const events: string[] = [];
+  test("creates each missing nested runtime directory", async () => {
+    const created: string[] = [];
     const existing = new Set(["/"]);
 
-    await ensureDirectoryDurable("/private/runtime/journals", {
+    await ensureDirectory("/private/runtime/journals", {
       async createDirectory(path) {
         if (existing.has(path)) return false;
         existing.add(path);
-        events.push(`create:${path}`);
+        created.push(path);
         return true;
-      },
-      async syncDirectory(path) {
-        events.push(`sync:${path}`);
       }
     });
 
-    expect(events).toEqual([
-      "create:/private",
-      "sync:/",
-      "create:/private/runtime",
-      "sync:/private",
-      "create:/private/runtime/journals",
-      "sync:/private/runtime"
+    expect(created).toEqual([
+      "/private",
+      "/private/runtime",
+      "/private/runtime/journals"
     ]);
   });
 
