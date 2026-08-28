@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -21,10 +22,39 @@ async function writePolicy(value: unknown): Promise<string> {
 }
 
 describe("loadPolicy", () => {
+  it("loads the repository's synthetic example as a valid policy", async () => {
+    const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+    await expect(
+      loadPolicy(join(repositoryRoot, "config/booking-policy.example.json"))
+    ).resolves.toEqual(policy);
+  });
+
   it("loads a schema-valid policy without changing package order", async () => {
     const path = await writePolicy(policy);
 
     await expect(loadPolicy(path)).resolves.toEqual(policy);
+  });
+
+  it.each([
+    ["missing", join(tmpdir(), "synthetic-private-missing-policy.json")],
+    ["unreadable", tmpdir()]
+  ])("rejects a %s policy with a fixed diagnostic", async (_case, path) => {
+    await expect(loadPolicy(path)).rejects.toThrow("Invalid booking policy.");
+  });
+
+  it("rejects invalid JSON without exposing its contents", async () => {
+    const path = await writePolicy("synthetic-private-policy-content");
+    await writeFile(path, '{"private":"synthetic-secret"', "utf8");
+
+    try {
+      await loadPolicy(path);
+      throw new Error("expected policy rejection");
+    } catch (error) {
+      expect((error as Error).message).toBe("Invalid booking policy.");
+      expect((error as Error).message).not.toContain("synthetic-secret");
+      expect((error as Error).message).not.toContain(path);
+    }
   });
 
   it.each([

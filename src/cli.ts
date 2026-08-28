@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import type {
+  BookingPolicy,
   BookingRequest,
   BookingResult,
   JournalState
@@ -16,6 +18,7 @@ import { validateResult } from "./result-validator.js";
 import { resolveRuntimePaths } from "./runtime-paths.js";
 import { RuntimeCoordinator } from "./runtime-coordinator.js";
 import type { ResultReadStatus } from "./runtime-coordinator.js";
+import { loadPolicy as loadPolicyFile } from "./policy.js";
 
 export type ExecutionContext = Readonly<{
   request: BookingRequest;
@@ -24,8 +27,10 @@ export type ExecutionContext = Readonly<{
 
 export type CliDependencies = Readonly<{
   baseDir?: string;
+  cwd?: string;
+  loadPolicy?(path: string): Promise<BookingPolicy>;
   loadRequest(path: string): Promise<unknown>;
-  validateRequest(value: unknown): BookingRequest;
+  validateRequest(value: unknown, policy: BookingPolicy): BookingRequest;
   execute(context: ExecutionContext): Promise<BookingResult>;
   acquireLock?(path: string): Promise<ProfileLock>;
 }>;
@@ -74,11 +79,22 @@ export async function runCli(
   argv: readonly string[],
   dependencies: CliDependencies
 ): Promise<number> {
-  if (argv.length !== 1) return 30;
+  if (
+    argv.length !== 3 ||
+    argv[0] !== "--policy" ||
+    argv[1] === "" ||
+    argv[2] === ""
+  ) {
+    return 30;
+  }
+  const policyPath = resolve(dependencies.cwd ?? process.cwd(), argv[1]!);
+  const loadPolicy = dependencies.loadPolicy ?? loadPolicyFile;
+  let policy: BookingPolicy;
   let request: BookingRequest;
   try {
-    const raw = await dependencies.loadRequest(argv[0]!);
-    request = dependencies.validateRequest(raw);
+    policy = await loadPolicy(policyPath);
+    const raw = await dependencies.loadRequest(argv[2]!);
+    request = dependencies.validateRequest(raw, policy);
   } catch {
     return 30;
   }
