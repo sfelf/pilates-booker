@@ -144,6 +144,24 @@ describe("runCli", () => {
     );
   });
 
+  test("passes the exact validated policy to the executor", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const selectedPolicy: BookingPolicy = {
+      ...policy,
+      allowed_packages: ["Synthetic Selected Package"]
+    };
+    const deps: CliDependencies = {
+      ...dependencies(base, async ({ advance, policy: executedPolicy }) => {
+        expect(executedPolicy).toBe(selectedPolicy);
+        await advance("VALIDATED");
+        return result("SAFE_STOP");
+      }),
+      loadPolicy: vi.fn(async () => selectedPolicy)
+    };
+
+    await expect(runCli(cliArgs, deps)).resolves.toBe(20);
+  });
+
   test("preserves an explicit absolute policy path", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     const policyPath = join(base, "private-policy.json");
@@ -159,6 +177,49 @@ describe("runCli", () => {
       runCli(["--policy", policyPath, "request.json"], realPolicyDeps)
     ).resolves.toBe(20);
     expect(isAbsolute(policyPath)).toBe(true);
+  });
+
+  test("loads an absolute policy without consulting a missing working directory", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const policyPath = join(base, "private-policy.json");
+    await writeFile(policyPath, JSON.stringify(policy), "utf8");
+    const deps = dependencies(base, async ({ advance }) => {
+      await advance("VALIDATED");
+      return result("SAFE_STOP");
+    });
+    const realPolicyDeps = { ...deps };
+    delete realPolicyDeps.cwd;
+    delete realPolicyDeps.loadPolicy;
+    const cwd = vi.spyOn(process, "cwd").mockImplementation(() => {
+      throw new Error("working directory is unavailable");
+    });
+
+    try {
+      await expect(
+        runCli(["--policy", policyPath, "request.json"], realPolicyDeps)
+      ).resolves.toBe(20);
+      expect(cwd).not.toHaveBeenCalled();
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
+  test("returns technical failure when a relative policy cannot be resolved", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const deps = dependencies(base, vi.fn());
+    const relativePolicyDeps = { ...deps };
+    delete relativePolicyDeps.cwd;
+    const cwd = vi.spyOn(process, "cwd").mockImplementation(() => {
+      throw new Error("working directory is unavailable");
+    });
+
+    try {
+      await expect(runCli(cliArgs, relativePolicyDeps)).resolves.toBe(30);
+      expect(deps.loadPolicy).not.toHaveBeenCalled();
+      expect(deps.loadRequest).not.toHaveBeenCalled();
+    } finally {
+      cwd.mockRestore();
+    }
   });
 
   test("fails before loading a request when the explicit policy cannot be loaded", async () => {

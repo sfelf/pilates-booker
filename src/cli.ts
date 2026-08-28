@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 import type {
   BookingPolicy,
@@ -22,6 +22,7 @@ import { loadPolicy as loadPolicyFile } from "./policy.js";
 
 export type ExecutionContext = Readonly<{
   request: BookingRequest;
+  policy: BookingPolicy;
   advance(state: Exclude<JournalState, "INITIALIZED">): Promise<void>;
 }>;
 
@@ -87,7 +88,14 @@ export async function runCli(
   ) {
     return 30;
   }
-  const policyPath = resolve(dependencies.cwd ?? process.cwd(), argv[1]!);
+  let policyPath: string;
+  try {
+    policyPath = isAbsolute(argv[1]!)
+      ? argv[1]!
+      : resolve(dependencies.cwd ?? process.cwd(), argv[1]!);
+  } catch {
+    return 30;
+  }
   const loadPolicy = dependencies.loadPolicy ?? loadPolicyFile;
   let policy: BookingPolicy;
   let request: BookingRequest;
@@ -115,7 +123,9 @@ export async function runCli(
     writeResult: (result) => publishResult(paths.resultFile, result)
   });
 
-  const decision = await coordinator.run(dependencies.execute);
+  const decision = await coordinator.run(({ request, advance }) =>
+    dependencies.execute({ request, policy, advance })
+  );
   const finalized = await coordinator.finalize(decision);
   let lockRelease: LockReleaseResult | undefined;
   try {
