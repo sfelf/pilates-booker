@@ -156,10 +156,12 @@ export function createBookingPage(
     selectPackage: (row) => selectPackageRow(page, row),
     acceptCancellationPolicy: () =>
       checkExactControl(
-        page.getByRole("checkbox", {
-          name: "I agree to the Cancellation Policy",
-          exact: true
-        })
+        page.locator('input[type="checkbox"]').and(
+          page.getByRole("checkbox", {
+            name: "I agree to the Cancellation Policy",
+            exact: true
+          })
+        )
       ),
     submit: async (action) => {
       preSubmissionUrl = page.url();
@@ -216,6 +218,7 @@ async function openBookingBrowser<T>(
         .locator(
           '[data-testid="authenticated"], [data-testid="login-required"]'
         )
+        .filter({ visible: true })
         .first()
         .waitFor({ state: "visible", timeout: readinessTimeoutMs });
     } catch {
@@ -259,9 +262,11 @@ async function checkExactControl(locator: Locator): Promise<void> {
 async function fillEmptyInjuries(page: Page, value: "None"): Promise<void> {
   try {
     const input = await exactEnabledVisible(
-      page.getByRole("textbox", {
-        name: /^Do you have any injuries\?(?:\s*\*)?\s*$/u
-      })
+      page.locator('input[type="text"], input:not([type])').and(
+        page.getByRole("textbox", {
+          name: /^Do you have any injuries\?(?:\s*\*)?\s*$/u
+        })
+      )
     );
     if ((await input.inputValue()).trim().length === 0) {
       await input.fill(value);

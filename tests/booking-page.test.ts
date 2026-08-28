@@ -204,6 +204,51 @@ describe("BookingPage read boundary", () => {
 });
 
 describe("BookingPage mutation boundary", () => {
+  it("does not mutate an excluded email textbox with the injuries name", async () => {
+    const page = await syntheticPage(
+      bookingPageHtml({ injuries: [""], injuriesType: "email" })
+    );
+    const booking = createBookingPage(page, expectedClass);
+    const state = await booking.read();
+
+    expect(state.injuries.visibleCount).toBe(0);
+    await expect(booking.fillInjuriesIfEmpty("None")).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
+    expect(await page.locator('input[id^="injuries-"]').inputValue()).toBe("");
+    await page.close();
+  });
+
+  it("does not mutate an excluded custom ARIA cancellation checkbox", async () => {
+    const page = await syntheticPage(bookingPageHtml({ cancellationCount: 0 }));
+    await page.locator("body").evaluate((body) => {
+      const checkbox = document.createElement("button");
+      checkbox.type = "button";
+      checkbox.setAttribute("role", "checkbox");
+      checkbox.setAttribute("aria-label", "I agree to the Cancellation Policy");
+      checkbox.setAttribute("aria-checked", "false");
+      checkbox.addEventListener("click", () => {
+        checkbox.setAttribute("aria-checked", "true");
+        checkbox.setAttribute("data-mutated", "true");
+      });
+      body.append(checkbox);
+    });
+    const booking = createBookingPage(page, expectedClass);
+    const state = await booking.read();
+
+    expect(state.cancellation.visibleCount).toBe(0);
+    await expect(booking.acceptCancellationPolicy()).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
+    const custom = page.getByRole("checkbox", {
+      name: "I agree to the Cancellation Policy",
+      exact: true
+    });
+    expect(await custom.getAttribute("aria-checked")).toBe("false");
+    expect(await custom.getAttribute("data-mutated")).toBeNull();
+    await page.close();
+  });
+
   it("selects only the supported Myself radio", async () => {
     const page = await syntheticPage(
       bookingPageHtml({ myselfSelected: false })
@@ -541,9 +586,13 @@ function lifecycleHarness(
       navigations.push(args);
     },
     url: () => (typeof finalUrl === "string" ? finalUrl : finalUrl()),
-    locator: () => ({
-      first: () => ({ waitFor: readinessWait })
-    })
+    locator: () => {
+      const readinessLocator = {
+        filter: () => readinessLocator,
+        first: () => ({ waitFor: readinessWait })
+      };
+      return readinessLocator;
+    }
   } as unknown as Page;
   const context: BrowserContextLike = {
     pages: () => [page],
@@ -566,6 +615,43 @@ function lifecycleHarness(
 }
 
 describe("BookingBrowser lifecycle", () => {
+  it("accepts a visible supported marker after a hidden first DOM match", async () => {
+    const realPage = await syntheticPage(`<!doctype html>
+      <html><body>
+        <div data-testid="authenticated" hidden>Hidden authenticated marker</div>
+        <div data-testid="login-required">Visible login marker</div>
+      </body></html>`);
+    const page = new Proxy(realPage, {
+      get(target, property) {
+        if (property === "goto") return async () => undefined;
+        if (property === "url") return () => checkoutUrl;
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    let closes = 0;
+    const context: BrowserContextLike = {
+      pages: () => [page],
+      newPage: async () => page,
+      close: async () => {
+        closes += 1;
+      }
+    };
+    const launcher: PersistentBrowserLauncher = async () => context;
+    const browserBoundary = createBookingBrowser(expectedClass, launcher, {
+      readinessTimeoutMs: 50
+    });
+
+    try {
+      await expect(
+        browserBoundary("/tmp/profile", checkoutUrl, async () => "ready")
+      ).resolves.toBe("ready");
+      expect(closes).toBe(1);
+    } finally {
+      await realPage.close();
+    }
+  });
+
   it("waits for delayed supported checkout hydration before invoking the callback", async () => {
     let releaseReadiness: (() => void) | undefined;
     let readinessStarted = false;
