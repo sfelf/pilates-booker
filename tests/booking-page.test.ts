@@ -11,7 +11,9 @@ import type {
   BrowserContextLike,
   PersistentBrowserLauncher
 } from "../src/browser-session.js";
-import type { ExpectedClass } from "../src/contracts.js";
+import type { BookingPolicy, ExpectedClass } from "../src/contracts.js";
+import type { ExecutionContext } from "../src/cli.js";
+import { executeBookingWorkflow } from "../src/booking-workflow.js";
 import { bookingPageHtml } from "./fixtures/checkout.js";
 
 const expectedClass: ExpectedClass = {
@@ -35,6 +37,40 @@ async function syntheticPage(html = bookingPageHtml()): Promise<Page> {
   const page = await browser.newPage();
   await page.setContent(html);
   return page;
+}
+
+const workflowPolicy: BookingPolicy = {
+  schema_version: 1,
+  policy_version: "2026-08-28",
+  allowed_packages: ["Studio / 10-Class Pack"]
+};
+
+function realPageWorkflowContext(): {
+  context: ExecutionContext;
+  advances: string[];
+} {
+  const advances: string[] = [];
+  return {
+    context: {
+      request: {
+        schema_version: 1,
+        request_id: "00000000-0000-4000-8000-000000000006",
+        booking_url: "https://app.arketa.co/checkout/synthetic",
+        expected_class: expectedClass,
+        reserve_for: "myself",
+        permitted_actions: ["book"],
+        policy_version: workflowPolicy.policy_version,
+        allow_monetary_charge: false,
+        dry_run: false
+      },
+      policy: workflowPolicy,
+      profileDir: "/private/synthetic/Profile",
+      advance: async (state) => {
+        advances.push(state);
+      }
+    },
+    advances
+  };
 }
 
 describe("BookingPage read boundary", () => {
@@ -642,6 +678,81 @@ async function revealConfirmation(
     }
   });
 }
+
+describe("BookingPage workflow pre-submit boundary", () => {
+  it("safe stops before submission when aria-labelledby changes the exact action name", async () => {
+    const page = await syntheticPage();
+    const button = page.locator('[data-testid="action-book"]');
+    await button.evaluate((element) =>
+      element.addEventListener("click", () =>
+        element.setAttribute("data-clicked", "true")
+      )
+    );
+    const adapter = createBookingPage(page, expectedClass);
+    const originalBoundaryRead = adapter.readForSubmission;
+    const browser = async <T>(
+      _profileDir: string,
+      _checkoutUrl: string,
+      use: (booking: BookingPage) => Promise<T>
+    ): Promise<T> =>
+      use({
+        ...adapter,
+        readForSubmission: async () => {
+          await page.locator("body").evaluate((body) => {
+            const label = document.createElement("span");
+            label.id = "conflicting-action-label";
+            label.textContent = "Not Book";
+            body.append(label);
+            document
+              .querySelector('[data-testid="action-book"]')
+              ?.setAttribute("aria-labelledby", label.id);
+          });
+          return originalBoundaryRead();
+        }
+      });
+    const { context, advances } = realPageWorkflowContext();
+
+    const result = await executeBookingWorkflow(context, browser);
+
+    expect(result.outcome).toBe("SAFE_STOP");
+    expect(result.action_submitted).toBe(false);
+    expect(result.submission_attempts).toBe(0);
+    expect(advances).toEqual(["VALIDATED"]);
+    expect(await button.getAttribute("data-clicked")).toBeNull();
+    await page.close();
+  });
+
+  it("safe stops with a false exact-class check when the real page class drifts", async () => {
+    const page = await syntheticPage();
+    const adapter = createBookingPage(page, expectedClass);
+    const originalBoundaryRead = adapter.readForSubmission;
+    const browser = async <T>(
+      _profileDir: string,
+      _checkoutUrl: string,
+      use: (booking: BookingPage) => Promise<T>
+    ): Promise<T> =>
+      use({
+        ...adapter,
+        readForSubmission: async () => {
+          await page
+            .locator('[data-testid="class-name"]')
+            .evaluate((element) => {
+              element.textContent = "A different class";
+            });
+          return originalBoundaryRead();
+        }
+      });
+    const { context, advances } = realPageWorkflowContext();
+
+    const result = await executeBookingWorkflow(context, browser);
+
+    expect(result.outcome).toBe("SAFE_STOP");
+    expect(result.safety_checks.exact_class_match).toBe(false);
+    expect(result.action_submitted).toBe(false);
+    expect(advances).toEqual(["VALIDATED"]);
+    await page.close();
+  });
+});
 
 describe("BookingPage confirmation boundary", () => {
   it.each([

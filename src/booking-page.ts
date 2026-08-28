@@ -6,6 +6,7 @@ import {
   type PersistentBrowserLauncher
 } from "./browser-session.js";
 import {
+  CheckoutInspectionError,
   inspectCheckoutSnapshot,
   type RawCheckoutSnapshot
 } from "./checkout-inspection.js";
@@ -117,6 +118,15 @@ class BookingPageControlError extends Error {
   constructor() {
     super("Booking page control is unavailable.");
     this.name = "BookingPageControlError";
+  }
+}
+
+export class BookingPageClassMismatchError extends Error {
+  readonly code = "BOOKING_PAGE_CLASS_MISMATCH";
+
+  constructor() {
+    super("Booking page class does not match the request.");
+    this.name = "BookingPageClassMismatchError";
   }
 }
 
@@ -286,8 +296,16 @@ async function readForSubmission(
     ) {
       throw new Error("preexisting confirmation");
     }
+    const action = state.observation.action;
+    if (action === "book" || action === "waitlist") {
+      await exactActionButton(page, action).click({
+        trial: true,
+        timeout: 250
+      });
+    }
     return state;
-  } catch {
+  } catch (error) {
+    if (error instanceof BookingPageClassMismatchError) throw error;
     throw new BookingPageControlError();
   }
 }
@@ -337,17 +355,20 @@ async function submitExactAction(
   action: PermittedAction
 ): Promise<void> {
   try {
-    const button =
-      action === "book"
-        ? page.getByRole("button", { name: "Book", exact: true })
-        : page.getByRole("button", {
-            name: "Join the waitlist",
-            exact: true
-          });
+    const button = exactActionButton(page, action);
     await button.click({ timeout: 250 });
   } catch {
     throw new BookingPageControlError();
   }
+}
+
+function exactActionButton(page: Page, action: PermittedAction): Locator {
+  return action === "book"
+    ? page.getByRole("button", { name: "Book", exact: true })
+    : page.getByRole("button", {
+        name: "Join the waitlist",
+        exact: true
+      });
 }
 
 type ConfirmationCounts = Readonly<{
@@ -703,7 +724,13 @@ async function readBookingPage(
       submission: raw.submission,
       confirmation: raw.confirmation
     };
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof CheckoutInspectionError &&
+      error.code === "CLASS_MISMATCH"
+    ) {
+      throw new BookingPageClassMismatchError();
+    }
     throw new BookingPageError();
   }
 }

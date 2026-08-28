@@ -1,4 +1,5 @@
 import {
+  BookingPageClassMismatchError,
   createBookingBrowser,
   type BookingBrowser,
   type BookingPage,
@@ -110,8 +111,11 @@ async function revalidateAuthorizedBooking(
   let state: BookingPageState;
   try {
     state = await page.readForSubmission();
-  } catch {
-    return safeStop(context.request.request_id, true);
+  } catch (error) {
+    return safeStop(
+      context.request.request_id,
+      !(error instanceof BookingPageClassMismatchError)
+    );
   }
   const exactClassMatch = isExactClassMatch(context, state);
   if (
