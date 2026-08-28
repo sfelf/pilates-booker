@@ -1,4 +1,5 @@
 import type { CheckoutPageReader } from "../../src/checkout-reader.js";
+import type { ObservedClass } from "../../src/contracts.js";
 
 export const selectors = {
   authenticated: '[data-testid="authenticated"]',
@@ -107,5 +108,29 @@ export class FixtureCheckoutPage implements CheckoutPageReader {
         )
       })
     );
+  }
+
+  async classes(): Promise<readonly ObservedClass[]> {
+    this.operations.push("classes");
+    const fields = [
+      this.fixture[selectors.className] ?? [],
+      this.fixture[selectors.instructor] ?? [],
+      this.fixture[selectors.classDate] ?? [],
+      this.fixture[selectors.startTime] ?? [],
+      this.fixture[selectors.endTime] ?? [],
+      this.fixture[selectors.timezone] ?? []
+    ];
+    const length = fields[0]!.length;
+    if (!fields.every((values) => values.length === length)) {
+      throw new Error("incomplete class fixture");
+    }
+    return Array.from({ length }, (_, index) => ({
+      name: fields[0]![index]?.text ?? "",
+      instructor: fields[1]![index]?.text ?? "",
+      date: fields[2]![index]?.text ?? "",
+      start_time: fields[3]![index]?.text ?? "",
+      end_time: fields[4]![index]?.text ?? "",
+      timezone: fields[5]![index]?.text ?? ""
+    }));
   }
 }

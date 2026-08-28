@@ -33,7 +33,7 @@ describe("readCheckoutSnapshot", () => {
       expect(snapshot.actions).toEqual([action]);
       expect(
         page.operations.every((operation) =>
-          /^(count|texts|attributes|elements):/.test(operation)
+          /^(count|texts|attributes|elements):|^classes$/.test(operation)
         )
       ).toBe(true);
     }
@@ -130,6 +130,31 @@ describe("readCheckoutSnapshot", () => {
       remaining: 3,
       active: true
     });
+  });
+
+  it("captures each class's fields from one DOM read", async () => {
+    class RerenderingClassPage extends FixtureCheckoutPage {
+      override async texts(selector: string): Promise<readonly string[]> {
+        if (selector === selectors.instructor) return ["Wrong instructor"];
+        if (selector === selectors.endTime) return ["11:45"];
+        return super.texts(selector);
+      }
+    }
+
+    const snapshot = await readCheckoutSnapshot(
+      new RerenderingClassPage(bookingFixture())
+    );
+
+    expect(snapshot.classes).toEqual([
+      {
+        name: "Reformer – Début ✨",
+        instructor: "Ana O’Neil",
+        date: "2026-09-01",
+        start_time: "09:30",
+        end_time: "10:20",
+        timezone: "America/Los_Angeles"
+      }
+    ]);
   });
 
   it.each([

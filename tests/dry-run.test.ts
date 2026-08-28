@@ -84,6 +84,11 @@ class FixtureDryRunPage implements DryRunPage {
     if (!this.ready) return Promise.resolve([]);
     return this.reader.elements(selector, attributes);
   }
+
+  classes(): ReturnType<FixtureCheckoutPage["classes"]> {
+    if (!this.ready) return Promise.resolve([]);
+    return this.reader.classes();
+  }
 }
 
 function browserWith(page: DryRunPage): {

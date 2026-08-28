@@ -191,6 +191,17 @@ describe("inspectCheckoutSnapshot", () => {
 
   it.each([
     [
+      "empty package name",
+      [
+        {
+          kind: "class_package",
+          name: "",
+          remaining: 1,
+          active: true
+        }
+      ]
+    ],
+    [
       "duplicate package names",
       [
         {

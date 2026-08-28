@@ -9,6 +9,7 @@ import type { CheckoutAction, ObservedClass } from "./contracts.js";
 const selectors = {
   authenticated: '[data-testid="authenticated"]',
   loginRequired: '[data-testid="login-required"]',
+  classContainer: '[data-testid="class"]',
   className: '[data-testid="class-name"]',
   instructor: '[data-testid="instructor"]',
   classDate: '[data-testid="class-date"]',
@@ -34,6 +35,7 @@ export type CheckoutPageReader = Readonly<{
     selector: string,
     attributes: readonly string[]
   ): Promise<readonly CheckoutElement[]>;
+  classes(): Promise<readonly ObservedClass[]>;
 }>;
 
 export type CheckoutElement = Readonly<{
@@ -68,6 +70,28 @@ export function createPlaywrightCheckoutReader(page: Page): CheckoutPageReader {
             )
           })),
         attributes
+      ),
+    classes: () =>
+      page.locator(selectors.classContainer).evaluateAll((elements) =>
+        elements.map((element) => {
+          const read = (testId: string): string => {
+            const value = element.querySelector(
+              `[data-testid="${testId}"]`
+            )?.textContent;
+            if (value === undefined || value === null) {
+              throw new Error("incomplete class state");
+            }
+            return value;
+          };
+          return {
+            name: read("class-name"),
+            instructor: read("instructor"),
+            date: read("class-date"),
+            start_time: read("start-time"),
+            end_time: read("end-time"),
+            timezone: read("timezone")
+          };
+        })
       )
   };
 }
@@ -114,27 +138,7 @@ async function checkedCount(
 async function readClasses(
   page: CheckoutPageReader
 ): Promise<readonly ObservedClass[]> {
-  const fields = await Promise.all([
-    page.texts(selectors.className),
-    page.texts(selectors.instructor),
-    page.texts(selectors.classDate),
-    page.texts(selectors.startTime),
-    page.texts(selectors.endTime),
-    page.texts(selectors.timezone)
-  ]);
-  const length = fields[0].length;
-  if (!fields.every((values) => values.length === length)) {
-    throw new CheckoutReadError();
-  }
-
-  return Array.from({ length }, (_, index) => ({
-    name: fields[0][index]!,
-    instructor: fields[1][index]!,
-    date: fields[2][index]!,
-    start_time: fields[3][index]!,
-    end_time: fields[4][index]!,
-    timezone: fields[5][index]!
-  }));
+  return page.classes();
 }
 
 async function readActions(
