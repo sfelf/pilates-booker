@@ -162,6 +162,19 @@ describe("runCli", () => {
     await expect(runCli(cliArgs, deps)).resolves.toBe(20);
   });
 
+  test("passes the resolved persistent profile path to the executor", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    let receivedProfile = "";
+    const deps = dependencies(base, async ({ advance, profileDir }) => {
+      receivedProfile = profileDir;
+      await advance("VALIDATED");
+      return result("SAFE_STOP");
+    });
+
+    await expect(runCli(cliArgs, deps)).resolves.toBe(20);
+    expect(receivedProfile).toBe(join(base, "Profile"));
+  });
+
   test("preserves an explicit absolute policy path", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     const policyPath = join(base, "private-policy.json");

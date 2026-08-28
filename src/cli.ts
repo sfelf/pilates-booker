@@ -23,6 +23,7 @@ import { loadPolicy as loadPolicyFile } from "./policy.js";
 export type ExecutionContext = Readonly<{
   request: BookingRequest;
   policy: BookingPolicy;
+  profileDir: string;
   advance(state: Exclude<JournalState, "INITIALIZED">): Promise<void>;
 }>;
 
@@ -124,7 +125,12 @@ export async function runCli(
   });
 
   const decision = await coordinator.run(({ request, advance }) =>
-    dependencies.execute({ request, policy, advance })
+    dependencies.execute({
+      request,
+      policy,
+      profileDir: paths.profileDir,
+      advance
+    })
   );
   const finalized = await coordinator.finalize(decision);
   let lockRelease: LockReleaseResult | undefined;
