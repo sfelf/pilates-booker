@@ -52,6 +52,49 @@ const validResult = {
   details: "Synthetic confirmation displayed."
 };
 
+const actionableDryRun = {
+  schema_version: 1,
+  request_id: validRequest.request_id,
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: false,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "BOOKING_AVAILABLE",
+  package_used: "Synthetic Priority Package",
+  packages_before: [
+    { name: "Synthetic Priority Package", remaining: 2, approved: true }
+  ],
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+};
+
+const existingEnrollmentDryRun = {
+  schema_version: 1,
+  request_id: validRequest.request_id,
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "ALREADY_BOOKED",
+  google_calendar_url: "https://calendar.example.test/event/synthetic",
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+};
+
 describe("schema foundations", () => {
   it("accepts valid synthetic request, policy, result, and journal objects", () => {
     expect(validateRequest(validRequest)).toBe(true);
@@ -171,6 +214,65 @@ describe("schema foundations", () => {
     );
     expect(
       validateResult({ ...alreadyBooked, confirmation_verified: false })
+    ).toBe(false);
+  });
+
+  it("accepts canonical actionable and existing-enrollment dry-run results", () => {
+    expect(validateResult(actionableDryRun)).toBe(true);
+    expect(validateResult(existingEnrollmentDryRun)).toBe(true);
+  });
+
+  it("rejects contradictory dry-run result evidence", () => {
+    const missingAvailability: Record<string, unknown> = {
+      ...actionableDryRun
+    };
+    delete missingAvailability.availability;
+
+    const missingPackageEvidence: Record<string, unknown> = {
+      ...actionableDryRun
+    };
+    delete missingPackageEvidence.package_used;
+
+    expect(validateResult(missingAvailability)).toBe(false);
+    expect(validateResult(missingPackageEvidence)).toBe(false);
+    expect(
+      validateResult({
+        ...existingEnrollmentDryRun,
+        package_used: "Synthetic Priority Package"
+      })
+    ).toBe(false);
+    expect(
+      validateResult({ ...actionableDryRun, action_submitted: true })
+    ).toBe(false);
+    expect(
+      validateResult({ ...actionableDryRun, confirmation_verified: true })
+    ).toBe(false);
+    expect(
+      validateResult({
+        ...actionableDryRun,
+        attendee_name: "Synthetic private attendee"
+      })
+    ).toBe(false);
+    expect(
+      validateResult({
+        ...actionableDryRun,
+        injury_answer: "Synthetic private injury"
+      })
+    ).toBe(false);
+  });
+
+  it("limits dry-run calendar URLs to already-booked evidence", () => {
+    expect(
+      validateResult({
+        ...actionableDryRun,
+        google_calendar_url: "https://calendar.example.test/event/synthetic"
+      })
+    ).toBe(false);
+    expect(
+      validateResult({
+        ...existingEnrollmentDryRun,
+        availability: "ALREADY_WAITLISTED"
+      })
     ).toBe(false);
   });
 

@@ -24,6 +24,7 @@
         "WAITLISTED",
         "ALREADY_BOOKED",
         "ALREADY_WAITLISTED",
+        "DRY_RUN",
         "SAFE_STOP",
         "TECHNICAL_FAILURE",
         "CONFIRMATION_UNCERTAIN"
@@ -73,6 +74,14 @@
           "approved": { "type": "boolean" }
         }
       }
+    },
+    "availability": {
+      "enum": [
+        "BOOKING_AVAILABLE",
+        "WAITLIST_AVAILABLE",
+        "ALREADY_BOOKED",
+        "ALREADY_WAITLISTED"
+      ]
     },
     "google_calendar_url": { "type": "string", "format": "uri" },
     "safety_checks": {
@@ -139,6 +148,109 @@
               "cancellation_policy_accepted": { "const": false }
             }
           }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "DRY_RUN" } } },
+      "then": {
+        "oneOf": [
+          {
+            "required": ["availability", "package_used", "packages_before"],
+            "not": {
+              "properties": { "google_calendar_url": true },
+              "required": ["google_calendar_url"]
+            },
+            "properties": {
+              "exit_code": { "const": 0 },
+              "action_submitted": { "const": false },
+              "submission_attempts": { "const": 0 },
+              "confirmation_verified": { "const": false },
+              "retryable": { "const": false },
+              "availability": {
+                "enum": ["BOOKING_AVAILABLE", "WAITLIST_AVAILABLE"]
+              },
+              "package_used": { "type": "string", "minLength": 1 },
+              "packages_before": true,
+              "safety_checks": {
+                "type": "object",
+                "properties": {
+                  "exact_class_match": { "const": true },
+                  "approved_package_verified": { "const": true },
+                  "no_charge": { "const": false },
+                  "cancellation_policy_accepted": { "const": false }
+                }
+              }
+            }
+          },
+          {
+            "required": ["availability"],
+            "not": {
+              "anyOf": [
+                {
+                  "properties": { "package_used": true },
+                  "required": ["package_used"]
+                },
+                {
+                  "properties": { "packages_before": true },
+                  "required": ["packages_before"]
+                }
+              ]
+            },
+            "properties": {
+              "exit_code": { "const": 0 },
+              "action_submitted": { "const": false },
+              "submission_attempts": { "const": 0 },
+              "confirmation_verified": { "const": true },
+              "retryable": { "const": false },
+              "availability": { "const": "ALREADY_BOOKED" },
+              "safety_checks": {
+                "type": "object",
+                "properties": {
+                  "exact_class_match": { "const": true }
+                }
+              }
+            }
+          },
+          {
+            "required": ["availability"],
+            "not": {
+              "anyOf": [
+                {
+                  "properties": { "package_used": true },
+                  "required": ["package_used"]
+                },
+                {
+                  "properties": { "packages_before": true },
+                  "required": ["packages_before"]
+                },
+                {
+                  "properties": { "google_calendar_url": true },
+                  "required": ["google_calendar_url"]
+                }
+              ]
+            },
+            "properties": {
+              "exit_code": { "const": 0 },
+              "action_submitted": { "const": false },
+              "submission_attempts": { "const": 0 },
+              "confirmation_verified": { "const": true },
+              "retryable": { "const": false },
+              "availability": { "const": "ALREADY_WAITLISTED" },
+              "safety_checks": {
+                "type": "object",
+                "properties": {
+                  "exact_class_match": { "const": true }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "else": {
+        "not": {
+          "properties": { "availability": true },
+          "required": ["availability"]
         }
       }
     },

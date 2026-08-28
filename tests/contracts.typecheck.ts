@@ -131,6 +131,114 @@ const validConfirmationUncertain: BookingResult = {
   submission_attempts: 1
 };
 
+const validActionableDryRun = {
+  schema_version: 1,
+  request_id: "00000000-0000-4000-8000-000000000001",
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: false,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "BOOKING_AVAILABLE",
+  package_used: "Synthetic Reserved Package",
+  packages_before: [
+    { name: "Synthetic Reserved Package", remaining: 2, approved: true }
+  ],
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+} as const satisfies BookingResult;
+
+const validExistingEnrollmentDryRun = {
+  schema_version: 1,
+  request_id: "00000000-0000-4000-8000-000000000001",
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "ALREADY_BOOKED",
+  google_calendar_url: "https://calendar.example.test/event/synthetic",
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+} as const satisfies BookingResult;
+
+const acceptActionableDryRun = (
+  result: Extract<
+    BookingResult,
+    { outcome: "DRY_RUN"; availability: "BOOKING_AVAILABLE" }
+  >
+): void => {
+  void result;
+};
+
+const acceptExistingBookedDryRun = (
+  result: Extract<
+    BookingResult,
+    { outcome: "DRY_RUN"; availability: "ALREADY_BOOKED" }
+  >
+): void => {
+  void result;
+};
+
+const acceptExistingWaitlistedDryRun = (
+  result: Extract<
+    BookingResult,
+    { outcome: "DRY_RUN"; availability: "ALREADY_WAITLISTED" }
+  >
+): void => {
+  void result;
+};
+
+const { availability: ignoredAvailability, ...dryRunWithoutAvailability } =
+  validActionableDryRun;
+void ignoredAvailability;
+
+// @ts-expect-error DRY_RUN requires availability evidence.
+acceptActionableDryRun(dryRunWithoutAvailability);
+
+// @ts-expect-error Actionable DRY_RUN requires selected package evidence.
+acceptActionableDryRun({ ...validActionableDryRun, package_used: undefined });
+
+acceptExistingBookedDryRun({
+  ...validExistingEnrollmentDryRun,
+  // @ts-expect-error Existing-enrollment DRY_RUN cannot project package evidence.
+  package_used: "Synthetic Reserved Package"
+});
+
+// @ts-expect-error DRY_RUN cannot include a submitted action.
+acceptActionableDryRun({ ...validActionableDryRun, action_submitted: true });
+
+// @ts-expect-error Actionable availability cannot claim confirmation.
+acceptActionableDryRun({
+  ...validActionableDryRun,
+  confirmation_verified: true
+});
+
+// @ts-expect-error Actionable DRY_RUN cannot project a calendar URL.
+acceptActionableDryRun({
+  ...validActionableDryRun,
+  google_calendar_url: "https://calendar.example.test/event/synthetic"
+});
+
+acceptExistingWaitlistedDryRun({
+  ...validExistingEnrollmentDryRun,
+  availability: "ALREADY_WAITLISTED",
+  // @ts-expect-error Waitlist enrollment DRY_RUN cannot project a calendar URL.
+  google_calendar_url: "https://calendar.example.test/event/synthetic"
+});
+
 // @ts-expect-error CONFIRMATION_UNCERTAIN must use exit code 40.
 const confirmationUncertainWithWrongExitCode: BookingResult = {
   ...commonResultFields,
@@ -199,6 +307,8 @@ void validBooked;
 void unverifiedBooked;
 void submittedTechnicalFailure;
 void validConfirmationUncertain;
+void validActionableDryRun;
+void validExistingEnrollmentDryRun;
 void confirmationUncertainWithWrongExitCode;
 void confirmationUncertainWithoutSubmission;
 void confirmationUncertainWithNoAttempt;

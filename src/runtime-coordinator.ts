@@ -232,6 +232,7 @@ const allowedOutcomes: Readonly<Record<JournalState, readonly Outcome[]>> = {
   VALIDATED: [
     "ALREADY_BOOKED",
     "ALREADY_WAITLISTED",
+    "DRY_RUN",
     "SAFE_STOP",
     "TECHNICAL_FAILURE"
   ],
@@ -245,6 +246,7 @@ const detailsMarkers = {
   WAITLISTED: "Waitlist confirmed.",
   ALREADY_BOOKED: "Existing booking confirmed.",
   ALREADY_WAITLISTED: "Existing waitlist confirmed.",
+  DRY_RUN: "Dry run completed.",
   SAFE_STOP: "Booking stopped safely.",
   TECHNICAL_FAILURE: "Runtime operation failed.",
   CONFIRMATION_UNCERTAIN: "Booking confirmation is uncertain."
@@ -336,6 +338,20 @@ export function resultMatchesDurableState(
         result.confirmation_verified &&
         result.safety_checks.exact_class_match
       );
+    case "DRY_RUN":
+      return (
+        !result.action_submitted &&
+        result.submission_attempts === 0 &&
+        result.exit_code === 0 &&
+        !result.retryable &&
+        result.safety_checks.exact_class_match &&
+        (isActionableDryRun(result)
+          ? !result.confirmation_verified &&
+            result.safety_checks.approved_package_verified &&
+            !result.safety_checks.no_charge &&
+            !result.safety_checks.cancellation_policy_accepted
+          : isExistingEnrollmentDryRun(result) && result.confirmation_verified)
+      );
     case "SAFE_STOP":
     case "TECHNICAL_FAILURE":
       return noSubmission && !result.confirmation_verified;
@@ -351,4 +367,22 @@ export function resultMatchesDurableState(
         result.safety_checks.cancellation_policy_accepted
       );
   }
+}
+
+function isActionableDryRun(
+  result: Extract<BookingResult, { outcome: "DRY_RUN" }>
+): boolean {
+  return (
+    result.availability === "BOOKING_AVAILABLE" ||
+    result.availability === "WAITLIST_AVAILABLE"
+  );
+}
+
+function isExistingEnrollmentDryRun(
+  result: Extract<BookingResult, { outcome: "DRY_RUN" }>
+): boolean {
+  return (
+    result.availability === "ALREADY_BOOKED" ||
+    result.availability === "ALREADY_WAITLISTED"
+  );
 }

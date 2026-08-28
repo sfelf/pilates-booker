@@ -65,6 +65,49 @@ const alreadyBookedWrongClass = {
   safety_checks: noSubmissionSafetyChecks
 } as unknown as BookingResult;
 
+const actionableDryRun = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: false,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "BOOKING_AVAILABLE",
+  package_used: "Synthetic Priority Package",
+  packages_before: [
+    { name: "Synthetic Priority Package", remaining: 2, approved: true }
+  ],
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+} as const satisfies BookingResult;
+
+const existingEnrollmentDryRun = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "ALREADY_BOOKED",
+  google_calendar_url: "https://calendar.example.test/event/synthetic",
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+} as const satisfies BookingResult;
+
 const safeStop = {
   ...technicalFailure,
   outcome: "SAFE_STOP",
@@ -162,6 +205,8 @@ describe("resultMatchesDurableState", () => {
     ["INITIALIZED", technicalFailure, true],
     ["VALIDATED", alreadyBookedExact, true],
     ["VALIDATED", alreadyBookedWrongClass, false],
+    ["VALIDATED", actionableDryRun, true],
+    ["VALIDATED", existingEnrollmentDryRun, true],
     ["READY_TO_SUBMIT", safeStop, true],
     ["SUBMITTING", confirmationUncertain, true],
     ["SUBMITTING", technicalFailure, false],
@@ -188,6 +233,16 @@ describe("resultMatchesDurableState", () => {
     [
       "rejects already-enrolled evidence with a submission",
       { ...alreadyBookedExact, action_submitted: true, submission_attempts: 1 },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence with a submission",
+      { ...actionableDryRun, action_submitted: true },
+      "VALIDATED"
+    ],
+    [
+      "rejects dry-run evidence with an unknown availability",
+      { ...existingEnrollmentDryRun, availability: "UNKNOWN" },
       "VALIDATED"
     ],
     [
@@ -432,6 +487,59 @@ describe("RuntimeCoordinator execution", () => {
       expect(decision.result.details).toBe(marker);
     }
   );
+
+  test.each([actionableDryRun, existingEnrollmentDryRun] as const)(
+    "publishes a canonical %s result from VALIDATED unchanged",
+    async (executorResult) => {
+      const coordinator = new RuntimeCoordinator(
+        request,
+        new InMemoryRuntimeOperations()
+      );
+
+      await expect(
+        coordinator.run(async ({ advance }) => {
+          await advance("VALIDATED");
+          return executorResult;
+        })
+      ).resolves.toEqual({ result: executorResult, publish: true });
+    }
+  );
+
+  test("rejects a dry-run result after READY_TO_SUBMIT", async () => {
+    const coordinator = new RuntimeCoordinator(
+      request,
+      new InMemoryRuntimeOperations()
+    );
+
+    await expect(
+      coordinator.run(async ({ advance }) => {
+        await advance("VALIDATED");
+        await advance("READY_TO_SUBMIT");
+        return actionableDryRun;
+      })
+    ).resolves.toMatchObject({
+      result: { outcome: "TECHNICAL_FAILURE", exit_code: 30 }
+    });
+  });
+
+  test("rejects dry-run submission evidence", async () => {
+    const coordinator = new RuntimeCoordinator(
+      request,
+      new InMemoryRuntimeOperations()
+    );
+
+    await expect(
+      coordinator.run(async ({ advance }) => {
+        await advance("VALIDATED");
+        return {
+          ...actionableDryRun,
+          action_submitted: true
+        } as unknown as BookingResult;
+      })
+    ).resolves.toMatchObject({
+      result: { outcome: "TECHNICAL_FAILURE", exit_code: 30 }
+    });
+  });
 });
 
 describe("RuntimeCoordinator publication", () => {
