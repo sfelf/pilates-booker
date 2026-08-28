@@ -220,6 +220,64 @@ describe("BookingPage read boundary", () => {
     expect(String(cancellationError)).not.toContain(privateLabel);
     await page.close();
   });
+
+  it("reads only the exact accessible-name Myself radio from the reserveFor group", async () => {
+    const page = await syntheticPage();
+    await page.locator("body").evaluate((body) => {
+      const label = document.createElement("label");
+      label.htmlFor = "reserve-someone-else";
+      label.textContent = "Someone Else";
+      const input = document.createElement("input");
+      input.id = "reserve-someone-else";
+      input.type = "radio";
+      input.name = "reserveFor";
+      body.append(label, input);
+    });
+
+    const state = await createBookingPage(page, expectedClass).read();
+
+    expect(state.myself).toEqual({
+      visibleCount: 1,
+      selected: true,
+      enabled: true
+    });
+    await page.close();
+  });
+
+  it.each([
+    "class-name",
+    "instructor",
+    "class-date",
+    "start-time",
+    "end-time",
+    "timezone"
+  ])(
+    "rejects duplicate visible %s metadata without projection",
+    async (testId) => {
+      const privateValue = `synthetic-private-${testId}`;
+      const page = await syntheticPage();
+      await page.locator('[data-testid="class"]').evaluate(
+        (container, value) => {
+          const duplicate = document.createElement("span");
+          duplicate.dataset.testid = value.testId;
+          duplicate.textContent = value.privateValue;
+          container.append(duplicate);
+        },
+        { testId, privateValue }
+      );
+
+      let error: unknown;
+      try {
+        await createBookingPage(page, expectedClass).read();
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(String(error)).toContain("Booking page could not be read.");
+      expect(String(error)).not.toContain(privateValue);
+      await page.close();
+    }
+  );
 });
 
 describe("BookingPage mutation boundary", () => {
@@ -295,6 +353,66 @@ describe("BookingPage mutation boundary", () => {
     );
     await page.close();
   });
+
+  it("selects the exact accessible-name Myself radio, not another reserveFor choice", async () => {
+    const page = await syntheticPage(
+      bookingPageHtml({ myselfSelected: false })
+    );
+    await page.locator("body").evaluate((body) => {
+      const label = document.createElement("label");
+      label.htmlFor = "reserve-someone-else";
+      label.textContent = "Someone Else";
+      const input = document.createElement("input");
+      input.id = "reserve-someone-else";
+      input.type = "radio";
+      input.name = "reserveFor";
+      body.append(label, input);
+    });
+    const booking = createBookingPage(page, expectedClass);
+
+    await expect(booking.selectMyself()).resolves.toBeUndefined();
+
+    expect(await page.getByLabel("Myself", { exact: true }).isChecked()).toBe(
+      true
+    );
+    expect(
+      await page.getByLabel("Someone Else", { exact: true }).isChecked()
+    ).toBe(false);
+    await page.close();
+  });
+
+  it.each([
+    ["missing", 0],
+    ["duplicate", 2]
+  ] as const)(
+    "fails closed for %s exact Myself radios",
+    async (_name, count) => {
+      const page = await syntheticPage(
+        bookingPageHtml({ myselfCount: count, myselfSelected: false })
+      );
+      if (count === 0) {
+        await page.locator("body").evaluate((body) => {
+          const label = document.createElement("label");
+          label.htmlFor = "reserve-someone-else";
+          label.textContent = "Someone Else";
+          const input = document.createElement("input");
+          input.id = "reserve-someone-else";
+          input.type = "radio";
+          input.name = "reserveFor";
+          body.append(label, input);
+        });
+      }
+      const booking = createBookingPage(page, expectedClass);
+
+      await expect(booking.selectMyself()).rejects.toThrow(
+        "Booking page control is unavailable."
+      );
+      expect(
+        await page.locator('input[name="reserveFor"]:checked').count()
+      ).toBe(0);
+      await page.close();
+    }
+  );
 
   it.each([
     ["required-marker label", true],
@@ -411,6 +529,52 @@ describe("BookingPage mutation boundary", () => {
     expect(await book.getAttribute("data-clicked")).toBeNull();
     await page.close();
   });
+
+  it("does not adopt a changed checkout URL as the pre-click baseline", async () => {
+    const page = await syntheticPage();
+    const button = page.getByRole("button", { name: "Book", exact: true });
+    await button.evaluate((element) => {
+      element.addEventListener("click", () =>
+        element.setAttribute("data-clicked", "true")
+      );
+    });
+    const booking = createBookingPage(page, expectedClass);
+    await booking.read();
+    await page.evaluate(() => window.history.pushState({}, "", "#escaped"));
+
+    await expect(booking.submit("book")).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
+    expect(await button.getAttribute("data-clicked")).toBeNull();
+    await page.close();
+  });
+
+  it.each([
+    ["booking", "confirmation-booked"],
+    ["waitlist", "confirmation-waitlisted"]
+  ] as const)(
+    "does not click when an exact %s confirmation appears after the final read",
+    async (_name, testId) => {
+      const page = await syntheticPage();
+      const button = page.getByRole("button", { name: "Book", exact: true });
+      await button.evaluate((element) => {
+        element.addEventListener("click", () =>
+          element.setAttribute("data-clicked", "true")
+        );
+      });
+      const booking = createBookingPage(page, expectedClass);
+      await booking.read();
+      await page.locator(`[data-testid="${testId}"]`).evaluate((element) => {
+        (element as HTMLElement).hidden = false;
+      });
+
+      await expect(booking.submit("book")).rejects.toThrow(
+        "Booking page control is unavailable."
+      );
+      expect(await button.getAttribute("data-clicked")).toBeNull();
+      await page.close();
+    }
+  );
 });
 
 async function revealConfirmation(
@@ -493,7 +657,7 @@ describe("BookingPage confirmation boundary", () => {
     await page.close();
   });
 
-  it("returns unknown when confirmation was already visible in the coherent pre-submit read", async () => {
+  it("refuses submission when confirmation was already visible in the coherent pre-submit read", async () => {
     const page = await syntheticPage(
       bookingPageHtml({
         bookedConfirmations: 1,
@@ -511,8 +675,9 @@ describe("BookingPage confirmation boundary", () => {
       bookedVisibleCount: 1,
       waitlistedVisibleCount: 0
     });
-    await booking.submit("book");
-    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await expect(booking.submit("book")).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
     await page.close();
   });
 

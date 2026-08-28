@@ -69,6 +69,7 @@ export type BookingBrowser = <T>(
 
 type BookingPageOptions = Readonly<{
   confirmationTimeoutMs?: number;
+  validatedCheckoutUrl?: string;
 }>;
 
 type BookingBrowserOptions = Readonly<{
@@ -142,6 +143,7 @@ export function createBookingPage(
   options: BookingPageOptions = {}
 ): BookingPage {
   const confirmationTimeoutMs = options.confirmationTimeoutMs ?? 30_000;
+  const validatedCheckoutUrl = options.validatedCheckoutUrl ?? page.url();
   let lastReadConfirmation: BookingPageState["confirmation"] | undefined;
   let preSubmissionUrl: string | undefined;
   return {
@@ -151,7 +153,11 @@ export function createBookingPage(
       return state;
     },
     selectMyself: () =>
-      checkExactControl(page.locator('input[type="radio"][name="reserveFor"]')),
+      checkExactControl(
+        page
+          .locator('input[type="radio"][name="reserveFor"]')
+          .and(page.getByRole("radio", { name: "Myself", exact: true }))
+      ),
     fillInjuriesIfEmpty: (value) => fillEmptyInjuries(page, value),
     selectPackage: (row) => selectPackageRow(page, row),
     acceptCancellationPolicy: () =>
@@ -164,8 +170,8 @@ export function createBookingPage(
         )
       ),
     submit: async (action) => {
-      preSubmissionUrl = page.url();
-      await submitExactAction(page, action);
+      preSubmissionUrl = validatedCheckoutUrl;
+      await submitExactAction(page, action, validatedCheckoutUrl);
     },
     waitForConfirmation: (action) =>
       waitForExactConfirmation(
@@ -231,7 +237,11 @@ async function openBookingBrowser<T>(
     } catch {
       throw new BookingBrowserError();
     }
-    return use(createBookingPage(page, expectedClass));
+    return use(
+      createBookingPage(page, expectedClass, {
+        validatedCheckoutUrl: validatedUrl
+      })
+    );
   };
 
   return launcher === undefined
@@ -293,7 +303,8 @@ async function selectPackageRow(page: Page, row: number): Promise<void> {
 
 async function submitExactAction(
   page: Page,
-  action: PermittedAction
+  action: PermittedAction,
+  validatedCheckoutUrl: string
 ): Promise<void> {
   try {
     const button =
@@ -303,10 +314,47 @@ async function submitExactAction(
             name: "Join the waitlist",
             exact: true
           });
-    await (await exactEnabledVisible(button)).click();
+    const exactButton = await exactEnabledVisible(button);
+    const confirmation = await readExactConfirmationCounts(page);
+    if (
+      confirmation.bookedVisibleCount !== 0 ||
+      confirmation.waitlistedVisibleCount !== 0
+    ) {
+      throw new Error("preexisting confirmation");
+    }
+    if (page.url() !== validatedCheckoutUrl) throw new Error("navigated");
+    await exactButton.click();
   } catch {
     throw new BookingPageControlError();
   }
+}
+
+async function readExactConfirmationCounts(
+  page: Page
+): Promise<BookingPageState["confirmation"]> {
+  return page.locator("body").evaluate((root) => {
+    const isVisible = (element: Element): element is HTMLElement => {
+      if (!(element instanceof HTMLElement) || element.hidden) return false;
+      const style = getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") {
+        return false;
+      }
+      const box = element.getBoundingClientRect();
+      return box.width > 0 && box.height > 0;
+    };
+    const exactLeafTextCount = (expected: string): number =>
+      Array.from(root.querySelectorAll("body *")).filter((element) => {
+        if (!isVisible(element)) return false;
+        if ((element.textContent ?? "").trim() !== expected) return false;
+        return !Array.from(element.children).some(
+          (child) => (child.textContent ?? "").trim() === expected
+        );
+      }).length;
+    return {
+      bookedVisibleCount: exactLeafTextCount("You are Booked!"),
+      waitlistedVisibleCount: exactLeafTextCount("You're on the waitlist")
+    };
+  });
 }
 
 type ConfirmationCounts = Readonly<{
@@ -414,11 +462,13 @@ async function readBookingPage(
         return count;
       };
       const requiredText = (container: Element, testId: string): string => {
-        const element = container.querySelector(`[data-testid="${testId}"]`);
-        if (element === null || !isVisible(element)) {
+        const elements = Array.from(
+          container.querySelectorAll(`[data-testid="${testId}"]`)
+        ).filter(isVisible);
+        if (elements.length !== 1) {
           throw new Error("incomplete class");
         }
-        return element.textContent ?? "";
+        return elements[0]?.textContent ?? "";
       };
       const isEnabled = (element: HTMLElement): boolean =>
         !element.matches(":disabled") &&
@@ -572,9 +622,9 @@ async function readBookingPage(
         .map((option) => option.row);
       ensureAtMostOne(selectedPackageRows);
 
-      const myself = visible('input[type="radio"][name="reserveFor"]').filter(
-        (element): element is HTMLInputElement =>
-          element instanceof HTMLInputElement
+      const myself = inputsWithAccessibleName(
+        'input[type="radio"][name="reserveFor"]',
+        (value) => value === "Myself"
       );
       const injuryInputs = inputsWithAccessibleName(
         'input[type="text"], input:not([type])',
