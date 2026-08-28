@@ -33,32 +33,32 @@ const filesystemError = (code: string): NodeJS.ErrnoException =>
 
 describe("acquireProfileLock", () => {
   test("removes the lock when acquisition initialization fails", async () => {
-      const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
-      const path = join(directory, "run.lock");
-      const events: string[] = [];
-      const injectedOperations = {
-        ...operations({
-          close: async (handle) => {
-            events.push("close");
-            await handle.close();
-          },
-          unlink: async (removedPath) => {
-            events.push("unlink");
-            await unlink(removedPath);
-          }
-        }),
-        writeFile: async () => {
-          throw filesystemError("EIO");
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const events: string[] = [];
+    const injectedOperations = {
+      ...operations({
+        close: async (handle) => {
+          events.push("close");
+          await handle.close();
         },
-        statFile: async (handle: Parameters<LockOperations["close"]>[0]) =>
-          handle.stat()
-      } as LockOperations;
+        unlink: async (removedPath) => {
+          events.push("unlink");
+          await unlink(removedPath);
+        }
+      }),
+      writeFile: async () => {
+        throw filesystemError("EIO");
+      },
+      statFile: async (handle: Parameters<LockOperations["close"]>[0]) =>
+        handle.stat()
+    } as LockOperations;
 
-      await expect(
-        acquireProfileLock(path, ensureDirectory, injectedOperations)
-      ).rejects.toThrow();
-      expect(events).toEqual(["close", "unlink"]);
-      await expect(readFile(path, "utf8")).rejects.toThrow();
+    await expect(
+      acquireProfileLock(path, ensureDirectory, injectedOperations)
+    ).rejects.toThrow();
+    expect(events).toEqual(["close", "unlink"]);
+    await expect(readFile(path, "utf8")).rejects.toThrow();
   });
 
   test("preserves the pathname when acquisition ownership cannot be established", async () => {

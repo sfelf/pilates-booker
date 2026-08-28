@@ -128,13 +128,7 @@ export class RuntimeCoordinator {
     }
 
     const safeResult = withFixedDetails(resultStatus.result);
-    if (
-      resultMatchesDurableState(
-        safeResult,
-        journal.state,
-        this.requestId
-      )
-    ) {
+    if (resultMatchesDurableState(safeResult, journal.state, this.requestId)) {
       return {
         result: safeResult,
         publish: safeResult !== resultStatus.result
