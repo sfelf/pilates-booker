@@ -71,6 +71,10 @@ type BookingPageOptions = Readonly<{
   confirmationTimeoutMs?: number;
 }>;
 
+type BookingBrowserOptions = Readonly<{
+  readinessTimeoutMs?: number;
+}>;
+
 type ControlState = Readonly<{
   visibleCount: number;
   selected: boolean;
@@ -123,6 +127,15 @@ class BookingBrowserError extends Error {
   }
 }
 
+class BookingBrowserReadinessError extends Error {
+  readonly code = "BOOKING_BROWSER_READINESS_FAILED";
+
+  constructor() {
+    super("Booking browser readiness failed.");
+    this.name = "BookingBrowserReadinessError";
+  }
+}
+
 export function createBookingPage(
   page: Page,
   expectedClass: ExpectedClass,
@@ -130,6 +143,7 @@ export function createBookingPage(
 ): BookingPage {
   const confirmationTimeoutMs = options.confirmationTimeoutMs ?? 30_000;
   let lastReadConfirmation: BookingPageState["confirmation"] | undefined;
+  let preSubmissionUrl: string | undefined;
   return {
     read: async () => {
       const state = await readBookingPage(page, expectedClass);
@@ -142,25 +156,40 @@ export function createBookingPage(
     selectPackage: (row) => selectPackageRow(page, row),
     acceptCancellationPolicy: () =>
       checkExactControl(
-        page.getByLabel("I agree to the Cancellation Policy", { exact: true })
+        page.getByRole("checkbox", {
+          name: "I agree to the Cancellation Policy",
+          exact: true
+        })
       ),
-    submit: (action) => submitExactAction(page, action),
+    submit: async (action) => {
+      preSubmissionUrl = page.url();
+      await submitExactAction(page, action);
+    },
     waitForConfirmation: (action) =>
       waitForExactConfirmation(
         page,
         action,
         confirmationTimeoutMs,
-        lastReadConfirmation
+        lastReadConfirmation,
+        preSubmissionUrl
       )
   };
 }
 
 export function createBookingBrowser(
   expectedClass: ExpectedClass,
-  launcher?: PersistentBrowserLauncher
+  launcher?: PersistentBrowserLauncher,
+  options: BookingBrowserOptions = {}
 ): BookingBrowser {
   return (profileDir, checkoutUrl, use) =>
-    openBookingBrowser(expectedClass, profileDir, checkoutUrl, use, launcher);
+    openBookingBrowser(
+      expectedClass,
+      profileDir,
+      checkoutUrl,
+      use,
+      launcher,
+      options.readinessTimeoutMs ?? 30_000
+    );
 }
 
 async function openBookingBrowser<T>(
@@ -168,13 +197,31 @@ async function openBookingBrowser<T>(
   profileDir: string,
   checkoutUrl: string,
   use: (page: BookingPage) => Promise<T>,
-  launcher: PersistentBrowserLauncher | undefined
+  launcher: PersistentBrowserLauncher | undefined,
+  readinessTimeoutMs: number
 ): Promise<T> {
   const validatedUrl = validateCheckoutUrl(checkoutUrl).href;
   const inContext = async (context: BrowserContextLike): Promise<T> => {
     const page = context.pages()[0] ?? (await context.newPage());
     try {
       await page.goto(validatedUrl, { waitUntil: "domcontentloaded" });
+      if (validateCheckoutUrl(page.url()).href !== validatedUrl) {
+        throw new Error("redirected");
+      }
+    } catch {
+      throw new BookingBrowserError();
+    }
+    try {
+      await page
+        .locator(
+          '[data-testid="authenticated"], [data-testid="login-required"]'
+        )
+        .first()
+        .waitFor({ state: "visible", timeout: readinessTimeoutMs });
+    } catch {
+      throw new BookingBrowserReadinessError();
+    }
+    try {
       if (validateCheckoutUrl(page.url()).href !== validatedUrl) {
         throw new Error("redirected");
       }
@@ -212,7 +259,9 @@ async function checkExactControl(locator: Locator): Promise<void> {
 async function fillEmptyInjuries(page: Page, value: "None"): Promise<void> {
   try {
     const input = await exactEnabledVisible(
-      page.getByLabel(/^Do you have any injuries\?(?:\s*\*)?\s*$/u)
+      page.getByRole("textbox", {
+        name: /^Do you have any injuries\?(?:\s*\*)?\s*$/u
+      })
     );
     if ((await input.inputValue()).trim().length === 0) {
       await input.fill(value);
@@ -265,10 +314,12 @@ async function waitForExactConfirmation(
   page: Page,
   action: PermittedAction,
   timeoutMs: number,
-  preSubmission: BookingPageState["confirmation"] | undefined
+  preSubmission: BookingPageState["confirmation"] | undefined,
+  preSubmissionUrl: string | undefined
 ): Promise<BookingConfirmation> {
   if (
     preSubmission === undefined ||
+    preSubmissionUrl === undefined ||
     preSubmission.bookedVisibleCount !== 0 ||
     preSubmission.waitlistedVisibleCount !== 0
   ) {
@@ -276,7 +327,7 @@ async function waitForExactConfirmation(
   }
 
   try {
-    const initialUrl = page.url();
+    if (page.url() !== preSubmissionUrl) return "UNKNOWN";
     const handle = await page.waitForFunction(
       ({ initialUrl: expectedUrl }): false | ConfirmationCounts => {
         if (window.location.href !== expectedUrl) {
@@ -312,7 +363,7 @@ async function waitForExactConfirmation(
           ? false
           : counts;
       },
-      { initialUrl },
+      { initialUrl: preSubmissionUrl },
       { polling: 25, timeout: timeoutMs }
     );
     const counts = (await handle.jsonValue()) as ConfirmationCounts;
@@ -381,21 +432,42 @@ async function readBookingPage(
           enabled: input === undefined ? false : isEnabled(input)
         };
       };
-      const labelText = (input: HTMLInputElement): readonly string[] => [
-        input.getAttribute("aria-label") ?? "",
-        ...Array.from(input.labels ?? []).map(
-          (label) => label.textContent ?? ""
-        )
-      ];
-      const inputsWithLabel = (
+      const normalizeAccessibleName = (value: string): string =>
+        value.replace(/\s+/gu, " ").trim();
+      const effectiveAccessibleName = (input: HTMLInputElement): string => {
+        const labelledBy = input.getAttribute("aria-labelledby");
+        if (labelledBy !== null) {
+          return normalizeAccessibleName(
+            labelledBy
+              .split(/\s+/u)
+              .filter((id) => id.length > 0)
+              .map(
+                (id) =>
+                  input.ownerDocument.getElementById(id)?.textContent ?? ""
+              )
+              .join(" ")
+          );
+        }
+        const ariaLabel = input.getAttribute("aria-label");
+        if (ariaLabel !== null) {
+          return normalizeAccessibleName(ariaLabel);
+        }
+        return normalizeAccessibleName(
+          Array.from(input.labels ?? [])
+            .map((label) => label.textContent ?? "")
+            .join(" ")
+        );
+      };
+      const inputsWithAccessibleName = (
+        selector: string,
         matches: (value: string) => boolean
       ): HTMLInputElement[] =>
-        visible("input")
+        visible(selector)
           .filter(
             (element): element is HTMLInputElement =>
               element instanceof HTMLInputElement
           )
-          .filter((input) => labelText(input).some(matches));
+          .filter((input) => matches(effectiveAccessibleName(input)));
       const exactButtons = (name: string): HTMLElement[] =>
         visible('button, input[type="button"], input[type="submit"]').filter(
           (element) => {
@@ -485,12 +557,14 @@ async function readBookingPage(
         (element): element is HTMLInputElement =>
           element instanceof HTMLInputElement
       );
-      const injuryInputs = inputsWithLabel((value) =>
-        /^Do you have any injuries\?(?:\s*\*)?\s*$/u.test(value)
+      const injuryInputs = inputsWithAccessibleName(
+        'input[type="text"], input:not([type])',
+        (value) => /^Do you have any injuries\?(?:\s*\*)?\s*$/u.test(value)
       );
       ensureAtMostOne(injuryInputs);
       const injuryInput = injuryInputs[0];
-      const cancellationInputs = inputsWithLabel(
+      const cancellationInputs = inputsWithAccessibleName(
+        'input[type="checkbox"]',
         (value) => value.trim() === "I agree to the Cancellation Policy"
       );
       ensureAtMostOne(cancellationInputs);

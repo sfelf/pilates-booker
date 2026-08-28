@@ -134,6 +134,73 @@ describe("BookingPage read boundary", () => {
     );
     await page.close();
   });
+
+  it("excludes wrong input types from the supported injuries and cancellation controls", async () => {
+    const page = await syntheticPage(
+      bookingPageHtml({
+        injuriesType: "checkbox",
+        cancellationType: "text"
+      })
+    );
+    const booking = createBookingPage(page, expectedClass);
+
+    const state = await booking.read();
+
+    expect(state.injuries).toEqual({
+      visibleCount: 0,
+      value: "",
+      enabled: false
+    });
+    expect(state.cancellation).toEqual({
+      visibleCount: 0,
+      accepted: false,
+      enabled: false
+    });
+    await expect(booking.fillInjuriesIfEmpty("None")).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
+    await expect(booking.acceptCancellationPolicy()).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
+    await page.close();
+  });
+
+  it("uses the effective accessible name instead of a conflicting associated label", async () => {
+    const privateLabel = "Synthetic conflicting private label";
+    const page = await syntheticPage(
+      bookingPageHtml({
+        injuriesAriaLabel: privateLabel,
+        cancellationAriaLabel: privateLabel
+      })
+    );
+    const booking = createBookingPage(page, expectedClass);
+
+    const state = await booking.read();
+
+    expect(state.injuries.visibleCount).toBe(0);
+    expect(state.cancellation.visibleCount).toBe(0);
+    let injuryError: unknown;
+    let cancellationError: unknown;
+    try {
+      await booking.fillInjuriesIfEmpty("None");
+    } catch (error) {
+      injuryError = error;
+    }
+    try {
+      await booking.acceptCancellationPolicy();
+    } catch (error) {
+      cancellationError = error;
+    }
+    expect(String(injuryError)).toContain(
+      "Booking page control is unavailable."
+    );
+    expect(String(cancellationError)).toContain(
+      "Booking page control is unavailable."
+    );
+    expect(String(injuryError)).not.toContain(privateLabel);
+    expect(String(cancellationError)).not.toContain(privateLabel);
+    await page.close();
+  });
 });
 
 describe("BookingPage mutation boundary", () => {
@@ -306,6 +373,7 @@ describe("BookingPage confirmation boundary", () => {
         confirmationTimeoutMs: 200
       });
       await booking.read();
+      await booking.submit(action);
       const reveal = revealConfirmation(page, testId);
 
       await expect(booking.waitForConfirmation(action)).resolves.toBe(expected);
@@ -320,6 +388,7 @@ describe("BookingPage confirmation boundary", () => {
       confirmationTimeoutMs: 200
     });
     await booking.read();
+    await booking.submit("book");
     const reveal = revealConfirmation(page, "confirmation-waitlisted");
 
     await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
@@ -333,6 +402,7 @@ describe("BookingPage confirmation boundary", () => {
       confirmationTimeoutMs: 200
     });
     await booking.read();
+    await booking.submit("book");
     const reveal = Promise.all([
       revealConfirmation(page, "confirmation-booked"),
       revealConfirmation(page, "confirmation-waitlisted")
@@ -351,6 +421,7 @@ describe("BookingPage confirmation boundary", () => {
       confirmationTimeoutMs: 200
     });
     await booking.read();
+    await booking.submit("book");
     const reveal = revealConfirmation(page, "confirmation-booked");
 
     await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
@@ -376,6 +447,7 @@ describe("BookingPage confirmation boundary", () => {
       bookedVisibleCount: 1,
       waitlistedVisibleCount: 0
     });
+    await booking.submit("book");
     await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
     await page.close();
   });
@@ -391,6 +463,7 @@ describe("BookingPage confirmation boundary", () => {
       confirmationTimeoutMs: 30
     });
     await booking.read();
+    await booking.submit("book");
 
     await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
     await page.close();
@@ -402,6 +475,7 @@ describe("BookingPage confirmation boundary", () => {
       confirmationTimeoutMs: 200
     });
     await booking.read();
+    await booking.submit("book");
     const navigation = (async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       await page.goto("data:text/html,<p>synthetic navigation</p>");
@@ -411,12 +485,47 @@ describe("BookingPage confirmation boundary", () => {
     await navigation;
     await page.close();
   });
+
+  it("returns unknown when navigation completes inside submission before polling begins", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass, {
+      confirmationTimeoutMs: 100
+    });
+    await booking.read();
+    await page
+      .getByRole("button", { name: "Book", exact: true })
+      .evaluate((button) => {
+        button.addEventListener("click", () => {
+          window.history.pushState({}, "", "#submitted");
+          const confirmation = document.querySelector(
+            '[data-testid="confirmation-booked"]'
+          );
+          if (confirmation instanceof HTMLElement) {
+            confirmation.hidden = false;
+          }
+        });
+      });
+
+    await booking.submit("book");
+
+    expect(page.url()).toContain("#submitted");
+    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await page.close();
+  });
 });
 
 const checkoutUrl =
   "https://app.arketa.co/iframe/example/calendar/checkout/FAKE_CHECKOUT_ID";
 
-function lifecycleHarness(finalUrl = checkoutUrl): {
+type ReadinessWait = (options: {
+  state: "visible";
+  timeout: number;
+}) => Promise<void>;
+
+function lifecycleHarness(
+  finalUrl: string | (() => string) = checkoutUrl,
+  readinessWait: ReadinessWait = async () => undefined
+): {
   launcher: PersistentBrowserLauncher;
   navigations: unknown[];
   callbacks: BookingPage[];
@@ -431,7 +540,10 @@ function lifecycleHarness(finalUrl = checkoutUrl): {
     goto: async (...args: unknown[]) => {
       navigations.push(args);
     },
-    url: () => finalUrl
+    url: () => (typeof finalUrl === "string" ? finalUrl : finalUrl()),
+    locator: () => ({
+      first: () => ({ waitFor: readinessWait })
+    })
   } as unknown as Page;
   const context: BrowserContextLike = {
     pages: () => [page],
@@ -454,6 +566,95 @@ function lifecycleHarness(finalUrl = checkoutUrl): {
 }
 
 describe("BookingBrowser lifecycle", () => {
+  it("waits for delayed supported checkout hydration before invoking the callback", async () => {
+    let releaseReadiness: (() => void) | undefined;
+    let readinessStarted = false;
+    let callbackCalled = false;
+    const harness = lifecycleHarness(
+      checkoutUrl,
+      () =>
+        new Promise<void>((resolve) => {
+          readinessStarted = true;
+          releaseReadiness = resolve;
+        })
+    );
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      harness.launcher
+    );
+
+    const running = browserBoundary("/tmp/profile", checkoutUrl, async () => {
+      callbackCalled = true;
+      return "hydrated";
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(readinessStarted).toBe(true);
+    expect(callbackCalled).toBe(false);
+    releaseReadiness?.();
+    await expect(running).resolves.toBe("hydrated");
+    expect(harness.closeCount()).toBe(1);
+  });
+
+  it("bounds hydration timeout, emits a fixed diagnostic, and closes", async () => {
+    const privateFailure = "synthetic-private-hydration-value";
+    const harness = lifecycleHarness(
+      checkoutUrl,
+      ({ timeout }) =>
+        new Promise<void>((_resolve, reject) => {
+          setTimeout(() => reject(new Error(privateFailure)), timeout);
+        })
+    );
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      harness.launcher,
+      { readinessTimeoutMs: 10 }
+    );
+
+    let error: unknown;
+    try {
+      await browserBoundary("/tmp/profile", checkoutUrl, async (page) => {
+        harness.callbacks.push(page);
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(String(error)).toContain("Booking browser readiness failed.");
+    expect(String(error)).not.toContain(privateFailure);
+    expect(harness.callbacks).toEqual([]);
+    expect(harness.closeCount()).toBe(1);
+  });
+
+  it("rechecks the checkout URL after hydration before invoking the callback", async () => {
+    let currentUrl = checkoutUrl;
+    const unsafe = "https://evil.example/private-after-hydration";
+    const harness = lifecycleHarness(
+      () => currentUrl,
+      async () => {
+        currentUrl = unsafe;
+      }
+    );
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      harness.launcher
+    );
+
+    let error: unknown;
+    try {
+      await browserBoundary("/tmp/profile", checkoutUrl, async (page) => {
+        harness.callbacks.push(page);
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(String(error)).toContain("Booking browser navigation failed.");
+    expect(String(error)).not.toContain(unsafe);
+    expect(harness.callbacks).toEqual([]);
+    expect(harness.closeCount()).toBe(1);
+  });
+
   it("navigates to the validated checkout, returns callback output, and closes", async () => {
     const harness = lifecycleHarness();
     const browserBoundary = createBookingBrowser(

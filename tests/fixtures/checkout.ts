@@ -45,9 +45,13 @@ export type BookingPageFixtureOptions = Readonly<{
   myselfSelected?: boolean;
   injuries?: readonly string[];
   injuriesRequiredMarker?: boolean;
+  injuriesType?: string;
+  injuriesAriaLabel?: string;
   packageControlCounts?: readonly number[];
   selectedPackageRows?: readonly number[];
   cancellationCount?: number;
+  cancellationType?: string;
+  cancellationAriaLabel?: string;
   bookedConfirmations?: number;
   waitlistedConfirmations?: number;
   confirmationsHidden?: boolean;
@@ -124,7 +128,7 @@ export function bookingPageHtml(
     .map(
       (value, index) => `
         <label for="injuries-${index}">Do you have any injuries?${options.injuriesRequiredMarker === false ? "" : " *"}</label>
-        <input id="injuries-${index}" type="text" value="${escapeHtml(value)}">
+        <input id="injuries-${index}" type="${escapeHtml(options.injuriesType ?? "text")}"${options.injuriesAriaLabel === undefined ? "" : ` aria-label="${escapeHtml(options.injuriesAriaLabel)}"`} value="${escapeHtml(value)}">
       `
     )
     .join("");
@@ -153,7 +157,7 @@ export function bookingPageHtml(
     options.cancellationCount ?? 1,
     (index) => `
     <label for="cancellation-${index}">I agree to the Cancellation Policy</label>
-    <input id="cancellation-${index}" type="checkbox">
+    <input id="cancellation-${index}" type="${escapeHtml(options.cancellationType ?? "checkbox")}"${options.cancellationAriaLabel === undefined ? "" : ` aria-label="${escapeHtml(options.cancellationAriaLabel)}"`}>
   `
   );
   const booked = repeated(
