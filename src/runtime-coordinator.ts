@@ -48,6 +48,7 @@ const nextStates: Readonly<Partial<Record<JournalState, JournalState>>> = {
 
 export class RuntimeCoordinator {
   readonly request: BookingRequest;
+  private readonly requestId: string;
   private durableState: JournalState | undefined;
 
   constructor(
@@ -55,6 +56,7 @@ export class RuntimeCoordinator {
     private readonly operations: RuntimeOperations
   ) {
     this.request = request;
+    this.requestId = request.request_id;
   }
 
   async initialize(): Promise<void> {
@@ -90,7 +92,7 @@ export class RuntimeCoordinator {
         : this.nonPublishableFailure();
     }
 
-    if (journal.request_id !== this.request.request_id) {
+    if (journal.request_id !== this.requestId) {
       return this.nonPublishableFailure();
     }
     this.durableState = journal.state;
@@ -98,14 +100,14 @@ export class RuntimeCoordinator {
     const resultStatus = await this.readResultSafely();
     if (resultStatus.status === "missing") {
       return {
-        result: classifyFailure(this.request.request_id, journal.state),
+        result: classifyFailure(this.requestId, journal.state),
         publish: true
       };
     }
 
     if (resultStatus.status === "failure") {
       return {
-        result: classifyFailure(this.request.request_id, journal.state),
+        result: classifyFailure(this.requestId, journal.state),
         publish: false
       };
     }
@@ -113,14 +115,14 @@ export class RuntimeCoordinator {
     if (resultStatus.status === "invalid") {
       const inspectionRequestId = resultStatus.inspectionRequestId;
       return {
-        result: classifyFailure(this.request.request_id, journal.state),
-        publish: inspectionRequestId === this.request.request_id
+        result: classifyFailure(this.requestId, journal.state),
+        publish: inspectionRequestId === this.requestId
       };
     }
 
-    if (resultStatus.result.request_id !== this.request.request_id) {
+    if (resultStatus.result.request_id !== this.requestId) {
       return {
-        result: classifyFailure(this.request.request_id, journal.state),
+        result: classifyFailure(this.requestId, journal.state),
         publish: false
       };
     }
@@ -130,7 +132,7 @@ export class RuntimeCoordinator {
       resultMatchesDurableState(
         safeResult,
         journal.state,
-        this.request.request_id
+        this.requestId
       )
     ) {
       return {
@@ -140,7 +142,7 @@ export class RuntimeCoordinator {
     }
 
     return {
-      result: classifyFailure(this.request.request_id, journal.state),
+      result: classifyFailure(this.requestId, journal.state),
       publish: true
     };
   }
@@ -163,7 +165,7 @@ export class RuntimeCoordinator {
         !resultMatchesDurableState(
           safeResult,
           this.durableState,
-          this.request.request_id
+          this.requestId
         )
       ) {
         throw new Error("result contradicts durable journal");
@@ -171,7 +173,7 @@ export class RuntimeCoordinator {
       return { result: safeResult, publish: true };
     } catch {
       return {
-        result: classifyFailure(this.request.request_id, this.durableState),
+        result: classifyFailure(this.requestId, this.durableState),
         publish: this.durableState !== undefined
       };
     }
@@ -195,7 +197,7 @@ export class RuntimeCoordinator {
   private async writeState(state: JournalState): Promise<void> {
     await this.operations.writeJournal({
       schema_version: 1,
-      request_id: this.request.request_id,
+      request_id: this.requestId,
       state
     });
     this.durableState = state;
@@ -211,7 +213,7 @@ export class RuntimeCoordinator {
 
   private nonPublishableFailure(): CoordinatorDecision {
     return {
-      result: classifyFailure(this.request.request_id, this.durableState),
+      result: classifyFailure(this.requestId, this.durableState),
       publish: false
     };
   }

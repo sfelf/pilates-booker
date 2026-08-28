@@ -295,6 +295,27 @@ describe("RuntimeCoordinator durable state", () => {
 });
 
 describe("RuntimeCoordinator execution", () => {
+  test("retains the validated request ID when an executor mutates its alias", async () => {
+    const operations = new InMemoryRuntimeOperations();
+    const originalRequest = { ...request } as BookingRequest;
+    const coordinator = new RuntimeCoordinator(originalRequest, operations);
+
+    const decision = await coordinator.run(
+      async ({ request: executorRequest, advance }) => {
+        await advance("VALIDATED");
+        (
+          executorRequest as unknown as {
+            request_id: string;
+          }
+        ).request_id = "00000000-0000-4000-8000-000000000099";
+        return technicalFailure;
+      }
+    );
+
+    expect(operations.journal?.request_id).toBe(requestId);
+    expect(decision.result.request_id).toBe(requestId);
+  });
+
   async function runFaultCase(state: JournalState, invalidResult = false) {
     const operations = new InMemoryRuntimeOperations();
     operations.failReadJournalAfterSubmission = true;
