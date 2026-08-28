@@ -769,19 +769,15 @@ describe("runCli", () => {
     [0, "close"],
     [0, "stat"],
     [0, "unlink"],
-    [0, "sync"],
     [20, "close"],
     [20, "stat"],
     [20, "unlink"],
-    [20, "sync"],
     [30, "close"],
     [30, "stat"],
     [30, "unlink"],
-    [30, "sync"],
     [40, "close"],
     [40, "stat"],
-    [40, "unlink"],
-    [40, "sync"]
+    [40, "unlink"]
   ] as const)(
     "preserves selected exit %i when lock release returns the %s failure stage",
     async (exitCode, stage) => {

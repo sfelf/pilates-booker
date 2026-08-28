@@ -15,21 +15,16 @@ import {
   acquireProfileLock,
   type LockOperations
 } from "../src/lock.js";
-import {
-  ensureDirectoryDurable,
-  syncDirectoryDurable
-} from "../src/atomic-json.js";
+import { ensureDirectory } from "../src/atomic-json.js";
 
 const operations = (
   overrides: Partial<LockOperations> = {}
 ): LockOperations => ({
   writeFile: (handle, contents) => handle.writeFile(contents, "utf8"),
-  syncFile: (handle) => handle.sync(),
   statFile: (handle) => handle.stat(),
   close: (handle) => handle.close(),
   stat,
   unlink,
-  syncDirectory: syncDirectoryDurable,
   ...overrides
 });
 
@@ -37,9 +32,7 @@ const filesystemError = (code: string): NodeJS.ErrnoException =>
   Object.assign(new Error("synthetic private filesystem message"), { code });
 
 describe("acquireProfileLock", () => {
-  test.each(["write", "sync"] as const)(
-    "durably removes the lock when acquisition %s fails",
-    async (failureStage) => {
+  test("removes the lock when acquisition initialization fails", async () => {
       const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
       const path = join(directory, "run.lock");
       const events: string[] = [];
@@ -52,32 +45,21 @@ describe("acquireProfileLock", () => {
           unlink: async (removedPath) => {
             events.push("unlink");
             await unlink(removedPath);
-          },
-          syncDirectory: async (syncedDirectory) => {
-            events.push("sync-directory");
-            expect(syncedDirectory).toBe(directory);
-            await expect(readFile(path, "utf8")).rejects.toThrow();
           }
         }),
-        writeFile: async (handle: Parameters<LockOperations["close"]>[0]) => {
-          if (failureStage === "write") throw filesystemError("EIO");
-          await handle.writeFile('{"version":1}\n', "utf8");
-        },
-        syncFile: async (handle: Parameters<LockOperations["close"]>[0]) => {
-          if (failureStage === "sync") throw filesystemError("EIO");
-          await handle.sync();
+        writeFile: async () => {
+          throw filesystemError("EIO");
         },
         statFile: async (handle: Parameters<LockOperations["close"]>[0]) =>
           handle.stat()
       } as LockOperations;
 
       await expect(
-        acquireProfileLock(path, ensureDirectoryDurable, injectedOperations)
+        acquireProfileLock(path, ensureDirectory, injectedOperations)
       ).rejects.toThrow();
-      expect(events).toEqual(["close", "unlink", "sync-directory"]);
+      expect(events).toEqual(["close", "unlink"]);
       await expect(readFile(path, "utf8")).rejects.toThrow();
-    }
-  );
+  });
 
   test("preserves the pathname when acquisition ownership cannot be established", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
@@ -86,7 +68,7 @@ describe("acquireProfileLock", () => {
     await expect(
       acquireProfileLock(
         path,
-        ensureDirectoryDurable,
+        ensureDirectory,
         operations({
           statFile: async () => {
             throw filesystemError("EIO");
@@ -105,7 +87,7 @@ describe("acquireProfileLock", () => {
     await expect(
       acquireProfileLock(
         path,
-        ensureDirectoryDurable,
+        ensureDirectory,
         operations({
           writeFile: async () => {
             throw filesystemError("EIO");
@@ -128,7 +110,7 @@ describe("acquireProfileLock", () => {
     });
   });
 
-  test("durably creates the runtime base before creating its lock", async () => {
+  test("creates the runtime base before creating its lock", async () => {
     const parent = await mkdtemp(join(tmpdir(), "arketa-lock-parent-"));
     const base = join(parent, "private-runtime");
     const path = join(base, "run.lock");
@@ -136,61 +118,12 @@ describe("acquireProfileLock", () => {
 
     const lock = await acquireProfileLock(path, async (directory) => {
       await expect(readFile(path, "utf8")).rejects.toThrow();
-      await ensureDirectoryDurable(directory);
+      await ensureDirectory(directory);
       initializedBeforeLock = true;
     });
 
     expect(initializedBeforeLock).toBe(true);
     await lock.release();
-  });
-
-  test("syncs the lock directory after removing the lock", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
-    const path = join(directory, "run.lock");
-    let syncedAfterRemoval = false;
-    const lock = await acquireProfileLock(
-      path,
-      ensureDirectoryDurable,
-      operations({
-        syncDirectory: async (syncedDirectory) => {
-          expect(syncedDirectory).toBe(directory);
-          await expect(readFile(path, "utf8")).rejects.toThrow();
-          syncedAfterRemoval = true;
-        }
-      })
-    );
-
-    await expect(lock.release()).resolves.toEqual({ released: true });
-    expect(syncedAfterRemoval).toBe(true);
-  });
-
-  test("retries a failed directory sync without unlinking again", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
-    const path = join(directory, "run.lock");
-    let unlinkCalls = 0;
-    let syncCalls = 0;
-    const lock = await acquireProfileLock(
-      path,
-      ensureDirectoryDurable,
-      operations({
-        unlink: async (removedPath) => {
-          unlinkCalls += 1;
-          await unlink(removedPath);
-        },
-        syncDirectory: async () => {
-          syncCalls += 1;
-          if (syncCalls === 1) throw filesystemError("EIO");
-        }
-      })
-    );
-
-    await expect(lock.release()).resolves.toEqual({
-      released: false,
-      stage: "sync"
-    });
-    await expect(lock.release()).resolves.toEqual({ released: true });
-    expect(unlinkCalls).toBe(1);
-    expect(syncCalls).toBe(2);
   });
 
   test("serializes concurrent release calls", async () => {
@@ -203,7 +136,7 @@ describe("acquireProfileLock", () => {
     });
     const lock = await acquireProfileLock(
       path,
-      ensureDirectoryDurable,
+      ensureDirectory,
       operations({
         close: async (handle) => {
           await closeGate;
@@ -252,14 +185,6 @@ describe("acquireProfileLock", () => {
           throw filesystemError("EPERM");
         }
       })
-    ],
-    [
-      "sync",
-      operations({
-        syncDirectory: async () => {
-          throw filesystemError("EIO");
-        }
-      })
     ]
   ] as const)(
     "returns the typed %s stage for a release failure",
@@ -268,7 +193,7 @@ describe("acquireProfileLock", () => {
       const path = join(directory, "run.lock");
       const lock = await acquireProfileLock(
         path,
-        ensureDirectoryDurable,
+        ensureDirectory,
         injectedOperations
       );
 
@@ -284,7 +209,7 @@ describe("acquireProfileLock", () => {
     const path = join(directory, "run.lock");
     const lock = await acquireProfileLock(
       path,
-      ensureDirectoryDurable,
+      ensureDirectory,
       operations({
         stat: async () => {
           throw filesystemError("ENOENT");
@@ -301,7 +226,7 @@ describe("acquireProfileLock", () => {
     const path = join(directory, "run.lock");
     const lock = await acquireProfileLock(
       path,
-      ensureDirectoryDurable,
+      ensureDirectory,
       operations({
         unlink: async () => {
           throw filesystemError("ENOENT");
