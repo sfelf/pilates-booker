@@ -150,3 +150,19 @@ export type JournalRecord = Readonly<{
   request_id: string;
   state: JournalState;
 }>;
+
+export type CheckoutAction =
+  | "book"
+  | "waitlist"
+  | "sold_out"
+  | "already_booked"
+  | "already_waitlisted";
+
+export type CheckoutObservation =
+  | Readonly<{ status: "login_required" }>
+  | Readonly<{
+      status: "observed";
+      observed_class: ObservedClass;
+      action: CheckoutAction;
+      packages: readonly PackageBalance[];
+    }>;
