@@ -132,6 +132,21 @@ describe("inspectCheckoutSnapshot", () => {
     }
   );
 
+  it.each([
+    ["empty end time", { end_time: "" }],
+    ["localized end time", { end_time: "10:20 AM" }],
+    ["out-of-range end time", { end_time: "24:00" }],
+    ["empty instructor", { instructor: "" }]
+  ] as const)("rejects malformed observed class data: %s", (_name, field) => {
+    const observed = { ...validSnapshot().classes[0]!, ...field };
+
+    expect(() =>
+      inspectCheckoutSnapshot(request, validSnapshot({ classes: [observed] }))
+    ).toThrowError(
+      expect.objectContaining({ code: "AMBIGUOUS_CHECKOUT_STATE" })
+    );
+  });
+
   it("keeps valid catalog text and excludes product offers", () => {
     const result = inspectCheckoutSnapshot(
       request,
@@ -139,9 +154,7 @@ describe("inspectCheckoutSnapshot", () => {
         offerings: [
           {
             kind: "product",
-            name: "Grip Socks — Édition limitée",
-            remaining: 20,
-            active: true
+            name: "Grip Socks — Édition limitée"
           },
           {
             kind: "class_package",

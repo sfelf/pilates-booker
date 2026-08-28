@@ -6,12 +6,14 @@ import type {
   PackageBalance
 } from "./contracts.js";
 
-export type RawOffering = Readonly<{
-  kind: "class_package" | "product";
-  name: string;
-  remaining: number;
-  active: boolean;
-}>;
+export type RawOffering =
+  | Readonly<{ kind: "product"; name: string }>
+  | Readonly<{
+      kind: "class_package";
+      name: string;
+      remaining: number;
+      active: boolean;
+    }>;
 
 export type RawCheckoutSnapshot = Readonly<{
   authenticated: boolean;
@@ -61,6 +63,12 @@ export function inspectCheckoutSnapshot(
 
   const observedClass = raw.classes[0]!;
   const expectedClass = request.expected_class;
+  if (
+    observedClass.instructor.length === 0 ||
+    !/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(observedClass.end_time)
+  ) {
+    throw new CheckoutInspectionError("AMBIGUOUS_CHECKOUT_STATE");
+  }
   if (
     observedClass.name !== expectedClass.name ||
     observedClass.date !== expectedClass.date ||

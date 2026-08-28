@@ -18,6 +18,7 @@ export type DryRunPage = CheckoutPageReader &
   Readonly<{
     navigate(url: string): Promise<void>;
     currentUrl(): string;
+    waitUntilReady(): Promise<void>;
   }>;
 
 export type DryRunBrowser = <T>(
@@ -61,6 +62,7 @@ export async function runDryInspection(
       if (!isExpectedCheckout(page.currentUrl(), input.request.booking_url)) {
         return technicalFailure("UNSAFE_NAVIGATION");
       }
+      await page.waitUntilReady();
 
       let observation: CheckoutObservation;
       try {
@@ -102,7 +104,15 @@ function createDryRunPage(page: Page): DryRunPage {
     navigate: async (url) => {
       await page.goto(url, { waitUntil: "domcontentloaded" });
     },
-    currentUrl: () => page.url()
+    currentUrl: () => page.url(),
+    waitUntilReady: async () => {
+      await page
+        .locator(
+          '[data-testid="authenticated"], [data-testid="login-required"]'
+        )
+        .first()
+        .waitFor({ state: "visible" });
+    }
   };
 }
 

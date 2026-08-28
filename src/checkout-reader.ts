@@ -30,6 +30,15 @@ export type CheckoutPageReader = Readonly<{
     selector: string,
     name: string
   ): Promise<readonly (string | null)[]>;
+  elements(
+    selector: string,
+    attributes: readonly string[]
+  ): Promise<readonly CheckoutElement[]>;
+}>;
+
+export type CheckoutElement = Readonly<{
+  text: string;
+  attributes: Readonly<Record<string, string | null>>;
 }>;
 
 export class CheckoutReadError extends Error {
@@ -48,7 +57,18 @@ export function createPlaywrightCheckoutReader(page: Page): CheckoutPageReader {
     attributes: async (selector, name) => {
       const locators = await page.locator(selector).all();
       return Promise.all(locators.map((locator) => locator.getAttribute(name)));
-    }
+    },
+    elements: (selector, attributes) =>
+      page.locator(selector).evaluateAll(
+        (elements, names) =>
+          elements.map((element) => ({
+            text: element.textContent ?? "",
+            attributes: Object.fromEntries(
+              names.map((name) => [name, element.getAttribute(name)])
+            )
+          })),
+        attributes
+      )
   };
 }
 
@@ -138,26 +158,19 @@ async function readActions(
 async function readOfferings(
   page: CheckoutPageReader
 ): Promise<readonly RawOffering[]> {
-  const [names, kinds, remainingValues, activeValues] = await Promise.all([
-    page.texts(selectors.package),
-    page.attributes(selectors.package, "data-kind"),
-    page.attributes(selectors.package, "data-remaining"),
-    page.attributes(selectors.package, "data-active")
+  const elements = await page.elements(selectors.package, [
+    "data-kind",
+    "data-remaining",
+    "data-active"
   ]);
-  if (
-    kinds.length !== names.length ||
-    remainingValues.length !== names.length ||
-    activeValues.length !== names.length
-  ) {
-    throw new CheckoutReadError();
-  }
 
-  return names.map((name, index) => {
-    const kind = kinds[index];
-    const remainingRaw = remainingValues[index];
-    const activeRaw = activeValues[index];
+  return elements.map(({ text: name, attributes }) => {
+    const kind = attributes["data-kind"];
+    const remainingRaw = attributes["data-remaining"];
+    const activeRaw = attributes["data-active"];
+    if (kind === "product") return { kind, name };
     if (
-      (kind !== "class_package" && kind !== "product") ||
+      kind !== "class_package" ||
       remainingRaw == null ||
       remainingRaw.trim() === "" ||
       (activeRaw !== "true" && activeRaw !== "false")

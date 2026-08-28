@@ -34,12 +34,15 @@ const request: BookingRequest & Readonly<{ dry_run: true }> = {
 class FixtureDryRunPage implements DryRunPage {
   private readonly reader: FixtureCheckoutPage;
   private urlIndex = 0;
+  private ready: boolean;
 
   constructor(
     fixture: CheckoutFixture,
-    private readonly urls: readonly string[] = [request.booking_url]
+    private readonly urls: readonly string[] = [request.booking_url],
+    hydrateOnWait = false
   ) {
     this.reader = new FixtureCheckoutPage(fixture);
+    this.ready = !hydrateOnWait;
   }
 
   async navigate(url: string): Promise<void> {
@@ -52,11 +55,17 @@ class FixtureDryRunPage implements DryRunPage {
     return url;
   }
 
+  async waitUntilReady(): Promise<void> {
+    this.ready = true;
+  }
+
   count(selector: string): Promise<number> {
+    if (!this.ready) return Promise.resolve(0);
     return this.reader.count(selector);
   }
 
   texts(selector: string): Promise<readonly string[]> {
+    if (!this.ready) return Promise.resolve([]);
     return this.reader.texts(selector);
   }
 
@@ -64,7 +73,16 @@ class FixtureDryRunPage implements DryRunPage {
     selector: string,
     name: string
   ): Promise<readonly (string | null)[]> {
+    if (!this.ready) return Promise.resolve([]);
     return this.reader.attributes(selector, name);
+  }
+
+  elements(
+    selector: string,
+    attributes: readonly string[]
+  ): ReturnType<FixtureCheckoutPage["elements"]> {
+    if (!this.ready) return Promise.resolve([]);
+    return this.reader.elements(selector, attributes);
   }
 }
 
@@ -96,6 +114,21 @@ describe("runDryInspection", () => {
       observation: { status: "observed", action: "book" }
     });
     expect(injected.profiles).toEqual(["/tmp/Pilates Profile"]);
+  });
+
+  it("waits for client-rendered checkout readiness before reading", async () => {
+    const page = new FixtureDryRunPage(
+      bookingFixture(),
+      [request.booking_url],
+      true
+    );
+
+    const result = await runDryInspection(
+      { request, profileDir: "/tmp/profile" },
+      browserWith(page).browser
+    );
+
+    expect(result).toMatchObject({ status: "observed" });
   });
 
   it("maps login-required to a fixed safe stop", async () => {

@@ -88,4 +88,24 @@ export class FixtureCheckoutPage implements CheckoutPageReader {
       ({ attributes }) => attributes?.[name] ?? null
     );
   }
+
+  async elements(
+    selector: string,
+    names: readonly string[]
+  ): Promise<
+    readonly Readonly<{
+      text: string;
+      attributes: Readonly<Record<string, string | null>>;
+    }>[]
+  > {
+    this.operations.push(`elements:${selector}:${names.join(",")}`);
+    return (this.fixture[selector as keyof CheckoutFixture] ?? []).map(
+      ({ text, attributes }) => ({
+        text: text ?? "",
+        attributes: Object.fromEntries(
+          names.map((name) => [name, attributes?.[name] ?? null])
+        )
+      })
+    );
+  }
 }

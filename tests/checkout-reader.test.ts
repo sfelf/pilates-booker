@@ -33,7 +33,7 @@ describe("readCheckoutSnapshot", () => {
       expect(snapshot.actions).toEqual([action]);
       expect(
         page.operations.every((operation) =>
-          /^(count|texts|attributes):/.test(operation)
+          /^(count|texts|attributes|elements):/.test(operation)
         )
       ).toBe(true);
     }
@@ -67,9 +67,7 @@ describe("readCheckoutSnapshot", () => {
         },
         {
           kind: "product",
-          name: "Grip Socks — Édition limitée",
-          remaining: 20,
-          active: true
+          name: "Grip Socks — Édition limitée"
         }
       ]
     });
@@ -86,6 +84,51 @@ describe("readCheckoutSnapshot", () => {
       classes: [],
       actions: [],
       offerings: []
+    });
+  });
+
+  it("does not require package-only attributes on product offers", async () => {
+    const fixture = {
+      ...bookingFixture(),
+      [selectors.package]: [
+        {
+          text: "Grip Socks — Édition limitée",
+          attributes: { "data-kind": "product" }
+        }
+      ]
+    };
+
+    const snapshot = await readCheckoutSnapshot(
+      new FixtureCheckoutPage(fixture)
+    );
+
+    expect(snapshot.offerings).toEqual([
+      { kind: "product", name: "Grip Socks — Édition limitée" }
+    ]);
+  });
+
+  it("captures each offering's name and attributes from one DOM read", async () => {
+    class RerenderingPage extends FixtureCheckoutPage {
+      override async attributes(
+        selector: string,
+        name: string
+      ): Promise<readonly (string | null)[]> {
+        if (selector === selectors.package && name === "data-remaining") {
+          return ["99", "20"];
+        }
+        return super.attributes(selector, name);
+      }
+    }
+
+    const snapshot = await readCheckoutSnapshot(
+      new RerenderingPage(bookingFixture())
+    );
+
+    expect(snapshot.offerings[0]).toEqual({
+      kind: "class_package",
+      name: "Studio / 10-Class Pack",
+      remaining: 3,
+      active: true
     });
   });
 
