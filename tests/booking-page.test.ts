@@ -1,0 +1,533 @@
+import { chromium, type Browser, type Page } from "playwright";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import {
+  createBookingBrowser,
+  createBookingPage,
+  type BookingPage,
+  type BookingPageState
+} from "../src/booking-page.js";
+import type {
+  BrowserContextLike,
+  PersistentBrowserLauncher
+} from "../src/browser-session.js";
+import type { ExpectedClass } from "../src/contracts.js";
+import { bookingPageHtml } from "./fixtures/checkout.js";
+
+const expectedClass: ExpectedClass = {
+  name: "Reformer – Début ✨",
+  date: "2026-09-01",
+  start_time: "09:30",
+  timezone: "America/Los_Angeles"
+};
+
+let browser: Browser;
+
+beforeAll(async () => {
+  browser = await chromium.launch({ headless: true });
+});
+
+afterAll(async () => {
+  await browser.close();
+});
+
+async function syntheticPage(html = bookingPageHtml()): Promise<Page> {
+  const page = await browser.newPage();
+  await page.setContent(html);
+  return page;
+}
+
+describe("BookingPage read boundary", () => {
+  it("returns one coherent supported state without projecting attendee identity or injury text", async () => {
+    const page = await syntheticPage();
+
+    const state = await createBookingPage(page, expectedClass).read();
+
+    expect(state).toEqual<BookingPageState>({
+      observation: {
+        status: "observed",
+        observed_class: {
+          name: "Reformer – Début ✨",
+          instructor: "Ana O’Neil",
+          date: "2026-09-01",
+          start_time: "09:30",
+          end_time: "10:20",
+          timezone: "America/Los_Angeles"
+        },
+        action: "book",
+        packages: [
+          {
+            name: "Studio / 10-Class Pack",
+            remaining: 3,
+            approved: false
+          },
+          {
+            name: "Intro / 5-Class Pack",
+            remaining: 1,
+            approved: false
+          }
+        ]
+      },
+      myself: { visibleCount: 1, selected: true, enabled: true },
+      injuries: { visibleCount: 1, value: "PRESENT", enabled: true },
+      packages: [
+        {
+          row: 0,
+          name: "Studio / 10-Class Pack",
+          remaining: 3,
+          active: true,
+          product: false,
+          control: { visibleCount: 1, selected: true, enabled: true }
+        },
+        {
+          row: 1,
+          name: "Intro / 5-Class Pack",
+          remaining: 1,
+          active: true,
+          product: false,
+          control: { visibleCount: 1, selected: false, enabled: true }
+        },
+        {
+          row: 2,
+          name: "Grip Socks — Édition limitée",
+          remaining: 20,
+          active: true,
+          product: true,
+          control: { visibleCount: 0, selected: false, enabled: false }
+        }
+      ],
+      selectedPackageRow: 0,
+      cancellation: { visibleCount: 1, accepted: false, enabled: true },
+      submission: {
+        book: { visibleCount: 1, enabled: true },
+        waitlist: { visibleCount: 0, enabled: false }
+      },
+      confirmation: { bookedVisibleCount: 0, waitlistedVisibleCount: 0 }
+    });
+    const diagnostic = JSON.stringify(state);
+    expect(diagnostic).not.toContain("synthetic-private@example.test");
+    expect(diagnostic).not.toContain("Synthetic existing answer");
+    await page.close();
+  });
+
+  it.each([
+    ["Myself radios", { myselfCount: 2 }],
+    ["injuries fields", { injuries: ["", ""] }],
+    ["package controls", { packageControlCounts: [2, 1, 0] }],
+    ["cancellation controls", { cancellationCount: 2 }]
+  ] as const)("rejects duplicate visible %s", async (_name, options) => {
+    const page = await syntheticPage(bookingPageHtml(options));
+
+    await expect(createBookingPage(page, expectedClass).read()).rejects.toThrow(
+      "Booking page could not be read."
+    );
+    await page.close();
+  });
+
+  it("rejects contradictory actionable and existing-enrollment markers", async () => {
+    const page = await syntheticPage(
+      bookingPageHtml({ action: "book_and_already_booked" })
+    );
+
+    await expect(createBookingPage(page, expectedClass).read()).rejects.toThrow(
+      "Booking page could not be read."
+    );
+    await page.close();
+  });
+});
+
+describe("BookingPage mutation boundary", () => {
+  it("selects only the supported Myself radio", async () => {
+    const page = await syntheticPage(
+      bookingPageHtml({ myselfSelected: false })
+    );
+    const booking = createBookingPage(page, expectedClass);
+
+    await expect(booking.selectMyself()).resolves.toBeUndefined();
+
+    expect(await page.locator('input[name="reserveFor"]').isChecked()).toBe(
+      true
+    );
+    expect(
+      await page.locator('input[name="package"]').first().isChecked()
+    ).toBe(true);
+    expect(
+      await page
+        .getByLabel("I agree to the Cancellation Policy", { exact: true })
+        .isChecked()
+    ).toBe(false);
+    expect(await page.locator('input[id^="injuries-"]').inputValue()).toBe(
+      "Synthetic existing answer"
+    );
+    expect(await page.getByLabel("Receive studio updates").isChecked()).toBe(
+      false
+    );
+    await page.close();
+  });
+
+  it.each([
+    ["required-marker label", true],
+    ["starless label", false]
+  ])(
+    "fills an empty injuries field through the exact %s",
+    async (_name, marker) => {
+      const page = await syntheticPage(
+        bookingPageHtml({
+          injuries: ["   "],
+          injuriesRequiredMarker: marker
+        })
+      );
+      const booking = createBookingPage(page, expectedClass);
+
+      await expect(
+        booking.fillInjuriesIfEmpty("None")
+      ).resolves.toBeUndefined();
+
+      expect(await page.locator('input[id^="injuries-"]').inputValue()).toBe(
+        "None"
+      );
+      await page.close();
+    }
+  );
+
+  it("preserves a non-empty injuries answer without returning or projecting it", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass);
+
+    const result = await booking.fillInjuriesIfEmpty("None");
+
+    expect(result).toBeUndefined();
+    expect(await page.locator('input[id^="injuries-"]').inputValue()).toBe(
+      "Synthetic existing answer"
+    );
+    expect(JSON.stringify(await booking.read())).not.toContain(
+      "Synthetic existing answer"
+    );
+    await page.close();
+  });
+
+  it("selects only the requested package row", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass);
+
+    await expect(booking.selectPackage(1)).resolves.toBeUndefined();
+
+    const packageControls = page.locator('input[name="package"]');
+    expect(await packageControls.nth(0).isChecked()).toBe(false);
+    expect(await packageControls.nth(1).isChecked()).toBe(true);
+    expect(await page.locator('input[name="reserveFor"]').isChecked()).toBe(
+      true
+    );
+    await page.close();
+  });
+
+  it("accepts only the exact cancellation policy control", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass);
+
+    await expect(booking.acceptCancellationPolicy()).resolves.toBeUndefined();
+
+    expect(
+      await page
+        .getByLabel("I agree to the Cancellation Policy", { exact: true })
+        .isChecked()
+    ).toBe(true);
+    expect(await page.getByLabel("Receive studio updates").isChecked()).toBe(
+      false
+    );
+    await page.close();
+  });
+
+  it.each([
+    ["book", "Book"],
+    ["waitlist", "Join the waitlist"]
+  ] as const)(
+    "submits the exact %s action once",
+    async (action, buttonName) => {
+      const page = await syntheticPage(bookingPageHtml({ action }));
+      const button = page.getByRole("button", {
+        name: buttonName,
+        exact: true
+      });
+      await button.evaluate((element) => {
+        element.addEventListener("click", () => {
+          const clicks = Number(element.getAttribute("data-clicks") ?? "0");
+          element.setAttribute("data-clicks", String(clicks + 1));
+        });
+      });
+
+      await expect(
+        createBookingPage(page, expectedClass).submit(action)
+      ).resolves.toBeUndefined();
+
+      expect(await button.getAttribute("data-clicks")).toBe("1");
+      await page.close();
+    }
+  );
+
+  it("fails closed instead of clicking a different action", async () => {
+    const page = await syntheticPage(bookingPageHtml({ action: "book" }));
+    const book = page.getByRole("button", { name: "Book", exact: true });
+    await book.evaluate((element) => {
+      element.addEventListener("click", () =>
+        element.setAttribute("data-clicked", "true")
+      );
+    });
+
+    await expect(
+      createBookingPage(page, expectedClass).submit("waitlist")
+    ).rejects.toThrow("Booking page control is unavailable.");
+    expect(await book.getAttribute("data-clicked")).toBeNull();
+    await page.close();
+  });
+});
+
+async function revealConfirmation(
+  page: Page,
+  testId: "confirmation-booked" | "confirmation-waitlisted"
+): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await page.locator(`[data-testid="${testId}"]`).evaluateAll((elements) => {
+    for (const element of elements) {
+      (element as HTMLElement).hidden = false;
+    }
+  });
+}
+
+describe("BookingPage confirmation boundary", () => {
+  it.each([
+    ["book", "confirmation-booked", "BOOKED"],
+    ["waitlist", "confirmation-waitlisted", "WAITLISTED"]
+  ] as const)(
+    "returns the exact singleton %s confirmation",
+    async (action, testId, expected) => {
+      const page = await syntheticPage(bookingPageHtml({ action }));
+      const booking = createBookingPage(page, expectedClass, {
+        confirmationTimeoutMs: 200
+      });
+      await booking.read();
+      const reveal = revealConfirmation(page, testId);
+
+      await expect(booking.waitForConfirmation(action)).resolves.toBe(expected);
+      await reveal;
+      await page.close();
+    }
+  );
+
+  it("returns unknown when only the wrong-action confirmation appears", async () => {
+    const page = await syntheticPage(bookingPageHtml({ action: "book" }));
+    const booking = createBookingPage(page, expectedClass, {
+      confirmationTimeoutMs: 200
+    });
+    await booking.read();
+    const reveal = revealConfirmation(page, "confirmation-waitlisted");
+
+    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await reveal;
+    await page.close();
+  });
+
+  it("returns unknown for simultaneous booking and waitlist evidence", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass, {
+      confirmationTimeoutMs: 200
+    });
+    await booking.read();
+    const reveal = Promise.all([
+      revealConfirmation(page, "confirmation-booked"),
+      revealConfirmation(page, "confirmation-waitlisted")
+    ]);
+
+    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await reveal;
+    await page.close();
+  });
+
+  it("returns unknown for duplicate matching confirmation evidence", async () => {
+    const page = await syntheticPage(
+      bookingPageHtml({ bookedConfirmations: 2 })
+    );
+    const booking = createBookingPage(page, expectedClass, {
+      confirmationTimeoutMs: 200
+    });
+    await booking.read();
+    const reveal = revealConfirmation(page, "confirmation-booked");
+
+    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await reveal;
+    await page.close();
+  });
+
+  it("returns unknown when confirmation was already visible in the coherent pre-submit read", async () => {
+    const page = await syntheticPage(
+      bookingPageHtml({
+        bookedConfirmations: 1,
+        waitlistedConfirmations: 0,
+        confirmationsHidden: false
+      })
+    );
+    const booking = createBookingPage(page, expectedClass, {
+      confirmationTimeoutMs: 50
+    });
+
+    const state = await booking.read();
+
+    expect(state.confirmation).toEqual({
+      bookedVisibleCount: 1,
+      waitlistedVisibleCount: 0
+    });
+    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await page.close();
+  });
+
+  it("returns unknown when no exact confirmation appears before timeout", async () => {
+    const page = await syntheticPage();
+    await page.locator("body").evaluate((body) => {
+      const nearMatch = document.createElement("div");
+      nearMatch.textContent = "You are Booked! Details";
+      body.append(nearMatch);
+    });
+    const booking = createBookingPage(page, expectedClass, {
+      confirmationTimeoutMs: 30
+    });
+    await booking.read();
+
+    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await page.close();
+  });
+
+  it("returns unknown when navigation interrupts confirmation polling", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass, {
+      confirmationTimeoutMs: 200
+    });
+    await booking.read();
+    const navigation = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await page.goto("data:text/html,<p>synthetic navigation</p>");
+    })();
+
+    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await navigation;
+    await page.close();
+  });
+});
+
+const checkoutUrl =
+  "https://app.arketa.co/iframe/example/calendar/checkout/FAKE_CHECKOUT_ID";
+
+function lifecycleHarness(finalUrl = checkoutUrl): {
+  launcher: PersistentBrowserLauncher;
+  navigations: unknown[];
+  callbacks: BookingPage[];
+  launches: string[];
+  closeCount(): number;
+} {
+  const navigations: unknown[] = [];
+  const callbacks: BookingPage[] = [];
+  const launches: string[] = [];
+  let closes = 0;
+  const page = {
+    goto: async (...args: unknown[]) => {
+      navigations.push(args);
+    },
+    url: () => finalUrl
+  } as unknown as Page;
+  const context: BrowserContextLike = {
+    pages: () => [page],
+    newPage: async () => page,
+    close: async () => {
+      closes += 1;
+    }
+  };
+  const launcher: PersistentBrowserLauncher = async (profileDir) => {
+    launches.push(profileDir);
+    return context;
+  };
+  return {
+    launcher,
+    navigations,
+    callbacks,
+    launches,
+    closeCount: () => closes
+  };
+}
+
+describe("BookingBrowser lifecycle", () => {
+  it("navigates to the validated checkout, returns callback output, and closes", async () => {
+    const harness = lifecycleHarness();
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      harness.launcher
+    );
+
+    const result = await browserBoundary(
+      "/tmp/Pilates Profile",
+      checkoutUrl,
+      async (page) => {
+        harness.callbacks.push(page);
+        return "callback-result";
+      }
+    );
+
+    expect(result).toBe("callback-result");
+    expect(harness.launches).toEqual(["/tmp/Pilates Profile"]);
+    expect(harness.navigations).toEqual([
+      [checkoutUrl, { waitUntil: "domcontentloaded" }]
+    ]);
+    expect(harness.callbacks).toHaveLength(1);
+    expect(harness.closeCount()).toBe(1);
+  });
+
+  it("closes when the callback throws while preserving the callback failure", async () => {
+    const harness = lifecycleHarness();
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      harness.launcher
+    );
+
+    await expect(
+      browserBoundary("/tmp/profile", checkoutUrl, async () => {
+        throw new Error("trusted callback failure");
+      })
+    ).rejects.toThrow("trusted callback failure");
+    expect(harness.closeCount()).toBe(1);
+  });
+
+  it("closes and rejects a redirected final URL without projecting it", async () => {
+    const unsafe = "https://evil.example/private-identifier";
+    const harness = lifecycleHarness(unsafe);
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      harness.launcher
+    );
+
+    let error: unknown;
+    try {
+      await browserBoundary("/tmp/profile", checkoutUrl, async () => undefined);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(String(error)).toContain("Booking browser navigation failed.");
+    expect(String(error)).not.toContain(unsafe);
+    expect(harness.closeCount()).toBe(1);
+  });
+
+  it("rejects an invalid checkout before opening a profile", async () => {
+    const harness = lifecycleHarness();
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      harness.launcher
+    );
+
+    await expect(
+      browserBoundary(
+        "/tmp/profile",
+        "https://evil.example/private-identifier",
+        async () => undefined
+      )
+    ).rejects.toThrow("Invalid Arketa checkout URL.");
+    expect(harness.launches).toEqual([]);
+  });
+});
