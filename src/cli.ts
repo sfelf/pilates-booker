@@ -8,6 +8,8 @@ import type {
   JournalState
 } from "./contracts.js";
 import { writeJsonAtomic } from "./atomic-json.js";
+import type { BookingBrowser } from "./booking-page.js";
+import { executeBookingWorkflow } from "./booking-workflow.js";
 import { advanceJournal, readJournal } from "./journal.js";
 import {
   acquireProfileLock,
@@ -27,13 +29,16 @@ export type ExecutionContext = Readonly<{
   advance(state: Exclude<JournalState, "INITIALIZED">): Promise<void>;
 }>;
 
+export type CliExecutor = (context: ExecutionContext) => Promise<BookingResult>;
+
 export type CliDependencies = Readonly<{
   baseDir?: string;
   cwd?: string;
   loadPolicy?(path: string): Promise<BookingPolicy>;
   loadRequest(path: string): Promise<unknown>;
   validateRequest(value: unknown, policy: BookingPolicy): BookingRequest;
-  execute(context: ExecutionContext): Promise<BookingResult>;
+  execute?: CliExecutor;
+  bookingBrowser?: BookingBrowser;
   acquireLock?(path: string): Promise<ProfileLock>;
 }>;
 
@@ -123,9 +128,12 @@ export async function runCli(
     readResult: () => readResult(paths.resultFile),
     writeResult: (result) => publishResult(paths.resultFile, result)
   });
+  const execute: CliExecutor =
+    dependencies.execute ??
+    ((context) => executeBookingWorkflow(context, dependencies.bookingBrowser));
 
   const decision = await coordinator.run(({ request, advance }) =>
-    dependencies.execute({
+    execute({
       request,
       policy,
       profileDir: paths.profileDir,

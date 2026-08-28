@@ -156,7 +156,12 @@
       "then": {
         "oneOf": [
           {
-            "required": ["availability", "package_used", "packages_before"],
+            "required": [
+              "availability",
+              "observed_class",
+              "package_used",
+              "packages_before"
+            ],
             "not": {
               "properties": { "google_calendar_url": true },
               "required": ["google_calendar_url"]
@@ -170,8 +175,20 @@
               "availability": {
                 "enum": ["BOOKING_AVAILABLE", "WAITLIST_AVAILABLE"]
               },
+              "observed_class": true,
               "package_used": { "type": "string", "minLength": 1 },
-              "packages_before": true,
+              "packages_before": {
+                "type": "array",
+                "minItems": 1,
+                "contains": {
+                  "type": "object",
+                  "required": ["remaining", "approved"],
+                  "properties": {
+                    "remaining": { "type": "number", "exclusiveMinimum": 0 },
+                    "approved": { "const": true }
+                  }
+                }
+              },
               "safety_checks": {
                 "type": "object",
                 "properties": {

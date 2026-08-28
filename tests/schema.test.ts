@@ -62,6 +62,14 @@ const actionableDryRun = {
   retryable: false,
   submission_attempts: 0,
   availability: "BOOKING_AVAILABLE",
+  observed_class: {
+    name: "Example Movement Class (Level 2)",
+    instructor: "Synthetic Instructor",
+    date: "2030-01-16",
+    start_time: "10:30",
+    end_time: "11:30",
+    timezone: "America/Los_Angeles"
+  },
   package_used: "Synthetic Priority Package",
   packages_before: [
     { name: "Synthetic Priority Package", remaining: 2, approved: true }
@@ -240,8 +248,41 @@ describe("schema foundations", () => {
     };
     delete missingPackageEvidence.package_used;
 
+    const missingObservedClass: Record<string, unknown> = {
+      ...actionableDryRun
+    };
+    delete missingObservedClass.observed_class;
+
     expect(validateResult(missingAvailability)).toBe(false);
     expect(validateResult(missingPackageEvidence)).toBe(false);
+    expect(validateResult(missingObservedClass)).toBe(false);
+    expect(validateResult({ ...actionableDryRun, packages_before: [] })).toBe(
+      false
+    );
+    expect(
+      validateResult({
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Priority Package",
+            remaining: 2,
+            approved: false
+          }
+        ]
+      })
+    ).toBe(false);
+    expect(
+      validateResult({
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Priority Package",
+            remaining: 0,
+            approved: true
+          }
+        ]
+      })
+    ).toBe(false);
     expect(
       validateResult({
         ...existingEnrollmentDryRun,
@@ -266,6 +307,32 @@ describe("schema foundations", () => {
         injury_answer: "Synthetic private injury"
       })
     ).toBe(false);
+  });
+
+  it("preserves mixed actionable package evidence containing a positive approved package", () => {
+    expect(
+      validateResult({
+        ...actionableDryRun,
+        package_used: "⭐ Synthetic Priority Package",
+        packages_before: [
+          {
+            name: "Synthetic Backup Package",
+            remaining: 0,
+            approved: true
+          },
+          {
+            name: "Synthetic Unapproved Package",
+            remaining: 8,
+            approved: false
+          },
+          {
+            name: "Synthetic Priority Package ★",
+            remaining: 2,
+            approved: true
+          }
+        ]
+      })
+    ).toBe(true);
   });
 
   it("limits dry-run calendar URLs to already-booked evidence", () => {

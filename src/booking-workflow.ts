@@ -141,6 +141,9 @@ export async function prepareBookingWorkflow(
   }
 
   if (context.request.dry_run) {
+    if (!hasUsableDryRunControls(initial, action, selection)) {
+      return safeStop(context.request.request_id, true);
+    }
     return {
       schema_version: 1,
       request_id: context.request.request_id,
@@ -202,6 +205,19 @@ export async function prepareBookingWorkflow(
       cancellation_policy_accepted: true
     }
   };
+}
+
+function hasUsableDryRunControls(
+  state: BookingPageState,
+  action: PermittedAction,
+  selection: PackageSelection
+): boolean {
+  return (
+    selection.option.control.visibleCount === 1 &&
+    selection.option.control.enabled &&
+    state.submission[action].visibleCount === 1 &&
+    state.submission[action].enabled
+  );
 }
 
 function hasUsableInitialControls(

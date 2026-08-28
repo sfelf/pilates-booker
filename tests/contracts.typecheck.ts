@@ -160,6 +160,14 @@ const validActionableDryRun = {
   retryable: false,
   submission_attempts: 0,
   availability: "BOOKING_AVAILABLE",
+  observed_class: {
+    name: "Example Movement Class (Level 2)",
+    instructor: "Synthetic Instructor",
+    date: "2030-01-16",
+    start_time: "10:30",
+    end_time: "11:30",
+    timezone: "America/Los_Angeles"
+  },
   package_used: "Synthetic Reserved Package",
   packages_before: [
     { name: "Synthetic Reserved Package", remaining: 2, approved: true }
@@ -196,7 +204,7 @@ const validExistingEnrollmentDryRun = {
 const acceptActionableDryRun = (
   result: Extract<
     BookingResult,
-    { outcome: "DRY_RUN"; availability: "BOOKING_AVAILABLE" }
+    { outcome: "DRY_RUN"; confirmation_verified: false }
   >
 ): void => {
   void result;
@@ -224,11 +232,23 @@ const { availability: ignoredAvailability, ...dryRunWithoutAvailability } =
   validActionableDryRun;
 void ignoredAvailability;
 
+acceptActionableDryRun(validActionableDryRun);
+
 // @ts-expect-error DRY_RUN requires availability evidence.
 acceptActionableDryRun(dryRunWithoutAvailability);
 
 // @ts-expect-error Actionable DRY_RUN requires selected package evidence.
 acceptActionableDryRun({ ...validActionableDryRun, package_used: undefined });
+
+const { observed_class: ignoredObservedClass, ...dryRunWithoutObservedClass } =
+  validActionableDryRun;
+void ignoredObservedClass;
+
+// @ts-expect-error Actionable DRY_RUN requires observed class evidence.
+acceptActionableDryRun(dryRunWithoutObservedClass);
+
+// @ts-expect-error Actionable DRY_RUN requires non-empty package evidence.
+acceptActionableDryRun({ ...validActionableDryRun, packages_before: [] });
 
 acceptExistingBookedDryRun({
   ...validExistingEnrollmentDryRun,
@@ -239,15 +259,15 @@ acceptExistingBookedDryRun({
 // @ts-expect-error DRY_RUN cannot include a submitted action.
 acceptActionableDryRun({ ...validActionableDryRun, action_submitted: true });
 
-// @ts-expect-error Actionable availability cannot claim confirmation.
 acceptActionableDryRun({
   ...validActionableDryRun,
+  // @ts-expect-error Actionable availability cannot claim confirmation.
   confirmation_verified: true
 });
 
-// @ts-expect-error Actionable DRY_RUN cannot project a calendar URL.
 acceptActionableDryRun({
   ...validActionableDryRun,
+  // @ts-expect-error Actionable DRY_RUN cannot project a calendar URL.
   google_calendar_url: "https://calendar.example.test/event/synthetic"
 });
 

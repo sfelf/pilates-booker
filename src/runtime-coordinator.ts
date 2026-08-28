@@ -307,6 +307,7 @@ export function resultMatchesDurableState(
   requestId: string
 ): boolean {
   if (
+    !validateResult(result) ||
     result.request_id !== requestId ||
     !allowedOutcomes[state].includes(result.outcome) ||
     result.details !== detailsMarkers[result.outcome]

@@ -69,6 +69,11 @@ export type PackageBalance = Readonly<{
   approved: boolean;
 }>;
 
+export type NonEmptyPackageBalances = readonly [
+  PackageBalance,
+  ...PackageBalance[]
+];
+
 export type SafetyChecks = Readonly<{
   exact_class_match: boolean;
   approved_package_verified: boolean;
@@ -129,8 +134,9 @@ type ActionableDryRunBookingResult = Readonly<
     confirmation_verified: false;
     retryable: false;
     availability: "BOOKING_AVAILABLE" | "WAITLIST_AVAILABLE";
+    observed_class: ObservedClass;
     package_used: string;
-    packages_before: readonly PackageBalance[];
+    packages_before: NonEmptyPackageBalances;
     google_calendar_url?: never;
     safety_checks: Readonly<{
       exact_class_match: true;

@@ -103,6 +103,44 @@ describe("choosePackage", () => {
     expect(choosePackage(policy, options)).toBeUndefined();
   });
 
+  it.each([
+    [
+      "product",
+      option({
+        row: 1,
+        name: "✨ 5 Reformer Classes",
+        remaining: Number.NaN,
+        product: true
+      })
+    ],
+    [
+      "inactive package",
+      option({
+        row: 1,
+        name: "✨ 5 Reformer Classes",
+        remaining: -1,
+        active: false
+      })
+    ]
+  ] as const)(
+    "excludes a same-name %s from ambiguity, balance validation, and evidence",
+    (_kind, excluded) => {
+      const selected = option({
+        row: 2,
+        name: "5 Reformer Classes ★",
+        remaining: 4
+      });
+
+      expect(choosePackage(policy, [excluded, selected])).toEqual({
+        option: selected,
+        configuredName: "5 Reformer Classes",
+        balances: [
+          { name: "5 Reformer Classes ★", remaining: 4, approved: true }
+        ]
+      });
+    }
+  );
+
   it("fails closed when page names duplicate after normalization", () => {
     const options = [
       option({ row: 1, name: "✨ 5 Reformer Classes", remaining: 4 }),
@@ -161,10 +199,7 @@ describe("choosePackage", () => {
     expect(choosePackage(configuredPolicy, [selected, unapproved])).toEqual({
       option: selected,
       configuredName: "⭐ 5 Reformer Classes",
-      balances: [
-        { name: "5 Reformer Classes ★", remaining: 4, approved: true },
-        { name: "Unconfigured Package", remaining: 8, approved: false }
-      ]
+      balances: [{ name: "5 Reformer Classes ★", remaining: 4, approved: true }]
     });
   });
 });

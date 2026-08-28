@@ -90,8 +90,8 @@ describe("BookingPage read boundary", () => {
         {
           row: 2,
           name: "Grip Socks — Édition limitée",
-          remaining: 20,
-          active: true,
+          remaining: 0,
+          active: false,
           product: true,
           control: { visibleCount: 0, selected: false, enabled: false }
         }
@@ -107,6 +107,25 @@ describe("BookingPage read boundary", () => {
     const diagnostic = JSON.stringify(state);
     expect(diagnostic).not.toContain("synthetic-private@example.test");
     expect(diagnostic).not.toContain("Synthetic existing answer");
+    await page.close();
+  });
+
+  it("accepts a product offer without package-only metadata", async () => {
+    const page = await syntheticPage();
+
+    const state = await createBookingPage(page, expectedClass).read();
+
+    expect(state.packages.at(-1)).toEqual({
+      row: 2,
+      name: "Grip Socks — Édition limitée",
+      remaining: 0,
+      active: false,
+      product: true,
+      control: { visibleCount: 0, selected: false, enabled: false }
+    });
+    expect(state.observation.packages).not.toContainEqual(
+      expect.objectContaining({ name: "Grip Socks — Édition limitée" })
+    );
     await page.close();
   });
 

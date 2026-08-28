@@ -524,10 +524,30 @@ async function readBookingPage(
       const packageElements = visible('[data-testid="offering"]');
       const packages = packageElements.map((element, row): PackageOption => {
         const kind = element.getAttribute("data-kind");
+        if (kind !== "class_package" && kind !== "product") {
+          throw new Error("invalid offering");
+        }
+        const controls = Array.from(
+          element.querySelectorAll('input[type="radio"]')
+        ).filter(
+          (candidate): candidate is HTMLInputElement =>
+            candidate instanceof HTMLInputElement && isVisible(candidate)
+        );
+        const control = inputState(controls);
+        const name = (element.textContent ?? "").trim();
+        if (kind === "product") {
+          return {
+            row,
+            name,
+            remaining: 0,
+            active: false,
+            product: true,
+            control
+          };
+        }
         const remainingRaw = element.getAttribute("data-remaining");
         const activeRaw = element.getAttribute("data-active");
         if (
-          (kind !== "class_package" && kind !== "product") ||
           remainingRaw === null ||
           !/^(?:0|[1-9][0-9]*)$/u.test(remainingRaw) ||
           (activeRaw !== "true" && activeRaw !== "false")
@@ -538,19 +558,13 @@ async function readBookingPage(
         if (!Number.isSafeInteger(remaining)) {
           throw new Error("invalid offering");
         }
-        const controls = Array.from(
-          element.querySelectorAll('input[type="radio"]')
-        ).filter(
-          (candidate): candidate is HTMLInputElement =>
-            candidate instanceof HTMLInputElement && isVisible(candidate)
-        );
         return {
           row,
-          name: (element.textContent ?? "").trim(),
+          name,
           remaining,
           active: activeRaw === "true",
-          product: kind === "product",
-          control: inputState(controls)
+          product: false,
+          control
         };
       });
       const selectedPackageRows = packages

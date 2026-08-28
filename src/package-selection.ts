@@ -1,4 +1,8 @@
-import type { BookingPolicy, PackageBalance } from "./contracts.js";
+import type {
+  BookingPolicy,
+  NonEmptyPackageBalances,
+  PackageBalance
+} from "./contracts.js";
 
 export type PackageOption = Readonly<{
   row: number;
@@ -16,7 +20,7 @@ export type PackageOption = Readonly<{
 export type PackageSelection = Readonly<{
   option: PackageOption;
   configuredName: string;
-  balances: readonly PackageBalance[];
+  balances: NonEmptyPackageBalances;
 }>;
 
 const EDGE_DECORATION = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
@@ -45,8 +49,11 @@ export function choosePackage(
     configured.push({ name, normalizedName });
   }
   const normalizedNames = new Set<string>();
+  const activePackages = options.filter(
+    (candidate) => candidate.active && !candidate.product
+  );
 
-  for (const candidate of options) {
+  for (const candidate of activePackages) {
     const normalizedName = normalizePackageNameForComparison(candidate.name);
     if (
       normalizedNames.has(normalizedName) ||
@@ -58,25 +65,34 @@ export function choosePackage(
     normalizedNames.add(normalizedName);
   }
 
-  const balances: readonly PackageBalance[] = options.map((candidate) => ({
-    name: candidate.name,
-    remaining: candidate.remaining,
-    approved: configuredNames.has(
-      normalizePackageNameForComparison(candidate.name)
-    )
-  }));
+  const balances: readonly PackageBalance[] = activePackages.map(
+    (candidate) => ({
+      name: candidate.name,
+      remaining: candidate.remaining,
+      approved: configuredNames.has(
+        normalizePackageNameForComparison(candidate.name)
+      )
+    })
+  );
+  const firstBalance = balances[0];
+  if (firstBalance === undefined) return undefined;
+  const nonEmptyBalances: NonEmptyPackageBalances = [
+    firstBalance,
+    ...balances.slice(1)
+  ];
 
   for (const candidate of configured) {
-    const option = options.find(
+    const option = activePackages.find(
       (observed) =>
         normalizePackageNameForComparison(observed.name) ===
-          candidate.normalizedName &&
-        observed.active &&
-        !observed.product &&
-        observed.remaining > 0
+          candidate.normalizedName && observed.remaining > 0
     );
     if (option !== undefined) {
-      return { option, configuredName: candidate.name, balances };
+      return {
+        option,
+        configuredName: candidate.name,
+        balances: nonEmptyBalances
+      };
     }
   }
 

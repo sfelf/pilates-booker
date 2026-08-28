@@ -75,9 +75,18 @@ const actionableDryRun = {
   retryable: false,
   submission_attempts: 0,
   availability: "BOOKING_AVAILABLE",
-  package_used: "Synthetic Priority Package",
+  observed_class: {
+    name: "Synthetic Reformer Flow",
+    instructor: "Synthetic Instructor",
+    date: "2030-01-16",
+    start_time: "10:30",
+    end_time: "11:30",
+    timezone: "America/Los_Angeles"
+  },
+  package_used: "⭐ Synthetic Priority Package",
   packages_before: [
-    { name: "Synthetic Priority Package", remaining: 2, approved: true }
+    { name: "Synthetic Backup Package", remaining: 4, approved: false },
+    { name: "Synthetic Priority Package ★", remaining: 2, approved: true }
   ],
   safety_checks: {
     exact_class_match: true,
@@ -243,6 +252,44 @@ describe("resultMatchesDurableState", () => {
     [
       "rejects dry-run evidence with an unknown availability",
       { ...existingEnrollmentDryRun, availability: "UNKNOWN" },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence without an observed class",
+      { ...actionableDryRun, observed_class: undefined },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence with an empty package list",
+      { ...actionableDryRun, packages_before: [] },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence without a positive approved package",
+      {
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Priority Package ★",
+            remaining: 0,
+            approved: true
+          }
+        ]
+      },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence for a different configured package",
+      {
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Other Package",
+            remaining: 2,
+            approved: true
+          }
+        ]
+      },
       "VALIDATED"
     ],
     [
@@ -544,6 +591,31 @@ describe("RuntimeCoordinator execution", () => {
         return {
           ...actionableDryRun,
           action_submitted: true
+        } as unknown as BookingResult;
+      })
+    ).resolves.toMatchObject({
+      result: { outcome: "TECHNICAL_FAILURE", exit_code: 30 }
+    });
+  });
+
+  test("rejects actionable dry-run evidence for a different configured package", async () => {
+    const coordinator = new RuntimeCoordinator(
+      request,
+      new InMemoryRuntimeOperations()
+    );
+
+    await expect(
+      coordinator.run(async ({ advance }) => {
+        await advance("VALIDATED");
+        return {
+          ...actionableDryRun,
+          packages_before: [
+            {
+              name: "Synthetic Other Package",
+              remaining: 2,
+              approved: true
+            }
+          ]
         } as unknown as BookingResult;
       })
     ).resolves.toMatchObject({

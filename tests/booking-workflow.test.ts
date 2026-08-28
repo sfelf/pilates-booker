@@ -465,6 +465,104 @@ describe("booking workflow dry-run decisions", () => {
       expect(JSON.stringify(preparation)).not.toContain("private");
     }
   );
+
+  it.each([
+    [
+      "missing action control",
+      bookingState({
+        submission: {
+          book: { visibleCount: 0, enabled: false },
+          waitlist: { visibleCount: 1, enabled: true }
+        }
+      })
+    ],
+    [
+      "duplicate action controls",
+      bookingState({
+        submission: {
+          book: { visibleCount: 2, enabled: true },
+          waitlist: { visibleCount: 1, enabled: true }
+        }
+      })
+    ],
+    [
+      "disabled action control",
+      bookingState({
+        submission: {
+          book: { visibleCount: 1, enabled: false },
+          waitlist: { visibleCount: 1, enabled: true }
+        }
+      })
+    ],
+    [
+      "missing selected package control",
+      bookingState({
+        packages: [
+          backupPackage,
+          unapprovedPackage,
+          {
+            ...priorityPackage,
+            control: { visibleCount: 0, selected: false, enabled: false }
+          }
+        ]
+      })
+    ],
+    [
+      "duplicate selected package controls",
+      bookingState({
+        packages: [
+          backupPackage,
+          unapprovedPackage,
+          {
+            ...priorityPackage,
+            control: { visibleCount: 2, selected: false, enabled: true }
+          }
+        ]
+      })
+    ],
+    [
+      "disabled selected package control",
+      bookingState({
+        packages: [
+          backupPackage,
+          unapprovedPackage,
+          {
+            ...priorityPackage,
+            control: { visibleCount: 1, selected: false, enabled: false }
+          }
+        ]
+      })
+    ]
+  ] as const)("safe stops without mutation for %s", async (_case, state) => {
+    const page = new InMemoryBookingPage([state]);
+    const { context, advances } = executionContext({
+      ...baseRequest,
+      dry_run: true
+    });
+
+    const preparation = await prepareBookingWorkflow(context, page);
+
+    expectTerminal(preparation);
+    expect(preparation).toEqual({
+      schema_version: 1,
+      request_id: baseRequest.request_id,
+      outcome: "SAFE_STOP",
+      exit_code: 20,
+      action_submitted: false,
+      submission_attempts: 0,
+      confirmation_verified: false,
+      retryable: false,
+      safety_checks: {
+        exact_class_match: true,
+        approved_package_verified: false,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: "Booking stopped safely."
+    });
+    expect(page.operations).toEqual(["read"]);
+    expect(advances).toEqual(["VALIDATED"]);
+  });
 });
 
 describe("booking workflow existing-enrollment decisions", () => {

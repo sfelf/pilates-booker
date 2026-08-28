@@ -72,9 +72,7 @@ const SYNTHETIC_PACKAGES = [
   },
   {
     name: "Grip Socks — Édition limitée",
-    kind: "product",
-    remaining: "20",
-    active: "true"
+    kind: "product"
   }
 ] as const;
 
@@ -148,8 +146,11 @@ export function bookingPageHtml(
       <div
         data-testid="offering"
         data-kind="${entry.kind}"
-        data-remaining="${entry.remaining}"
-        data-active="${entry.active}"
+        ${
+          entry.kind === "class_package"
+            ? `data-remaining="${entry.remaining}" data-active="${entry.active}"`
+            : ""
+        }
       >${escapeHtml(entry.name)}${controls}</div>
     `;
   }).join("");
