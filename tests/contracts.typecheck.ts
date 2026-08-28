@@ -3,6 +3,7 @@ import type {
   BookingRequest,
   BookingResult
 } from "../src/contracts.js";
+import type { BookingPreparation } from "../src/booking-workflow.js";
 
 const commonRequestFields = {
   schema_version: 1 as const,
@@ -104,6 +105,11 @@ const validBooked: BookingResult = {
   }
 };
 
+const validWaitlisted: BookingResult = {
+  ...validBooked,
+  outcome: "WAITLISTED"
+};
+
 // @ts-expect-error BOOKED requires submitted and verified evidence.
 const unverifiedBooked: BookingResult = {
   ...commonResultFields,
@@ -130,6 +136,19 @@ const validConfirmationUncertain: BookingResult = {
   retryable: false,
   submission_attempts: 1
 };
+
+const acceptBookingPreparation = (preparation: BookingPreparation): void => {
+  void preparation;
+};
+
+// @ts-expect-error Booking preparation cannot contain a submitted booking.
+acceptBookingPreparation(validBooked);
+// @ts-expect-error Booking preparation cannot contain a submitted waitlist.
+acceptBookingPreparation(validWaitlisted);
+// @ts-expect-error Booking preparation cannot contain uncertain confirmation.
+acceptBookingPreparation(validConfirmationUncertain);
+// @ts-expect-error Booking preparation cannot contain infrastructure failure.
+acceptBookingPreparation(validTechnicalFailure);
 
 const validActionableDryRun = {
   schema_version: 1,
@@ -304,6 +323,7 @@ const impossibleOutcomeExitPair: BookingResult = {
 void validSafeStop;
 void validTechnicalFailure;
 void validBooked;
+void validWaitlisted;
 void unverifiedBooked;
 void submittedTechnicalFailure;
 void validConfirmationUncertain;

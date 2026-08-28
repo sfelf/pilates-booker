@@ -24,7 +24,14 @@ export type AuthorizedBooking = Readonly<{
   }>;
 }>;
 
-export type BookingPreparation = BookingResult | AuthorizedBooking;
+type TerminalBookingPreparation = Extract<
+  BookingResult,
+  {
+    outcome: "DRY_RUN" | "ALREADY_BOOKED" | "ALREADY_WAITLISTED" | "SAFE_STOP";
+  }
+>;
+
+export type BookingPreparation = TerminalBookingPreparation | AuthorizedBooking;
 
 const DETAILS = {
   BOOKED: "Booking confirmed.",
@@ -221,7 +228,7 @@ function existingEnrollment(
   context: ExecutionContext,
   state: BookingPageState,
   outcome: "ALREADY_BOOKED" | "ALREADY_WAITLISTED"
-): BookingResult {
+): TerminalBookingPreparation {
   return {
     schema_version: 1,
     request_id: context.request.request_id,
@@ -247,7 +254,7 @@ function existingDryRun(
   context: ExecutionContext,
   state: BookingPageState,
   availability: "ALREADY_BOOKED" | "ALREADY_WAITLISTED"
-): BookingResult {
+): TerminalBookingPreparation {
   return {
     schema_version: 1,
     request_id: context.request.request_id,
@@ -267,7 +274,10 @@ function existingDryRun(
   };
 }
 
-function safeStop(requestId: string, exactClassMatch: boolean): BookingResult {
+function safeStop(
+  requestId: string,
+  exactClassMatch: boolean
+): TerminalBookingPreparation {
   return {
     schema_version: 1,
     request_id: requestId,

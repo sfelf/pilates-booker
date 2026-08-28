@@ -9,7 +9,6 @@ import type { ExecutionContext } from "../src/cli.js";
 import type {
   BookingPolicy,
   BookingRequest,
-  BookingResult,
   ObservedClass,
   PermittedAction
 } from "../src/contracts.js";
@@ -249,7 +248,7 @@ function executionContext(request: BookingRequest = baseRequest): {
 
 function expectTerminal(
   preparation: BookingPreparation
-): asserts preparation is BookingResult {
+): asserts preparation is Extract<BookingPreparation, { outcome: string }> {
   expect("outcome" in preparation).toBe(true);
 }
 
