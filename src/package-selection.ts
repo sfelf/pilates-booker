@@ -34,10 +34,16 @@ export function choosePackage(
   policy: BookingPolicy,
   options: readonly PackageOption[]
 ): PackageSelection | undefined {
-  const configured = policy.allowed_packages.map((name) => ({
-    name,
-    normalizedName: normalizePackageNameForComparison(name)
-  }));
+  const configuredNames = new Set<string>();
+  const configured = [] as { name: string; normalizedName: string }[];
+  for (const name of policy.allowed_packages) {
+    const normalizedName = normalizePackageNameForComparison(name);
+    if (normalizedName === "" || configuredNames.has(normalizedName)) {
+      return undefined;
+    }
+    configuredNames.add(normalizedName);
+    configured.push({ name, normalizedName });
+  }
   const normalizedNames = new Set<string>();
 
   for (const candidate of options) {
@@ -52,9 +58,6 @@ export function choosePackage(
     normalizedNames.add(normalizedName);
   }
 
-  const configuredNames = new Set(
-    configured.map(({ normalizedName }) => normalizedName)
-  );
   const balances: readonly PackageBalance[] = options.map((candidate) => ({
     name: candidate.name,
     remaining: candidate.remaining,

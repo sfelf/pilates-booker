@@ -112,6 +112,22 @@ describe("choosePackage", () => {
     expect(choosePackage(policy, options)).toBeUndefined();
   });
 
+  it.each([
+    [
+      "duplicate normalized policy names",
+      ["⭐ 5 Reformer Classes", "5 Reformer Classes"] as const
+    ],
+    ["an empty normalized policy name", ["✨✨"] as const]
+  ])("fails closed for %s", (_case, allowed_packages) => {
+    const invalidPolicy: BookingPolicy = { ...policy, allowed_packages };
+
+    expect(
+      choosePackage(invalidPolicy, [
+        option({ row: 1, name: "5 Reformer Classes", remaining: 4 })
+      ])
+    ).toBeUndefined();
+  });
+
   it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 1.5, 2 ** 53])(
     "fails closed for a non-negative safe integer balance of %s",
     (remaining) => {
