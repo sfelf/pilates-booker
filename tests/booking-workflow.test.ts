@@ -169,7 +169,6 @@ function deepFreeze<T>(value: T): T {
 
 type Operation =
   | "read"
-  | "readForSubmission"
   | "selectMyself"
   | "fillInjuries:None"
   | `selectPackage:${number}`
@@ -180,7 +179,6 @@ type Operation =
 
 type FailingOperation =
   | "read"
-  | "readForSubmission"
   | "selectMyself"
   | "fillInjuries"
   | "selectPackage"
@@ -203,14 +201,6 @@ class InMemoryBookingPage implements BookingPage {
   async read(): Promise<BookingPageState> {
     this.operations.push("read");
     this.failIfConfigured("read");
-    const index = Math.min(this.reads, this.states.length - 1);
-    this.reads += 1;
-    return this.states[index]!;
-  }
-
-  async readForSubmission(): Promise<BookingPageState> {
-    this.operations.push("readForSubmission");
-    this.failIfConfigured("readForSubmission");
     const index = Math.min(this.reads, this.states.length - 1);
     this.reads += 1;
     return this.states[index]!;
@@ -1140,235 +1130,6 @@ describe("booking workflow final coherent-read safe stops", () => {
 });
 
 describe("booking workflow confirmed submission", () => {
-  it("safe stops before submission states when pre-submit validation fails", async () => {
-    const page = new InMemoryBookingPage(
-      [bookingState(), authorizedFinalState()],
-      "readForSubmission",
-      "BOOKED"
-    );
-    const { context, advances } = executionContext();
-
-    const result = await executeBookingWorkflow(
-      context,
-      inMemoryBookingBrowser(page)
-    );
-
-    expectSafeStop(result, true);
-    expect(advances).toEqual(["VALIDATED"]);
-    expect(page.operations.slice(-2)).toEqual(["readForSubmission", "close"]);
-    expectNoSubmission(page);
-    expect(JSON.stringify(result)).not.toContain("private");
-  });
-
-  const preSubmitDriftCases = [
-    ["action changes", authorizedFinalState({ action: "waitlist" }), true],
-    [
-      "exact class changes",
-      authorizedFinalState({
-        observed_class: { ...observedClass, start_time: "10:31" }
-      }),
-      false
-    ],
-    [
-      "Myself is not an exact singleton",
-      authorizedFinalState({
-        myself: { visibleCount: 2, selected: true, enabled: true }
-      }),
-      true
-    ],
-    [
-      "Myself is no longer selected",
-      authorizedFinalState({
-        myself: { visibleCount: 1, selected: false, enabled: true }
-      }),
-      true
-    ],
-    [
-      "Myself is disabled",
-      authorizedFinalState({
-        myself: { visibleCount: 1, selected: true, enabled: false }
-      }),
-      true
-    ],
-    [
-      "injuries is not an exact singleton",
-      authorizedFinalState({
-        injuries: { visibleCount: 2, value: "PRESENT", enabled: true }
-      }),
-      true
-    ],
-    [
-      "injuries becomes empty",
-      authorizedFinalState({
-        injuries: { visibleCount: 1, value: "", enabled: true }
-      }),
-      true
-    ],
-    [
-      "injuries is disabled",
-      authorizedFinalState({
-        injuries: { visibleCount: 1, value: "PRESENT", enabled: false }
-      }),
-      true
-    ],
-    [
-      "selected package changes",
-      authorizedFinalState({ selectedPackageRow: 0 }),
-      true
-    ],
-    [
-      "approved package control moves to a different row",
-      authorizedFinalState({
-        packages: [
-          backupPackage,
-          { ...selectedPriorityPackage, row: 1 },
-          { ...unapprovedPackage, row: 2 }
-        ],
-        selectedPackageRow: 1
-      }),
-      true
-    ],
-    [
-      "approved package loses its positive balance",
-      authorizedFinalState({
-        packages: [
-          backupPackage,
-          unapprovedPackage,
-          { ...selectedPriorityPackage, remaining: 0 }
-        ]
-      }),
-      true
-    ],
-    [
-      "approved package control is not selected",
-      authorizedFinalState({
-        packages: [backupPackage, unapprovedPackage, priorityPackage]
-      }),
-      true
-    ],
-    [
-      "approved package control is duplicated",
-      authorizedFinalState({
-        packages: [
-          backupPackage,
-          unapprovedPackage,
-          {
-            ...selectedPriorityPackage,
-            control: { visibleCount: 2, selected: true, enabled: true }
-          }
-        ]
-      }),
-      true
-    ],
-    [
-      "approved package control is disabled",
-      authorizedFinalState({
-        packages: [
-          backupPackage,
-          unapprovedPackage,
-          {
-            ...selectedPriorityPackage,
-            control: { visibleCount: 1, selected: true, enabled: false }
-          }
-        ]
-      }),
-      true
-    ],
-    [
-      "cancellation is not an exact singleton",
-      authorizedFinalState({
-        cancellation: { visibleCount: 2, accepted: true, enabled: true }
-      }),
-      true
-    ],
-    [
-      "cancellation is no longer accepted",
-      authorizedFinalState({
-        cancellation: { visibleCount: 1, accepted: false, enabled: true }
-      }),
-      true
-    ],
-    [
-      "cancellation is disabled",
-      authorizedFinalState({
-        cancellation: { visibleCount: 1, accepted: true, enabled: false }
-      }),
-      true
-    ],
-    [
-      "exact action control is missing",
-      authorizedFinalState({
-        submission: {
-          book: { visibleCount: 0, enabled: false },
-          waitlist: { visibleCount: 1, enabled: true }
-        }
-      }),
-      true
-    ],
-    [
-      "exact action control is duplicated",
-      authorizedFinalState({
-        submission: {
-          book: { visibleCount: 2, enabled: true },
-          waitlist: { visibleCount: 1, enabled: true }
-        }
-      }),
-      true
-    ],
-    [
-      "exact action control is disabled",
-      authorizedFinalState({
-        submission: {
-          book: { visibleCount: 1, enabled: false },
-          waitlist: { visibleCount: 1, enabled: true }
-        }
-      }),
-      true
-    ],
-    [
-      "booking confirmation appears",
-      authorizedFinalState({
-        confirmation: {
-          bookedVisibleCount: 1,
-          waitlistedVisibleCount: 0
-        }
-      }),
-      true
-    ],
-    [
-      "waitlist confirmation appears",
-      authorizedFinalState({
-        confirmation: {
-          bookedVisibleCount: 0,
-          waitlistedVisibleCount: 1
-        }
-      }),
-      true
-    ]
-  ] as const;
-
-  it.each(preSubmitDriftCases)(
-    "safe stops before submission states when %s during pre-submit validation",
-    async (_case, preSubmitState, exactClassMatch) => {
-      const page = new InMemoryBookingPage(
-        [bookingState(), authorizedFinalState(), preSubmitState],
-        undefined,
-        "BOOKED"
-      );
-      const { context, advances } = executionContext();
-
-      const result = await executeBookingWorkflow(
-        context,
-        inMemoryBookingBrowser(page)
-      );
-
-      expectSafeStop(result, exactClassMatch);
-      expect(advances).toEqual(["VALIDATED"]);
-      expect(page.operations.slice(-2)).toEqual(["readForSubmission", "close"]);
-      expectNoSubmission(page);
-    }
-  );
-
   it("returns a terminal preparation unchanged and closes without submission", async () => {
     const page = new InMemoryBookingPage([bookingState()]);
     const { context, advances } = executionContext({
@@ -1470,7 +1231,6 @@ describe("booking workflow confirmed submission", () => {
         "selectPackage:2",
         "acceptCancellation",
         "read",
-        "readForSubmission",
         `submit:${action}`,
         `confirm:${action}`,
         "close"

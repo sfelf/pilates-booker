@@ -1,5 +1,4 @@
 import {
-  BookingPageClassMismatchError,
   createBookingBrowser,
   type BookingBrowser,
   type BookingPage,
@@ -76,24 +75,18 @@ export async function executeBookingWorkflow(
       async (page) => {
         const preparation = await prepareBookingWorkflow(context, page);
         if ("outcome" in preparation) return preparation;
-        const revalidated = await revalidateAuthorizedBooking(
-          context,
-          page,
-          preparation
-        );
-        if ("outcome" in revalidated) return revalidated;
 
         await context.advance("READY_TO_SUBMIT");
         await context.advance("SUBMITTING");
-        await page.submit(revalidated.action);
-        const confirmation = await page.waitForConfirmation(revalidated.action);
-        const outcome = revalidated.action === "book" ? "BOOKED" : "WAITLISTED";
+        await page.submit(preparation.action);
+        const confirmation = await page.waitForConfirmation(preparation.action);
+        const outcome = preparation.action === "book" ? "BOOKED" : "WAITLISTED";
         if (confirmation !== outcome) throw new BookingWorkflowError();
         await context.advance("CONFIRMED");
 
         return confirmedResult(
           context.request.request_id,
-          revalidated,
+          preparation,
           outcome
         );
       }
@@ -101,38 +94,6 @@ export async function executeBookingWorkflow(
   } catch {
     throw new BookingWorkflowError();
   }
-}
-
-async function revalidateAuthorizedBooking(
-  context: ExecutionContext,
-  page: BookingPage,
-  preparation: AuthorizedBooking
-): Promise<BookingPreparation> {
-  let state: BookingPageState;
-  try {
-    state = await page.readForSubmission();
-  } catch (error) {
-    return safeStop(
-      context.request.request_id,
-      !(error instanceof BookingPageClassMismatchError)
-    );
-  }
-  const exactClassMatch = isExactClassMatch(context, state);
-  if (
-    !exactClassMatch ||
-    !isFullyAuthorized(
-      context,
-      state,
-      preparation.action,
-      preparation.selection
-    )
-  ) {
-    return safeStop(context.request.request_id, exactClassMatch);
-  }
-  return {
-    ...preparation,
-    observed_class: state.observation.observed_class
-  };
 }
 
 export async function prepareBookingWorkflow(

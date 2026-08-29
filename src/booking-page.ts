@@ -6,7 +6,6 @@ import {
   type PersistentBrowserLauncher
 } from "./browser-session.js";
 import {
-  CheckoutInspectionError,
   inspectCheckoutSnapshot,
   type RawCheckoutSnapshot
 } from "./checkout-inspection.js";
@@ -54,7 +53,6 @@ export type BookingConfirmation = "BOOKED" | "WAITLISTED" | "UNKNOWN";
 
 export type BookingPage = Readonly<{
   read(): Promise<BookingPageState>;
-  readForSubmission(): Promise<BookingPageState>;
   selectMyself(): Promise<void>;
   fillInjuriesIfEmpty(value: "None"): Promise<void>;
   selectPackage(row: number): Promise<void>;
@@ -69,10 +67,7 @@ export type BookingBrowser = <T>(
   use: (page: BookingPage) => Promise<T>
 ) => Promise<T>;
 
-type BookingPageOptions = Readonly<{
-  confirmationTimeoutMs?: number;
-  validatedCheckoutUrl?: string;
-}>;
+type BookingPageOptions = Readonly<{ confirmationTimeoutMs?: number }>;
 
 type BookingBrowserOptions = Readonly<{
   readinessTimeoutMs?: number;
@@ -99,7 +94,6 @@ type RawPageState = Readonly<{
     accepted: boolean;
     enabled: boolean;
   }>;
-  submission: BookingPageState["submission"];
   confirmation: BookingPageState["confirmation"];
 }>;
 
@@ -118,15 +112,6 @@ class BookingPageControlError extends Error {
   constructor() {
     super("Booking page control is unavailable.");
     this.name = "BookingPageControlError";
-  }
-}
-
-export class BookingPageClassMismatchError extends Error {
-  readonly code = "BOOKING_PAGE_CLASS_MISMATCH";
-
-  constructor() {
-    super("Booking page class does not match the request.");
-    this.name = "BookingPageClassMismatchError";
   }
 }
 
@@ -154,21 +139,11 @@ export function createBookingPage(
   options: BookingPageOptions = {}
 ): BookingPage {
   const confirmationTimeoutMs = options.confirmationTimeoutMs ?? 30_000;
-  const validatedCheckoutUrl = options.validatedCheckoutUrl ?? page.url();
   let lastReadConfirmation: BookingPageState["confirmation"] | undefined;
   let preSubmissionUrl: string | undefined;
   return {
     read: async () => {
       const state = await readBookingPage(page, expectedClass);
-      lastReadConfirmation = state.confirmation;
-      return state;
-    },
-    readForSubmission: async () => {
-      const state = await readForSubmission(
-        page,
-        expectedClass,
-        validatedCheckoutUrl
-      );
       lastReadConfirmation = state.confirmation;
       return state;
     },
@@ -190,7 +165,7 @@ export function createBookingPage(
         )
       ),
     submit: async (action) => {
-      preSubmissionUrl = validatedCheckoutUrl;
+      preSubmissionUrl = page.url();
       await submitExactAction(page, action);
     },
     waitForConfirmation: (action) =>
@@ -257,11 +232,7 @@ async function openBookingBrowser<T>(
     } catch {
       throw new BookingBrowserError();
     }
-    return use(
-      createBookingPage(page, expectedClass, {
-        validatedCheckoutUrl: validatedUrl
-      })
-    );
+    return use(createBookingPage(page, expectedClass));
   };
 
   return launcher === undefined
@@ -277,35 +248,6 @@ async function exactEnabledVisible(locator: Locator): Promise<Locator> {
     }
     return visible;
   } catch {
-    throw new BookingPageControlError();
-  }
-}
-
-async function readForSubmission(
-  page: Page,
-  expectedClass: ExpectedClass,
-  validatedCheckoutUrl: string
-): Promise<BookingPageState> {
-  try {
-    if (page.url() !== validatedCheckoutUrl) throw new Error("navigated");
-    const state = await readBookingPage(page, expectedClass);
-    if (page.url() !== validatedCheckoutUrl) throw new Error("navigated");
-    if (
-      state.confirmation.bookedVisibleCount !== 0 ||
-      state.confirmation.waitlistedVisibleCount !== 0
-    ) {
-      throw new Error("preexisting confirmation");
-    }
-    const action = state.observation.action;
-    if (action === "book" || action === "waitlist") {
-      await exactActionButton(page, action).click({
-        trial: true,
-        timeout: 250
-      });
-    }
-    return state;
-  } catch (error) {
-    if (error instanceof BookingPageClassMismatchError) throw error;
     throw new BookingPageControlError();
   }
 }
@@ -537,26 +479,6 @@ async function readBookingPage(
               element instanceof HTMLInputElement
           )
           .filter((input) => matches(effectiveAccessibleName(input)));
-      const exactButtons = (name: string): HTMLElement[] =>
-        visible('button, input[type="button"], input[type="submit"]').filter(
-          (element) => {
-            const aria = element.getAttribute("aria-label");
-            const text =
-              element instanceof HTMLInputElement
-                ? element.value
-                : (element.textContent ?? "").trim();
-            return (aria ?? text) === name;
-          }
-        );
-      const submissionState = (
-        elements: readonly HTMLElement[]
-      ): Readonly<{ visibleCount: number; enabled: boolean }> => {
-        ensureAtMostOne(elements);
-        return {
-          visibleCount: elements.length,
-          enabled: elements[0] === undefined ? false : isEnabled(elements[0])
-        };
-      };
       const exactLeafTextCount = (expected: string): number =>
         visible("body *").filter((element) => {
           if ((element.textContent ?? "").trim() !== expected) return false;
@@ -652,9 +574,6 @@ async function readBookingPage(
       );
       ensureAtMostOne(cancellationInputs);
       const cancellationInput = cancellationInputs[0];
-      const book = exactButtons("Book");
-      const waitlist = exactButtons("Join the waitlist");
-
       const offerings: RawCheckoutSnapshot["offerings"] = packages.map(
         (option) =>
           option.product
@@ -695,10 +614,6 @@ async function readBookingPage(
               ? false
               : isEnabled(cancellationInput)
         },
-        submission: {
-          book: submissionState(book),
-          waitlist: submissionState(waitlist)
-        },
         confirmation: {
           bookedVisibleCount: exactLeafTextCount("You are Booked!"),
           waitlistedVisibleCount: exactLeafTextCount("You're on the waitlist")
@@ -711,6 +626,10 @@ async function readBookingPage(
       raw.checkout
     );
     if (observation.status !== "observed") throw new Error("not observed");
+    const [book, waitlist] = await Promise.all([
+      readExactActionState(page, "book"),
+      readExactActionState(page, "waitlist")
+    ]);
 
     return {
       observation,
@@ -721,18 +640,24 @@ async function readBookingPage(
         ? {}
         : { selectedPackageRow: raw.selectedPackageRows[0] }),
       cancellation: raw.cancellation,
-      submission: raw.submission,
+      submission: { book, waitlist },
       confirmation: raw.confirmation
     };
-  } catch (error) {
-    if (
-      error instanceof CheckoutInspectionError &&
-      error.code === "CLASS_MISMATCH"
-    ) {
-      throw new BookingPageClassMismatchError();
-    }
+  } catch {
     throw new BookingPageError();
   }
+}
+
+async function readExactActionState(
+  page: Page,
+  action: PermittedAction
+): Promise<Readonly<{ visibleCount: number; enabled: boolean }>> {
+  const visible = exactActionButton(page, action).filter({ visible: true });
+  const visibleCount = await visible.count();
+  return {
+    visibleCount,
+    enabled: visibleCount === 1 && (await visible.isEnabled())
+  };
 }
 
 function inspectionRequest(expectedClass: ExpectedClass): BookingRequest {

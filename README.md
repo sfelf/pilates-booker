@@ -12,6 +12,8 @@ Browser profiles, authenticated state, booking policies, runtime requests and re
 
 Dry runs inspect the supported checkout without changing it. In a non-dry run, the workflow selects `Myself`, preserves a non-empty injuries response or fills an empty one with `None`, selects the first configured positive-balance package in policy order, accepts the cancellation policy, and clicks the permitted booking or waitlist action exactly once. It then requires matching exact Arketa confirmation: `You are Booked!` for a booking or `You're on the waitlist` for a waitlist submission.
 
+The workflow performs one coherent authorization read after applying those checkout fields, then assumes the supported Arketa checkout remains stable until its single submission click. Concurrent user interaction, browser-extension mutation, and spontaneous checkout mutation during that short interval are outside the v0.1.0 operating model.
+
 A positive balance on the selected approved package is the complete no-charge evidence. The workflow does not inspect payment text or controls.
 
 The workflow does not retry automatically after submission uncertainty. A deliberate rerun is allowed, and Arketa's existing-enrollment state is authoritative.
