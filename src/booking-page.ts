@@ -305,12 +305,19 @@ async function submitExactAction(
 }
 
 function exactActionButton(page: Page, action: PermittedAction): Locator {
-  return action === "book"
-    ? page.getByRole("button", { name: "Book", exact: true })
-    : page.getByRole("button", {
-        name: "Join the waitlist",
-        exact: true
-      });
+  const marker = page.locator(
+    action === "book"
+      ? '[data-testid="action-book"]'
+      : '[data-testid="action-waitlist"]'
+  );
+  const accessibleButton =
+    action === "book"
+      ? page.getByRole("button", { name: "Book", exact: true })
+      : page.getByRole("button", {
+          name: "Join the waitlist",
+          exact: true
+        });
+  return marker.and(accessibleButton);
 }
 
 type ConfirmationCounts = Readonly<{

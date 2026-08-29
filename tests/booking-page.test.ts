@@ -173,6 +173,38 @@ describe("BookingPage read boundary", () => {
     await page.close();
   });
 
+  it("binds action availability and submission to the marked button", async () => {
+    const page = await syntheticPage();
+    await page.locator('[data-testid="action-book"]').evaluate((element) => {
+      element.outerHTML = '<div data-testid="action-book">Book</div>';
+      const unrelated = document.createElement("button");
+      unrelated.textContent = "Book";
+      unrelated.dataset.testid = "unrelated-book";
+      unrelated.addEventListener("click", () => {
+        unrelated.dataset.clicked = "true";
+      });
+      document.body.append(unrelated);
+    });
+    const booking = createBookingPage(page, expectedClass);
+
+    const state = await booking.read();
+
+    expect(state.observation.action).toBe("book");
+    expect(state.submission.book).toEqual({
+      visibleCount: 0,
+      enabled: false
+    });
+    await expect(booking.submit("book")).rejects.toThrow(
+      "Booking page control is unavailable."
+    );
+    expect(
+      await page
+        .locator('[data-testid="unrelated-book"]')
+        .getAttribute("data-clicked")
+    ).toBeNull();
+    await page.close();
+  });
+
   it.each([
     ["Myself radios", { myselfCount: 2 }],
     ["injuries fields", { injuries: ["", ""] }],
