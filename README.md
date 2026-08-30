@@ -16,6 +16,8 @@ The workflow performs one coherent authorization read after applying those check
 
 The calling process is responsible for supplying the checkout link for the correct class year. Because the supported Arketa checkout displays the weekday, month, and day without a year, the workflow verifies those displayed components and the class time against the request; it does not derive a year from hidden page state.
 
+v0.1.0 supports IANA timezones in the `America/*` namespace, including fractional-offset zones. Other timezone namespaces stop at request validation.
+
 A positive balance on the selected approved package is the complete no-charge evidence. The workflow does not inspect payment text or controls.
 
 The workflow does not retry automatically after submission uncertainty. A deliberate rerun is allowed, and Arketa's existing-enrollment state is authoritative.

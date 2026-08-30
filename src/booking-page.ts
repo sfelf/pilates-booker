@@ -282,6 +282,25 @@ async function waitForBookingReady(
               (button.textContent ?? "").replace(/\s+/gu, " ").trim()
             )
         );
+        const booked = [...document.querySelectorAll("button")].filter(
+          (button) =>
+            visible(button) &&
+            (button.textContent ?? "").replace(/\s+/gu, " ").trim() ===
+              "Book Another Spot"
+        );
+        const waitlisted = [
+          ...document.querySelectorAll("h1,h2,h3,h4,h5,h6")
+        ].filter(
+          (heading) =>
+            visible(heading) &&
+            (heading.textContent ?? "").replace(/\s+/gu, " ").trim() ===
+              "You're on the waitlist"
+        );
+        const stateCount = actions.length + booked.length + waitlisted.length;
+        if (stateCount !== 1) return false;
+        if (booked.length === 1 || waitlisted.length === 1) {
+          return visible(sibling) && visible(instructor);
+        }
         const packages = [...document.querySelectorAll("div.card")].filter(
           (card) =>
             visible(card) &&
@@ -838,6 +857,34 @@ async function readLiveBookingPage(
   const instructorText = (await metadata.nth(1).innerText()).trim();
   const parsed = parseLiveDateTime(dateTimeText, expectedClass);
   if (!instructorText.startsWith("with ")) throw new Error("incomplete class");
+  const observedClass = {
+    name: (await title.innerText()).trim(),
+    instructor: instructorText.slice("with ".length).trim(),
+    date: expectedClass.date,
+    start_time: parsed.start,
+    end_time: parsed.end,
+    timezone: expectedClass.timezone
+  };
+  const enrollment = await readLiveEnrollment(page);
+  if (enrollment !== undefined) {
+    return {
+      observation: {
+        status: "observed",
+        observed_class: observedClass,
+        action: enrollment,
+        packages: []
+      },
+      myself: { visibleCount: 0, selected: false, enabled: false },
+      injuries: { visibleCount: 0, value: "", enabled: false },
+      packages: [],
+      cancellation: { visibleCount: 0, accepted: false, enabled: false },
+      submission: {
+        book: { visibleCount: 0, enabled: false },
+        waitlist: { visibleCount: 0, enabled: false }
+      },
+      confirmation: await readConfirmationCounts(page)
+    };
+  }
 
   const myselfLocator = page
     .locator('input[type="radio"][name="reserveFor"]')
@@ -921,14 +968,7 @@ async function readLiveBookingPage(
   return {
     observation: {
       status: "observed",
-      observed_class: {
-        name: (await title.innerText()).trim(),
-        instructor: instructorText.slice("with ".length).trim(),
-        date: expectedClass.date,
-        start_time: parsed.start,
-        end_time: parsed.end,
-        timezone: expectedClass.timezone
-      },
+      observed_class: observedClass,
       action: actions[0]!,
       packages: packages.map(({ name, remaining }) => ({
         name,
@@ -963,6 +1003,59 @@ async function readLiveBookingPage(
     submission: { book, waitlist },
     confirmation
   };
+}
+
+async function readLiveEnrollment(
+  page: Page
+): Promise<"already_booked" | "already_waitlisted" | undefined> {
+  const booked = page
+    .getByRole("button", { name: "Book Another Spot", exact: true })
+    .filter({ visible: true });
+  const waitlisted = page
+    .getByRole("heading", { name: "You're on the waitlist", exact: true })
+    .filter({ visible: true });
+  const bookAction = accessibleActionButton(page, "book").filter({
+    visible: true
+  });
+  const waitlistAction = accessibleActionButton(page, "waitlist").filter({
+    visible: true
+  });
+  const [bookedCount, waitlistedCount, bookCount, waitlistCount] =
+    await Promise.all([
+      booked.count(),
+      waitlisted.count(),
+      bookAction.count(),
+      waitlistAction.count()
+    ]);
+  if (
+    bookedCount + waitlistedCount > 1 ||
+    ((bookedCount === 1 || waitlistedCount === 1) &&
+      bookCount + waitlistCount !== 0)
+  ) {
+    throw new Error("ambiguous enrollment");
+  }
+  if (waitlistedCount === 1) {
+    if (!(await isMainLightDom(waitlisted))) {
+      throw new Error("unsupported enrollment boundary");
+    }
+    return "already_waitlisted";
+  }
+  if (bookedCount === 0) return undefined;
+  if (!(await isMainLightDom(booked))) {
+    throw new Error("unsupported enrollment boundary");
+  }
+  const section = booked.locator("xpath=..");
+  const details = section
+    .getByRole("button", { name: "View Details", exact: true })
+    .filter({ visible: true });
+  await (await exactEnabledVisible(details)).click();
+  const proof = section
+    .getByText("You are Booked!", { exact: true })
+    .filter({ visible: true });
+  if ((await proof.count()) !== 1 || !(await isMainLightDom(proof))) {
+    throw new Error("missing booking proof");
+  }
+  return "already_booked";
 }
 
 function livePackageCards(page: Page): Locator {
@@ -1031,7 +1124,7 @@ function parseLiveDateTime(
   expectedClass: ExpectedClass
 ): Readonly<{ start: string; end: string }> {
   const match = value.match(
-    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12][0-9]|3[01]) • ([1-9]|1[0-2]):([0-5][0-9]) (AM|PM) - ([1-9]|1[0-2]):([0-5][0-9]) (AM|PM) ([A-Z]{2,5})$/u
+    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12][0-9]|3[01]) • ([1-9]|1[0-2]):([0-5][0-9]) (AM|PM) - ([1-9]|1[0-2]):([0-5][0-9]) (AM|PM) ((?:[A-Z]{2,5}|GMT[+-](?:[0-9]|1[0-4])(?::[0-5][0-9])?))$/u
   );
   if (match === null) throw new Error("invalid class time");
   const expectedDate = new Date(`${expectedClass.date}T12:00:00Z`);
@@ -1082,9 +1175,9 @@ function zoneNamesForLocalDateTime(
   const desired = `${date}T${time}`;
   const localAsUtc = Date.parse(`${desired}:00Z`);
   const names = new Set<string>();
-  for (let offset = -14; offset <= 14; offset += 1) {
+  for (let quarterHours = -56; quarterHours <= 56; quarterHours += 1) {
     const parts = formatter.formatToParts(
-      new Date(localAsUtc + offset * 60 * 60 * 1000)
+      new Date(localAsUtc + quarterHours * 15 * 60 * 1000)
     );
     const value = (type: Intl.DateTimeFormatPartTypes): string | undefined =>
       parts.find((part) => part.type === type)?.value;

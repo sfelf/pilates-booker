@@ -66,6 +66,33 @@ describe("validateRequest", () => {
     ).toThrow("Invalid booking request.");
   });
 
+  it("limits v0.1 requests to the America timezone namespace", () => {
+    expect(() =>
+      validateRequest(
+        {
+          ...request,
+          expected_class: {
+            ...request.expected_class,
+            timezone: "Europe/London"
+          }
+        },
+        policy
+      )
+    ).toThrow("Invalid booking request.");
+    expect(
+      validateRequest(
+        {
+          ...request,
+          expected_class: {
+            ...request.expected_class,
+            timezone: "America/St_Johns"
+          }
+        },
+        policy
+      ).expected_class.timezone
+    ).toBe("America/St_Johns");
+  });
+
   it("accepts dry-run only as a non-mutating request marker", () => {
     expect(validateRequest({ ...request, dry_run: true }, policy).dry_run).toBe(
       true
