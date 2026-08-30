@@ -101,6 +101,32 @@ describe("choosePackage", () => {
     ).toBeUndefined();
   });
 
+  it.each([
+    ["raw NUL", "Other\u0000Pack"],
+    ["JSON-escaped NUL", JSON.parse('"Other\\u0000Pack"') as string],
+    [
+      "JSON-escaped format character",
+      JSON.parse('"Other\\u200BPack"') as string
+    ]
+  ])("fails closed for a page name with %s", (_label, name) => {
+    expect(
+      decidePackage(policy, [option({ name, remaining: 2 })])
+    ).toBeUndefined();
+  });
+
+  it("preserves valid Unicode catalog text in unapproved evidence", () => {
+    expect(
+      decidePackage(policy, [
+        option({ name: "Mañana Pilates — 會員專享", remaining: 2 })
+      ])
+    ).toEqual({
+      balances: [
+        { name: "Mañana Pilates — 會員專享", remaining: 2, approved: false }
+      ],
+      selection: null
+    });
+  });
+
   it("selects the first configured package instead of the first page option", () => {
     const options = [
       option({ row: 1, name: "10 Reformer Classes", remaining: 2 }),

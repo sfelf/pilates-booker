@@ -29,6 +29,7 @@ export type PackageDecision = Readonly<{
 }>;
 
 const EDGE_DECORATION = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+const UNSAFE_PACKAGE_NAME_CODE_POINT = /[\p{Cc}\p{Cf}\p{Cs}]/u;
 
 export function normalizePackageNameForComparison(value: string): string {
   return value
@@ -61,7 +62,11 @@ export function decidePackage(
   );
 
   for (const candidate of activePackages) {
-    if (!Number.isSafeInteger(candidate.remaining) || candidate.remaining < 0) {
+    if (
+      UNSAFE_PACKAGE_NAME_CODE_POINT.test(candidate.name) ||
+      !Number.isSafeInteger(candidate.remaining) ||
+      candidate.remaining < 0
+    ) {
       return undefined;
     }
   }
