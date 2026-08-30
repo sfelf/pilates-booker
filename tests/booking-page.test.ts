@@ -835,6 +835,94 @@ function lifecycleHarness(
 }
 
 describe("BookingBrowser lifecycle", () => {
+  it("waits for actionable checkout controls after class hydration", async () => {
+    const realPage = await syntheticPage(
+      bookingPageHtml({
+        myselfCount: 0,
+        injuries: [],
+        packageControlCounts: [0, 0, 0],
+        cancellationCount: 0
+      })
+    );
+    const page = new Proxy(realPage, {
+      get(target, property) {
+        if (property === "goto") return async () => undefined;
+        if (property === "url") return () => checkoutUrl;
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    const context: BrowserContextLike = {
+      pages: () => [page],
+      newPage: async () => page,
+      close: async () => undefined
+    };
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      async () => context,
+      { readinessTimeoutMs: 400 }
+    );
+    let callbackCalled = false;
+
+    try {
+      const running = browserBoundary("/tmp/profile", checkoutUrl, async () => {
+        callbackCalled = true;
+        return "ready";
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(callbackCalled).toBe(false);
+
+      await realPage.setContent(bookingPageHtml());
+
+      await expect(running).resolves.toBe("ready");
+    } finally {
+      await realPage.close();
+    }
+  });
+
+  it("leaves fully rendered invalid checkout classification to the workflow", async () => {
+    const realPage = await syntheticPage();
+    await realPage
+      .locator('[data-testid="class-name"]')
+      .evaluate((element) => element.after(element.cloneNode(true)));
+    const page = new Proxy(realPage, {
+      get(target, property) {
+        if (property === "goto") return async () => undefined;
+        if (property === "url") return () => checkoutUrl;
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    const context: BrowserContextLike = {
+      pages: () => [page],
+      newPage: async () => page,
+      close: async () => undefined
+    };
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      async () => context,
+      { readinessTimeoutMs: 200 }
+    );
+    let callbackCalled = false;
+
+    try {
+      await expect(
+        browserBoundary("/tmp/profile", checkoutUrl, async (booking) => {
+          callbackCalled = true;
+          try {
+            await booking.read();
+            return "unexpected";
+          } catch {
+            return "safe-stop";
+          }
+        })
+      ).resolves.toBe("safe-stop");
+      expect(callbackCalled).toBe(true);
+    } finally {
+      await realPage.close();
+    }
+  });
+
   it("waits for an authenticated checkout to become completely readable", async () => {
     const realPage = await syntheticPage(`<!doctype html>
       <html><body>

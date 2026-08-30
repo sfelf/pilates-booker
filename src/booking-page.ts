@@ -232,33 +232,18 @@ async function openBookingBrowser<T>(
     } catch {
       throw new BookingBrowserError();
     }
-    const bookingPage = createBookingPage(page, expectedClass);
-    let readyPage = bookingPage;
     try {
       const loginRequiredCount = await page
         .locator('[data-testid="login-required"]')
         .filter({ visible: true })
         .count();
       if (loginRequiredCount === 0) {
-        const initialState = await waitForReadableBookingPage(
-          bookingPage,
-          readinessTimeoutMs
-        );
-        let cachedState: BookingPageState | undefined = initialState;
-        readyPage = {
-          ...bookingPage,
-          read: async () => {
-            if (cachedState === undefined) return bookingPage.read();
-            const state = cachedState;
-            cachedState = undefined;
-            return state;
-          }
-        };
+        await waitForBookingControls(page, readinessTimeoutMs);
       }
     } catch {
       throw new BookingBrowserReadinessError();
     }
-    return use(readyPage);
+    return use(createBookingPage(page, expectedClass));
   };
 
   return launcher === undefined
@@ -266,22 +251,65 @@ async function openBookingBrowser<T>(
     : withPersistentBrowser(profileDir, inContext, launcher);
 }
 
-async function waitForReadableBookingPage(
-  page: BookingPage,
+async function waitForBookingControls(
+  page: Page,
   timeoutMs: number
-): Promise<BookingPageState> {
-  const deadline = Date.now() + timeoutMs;
-  while (true) {
-    try {
-      return await page.read();
-    } catch {
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) throw new BookingBrowserReadinessError();
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(25, remainingMs))
+): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const visible = (element: Element | null): element is HTMLElement => {
+        if (!(element instanceof HTMLElement)) return false;
+        const style = getComputedStyle(element);
+        return (
+          !element.hidden &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        );
+      };
+      const visibleMarker = (selector: string): boolean =>
+        [...document.querySelectorAll(selector)].some(visible);
+      if (
+        visibleMarker('[data-testid="state-sold-out"]') ||
+        visibleMarker('[data-testid="state-already-booked"]') ||
+        visibleMarker('[data-testid="state-already-waitlisted"]')
+      ) {
+        return true;
+      }
+      if (
+        !visibleMarker('[data-testid="action-book"]') &&
+        !visibleMarker('[data-testid="action-waitlist"]')
+      ) {
+        return false;
+      }
+      const labeledControlPresent = (labelText: string): boolean =>
+        [...document.querySelectorAll("label")].some((candidate) => {
+          if (!visible(candidate)) return false;
+          const normalized = (candidate.textContent ?? "")
+            .trim()
+            .replace(/\s*\*\s*$/, "");
+          if (normalized !== labelText) return false;
+          const target = candidate.htmlFor
+            ? document.getElementById(candidate.htmlFor)
+            : candidate.querySelector("input, textarea");
+          return visible(target);
+        });
+      const packageControlPresent = [
+        ...document.querySelectorAll('[data-testid="offering"]')
+      ].some(
+        (offering) =>
+          visible(offering) &&
+          [...offering.querySelectorAll("input")].some(visible)
       );
-    }
-  }
+      return (
+        labeledControlPresent("Myself") &&
+        labeledControlPresent("Do you have any injuries?") &&
+        labeledControlPresent("I agree to the Cancellation Policy") &&
+        packageControlPresent
+      );
+    },
+    undefined,
+    { timeout: timeoutMs }
+  );
 }
 
 async function exactEnabledVisible(locator: Locator): Promise<Locator> {
