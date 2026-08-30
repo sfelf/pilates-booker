@@ -11,8 +11,9 @@ import type {
   PermittedAction
 } from "./contracts.js";
 import {
-  choosePackage,
+  decidePackage,
   normalizePackageNameForComparison,
+  type PackageDecision,
   type PackageSelection
 } from "./package-selection.js";
 import { validateResult } from "./result-validator.js";
@@ -80,14 +81,22 @@ export async function executeBookingWorkflow(
         await context.advance("SUBMITTING");
         await page.submit(preparation.action);
         const confirmation = await page.waitForConfirmation(preparation.action);
-        const outcome = preparation.action === "book" ? "BOOKED" : "WAITLISTED";
-        if (confirmation !== outcome) throw new BookingWorkflowError();
+        if (confirmation.kind === "UNKNOWN") {
+          throw new BookingWorkflowError();
+        }
+        if (
+          (preparation.action === "book" && confirmation.kind !== "BOOKED") ||
+          (preparation.action === "waitlist" &&
+            confirmation.kind !== "WAITLISTED")
+        ) {
+          throw new BookingWorkflowError();
+        }
         await context.advance("CONFIRMED");
 
         return confirmedResult(
           context.request.request_id,
           preparation,
-          outcome
+          confirmation
         );
       }
     );
@@ -135,35 +144,20 @@ export async function prepareBookingWorkflow(
     return safeStop(context.request.request_id, true);
   }
 
-  const selection = choosePackage(context.policy, initial.packages);
-  if (selection === undefined) {
+  const packageDecision = decidePackage(context.policy, initial.packages);
+  if (packageDecision === undefined) {
     return safeStop(context.request.request_id, true);
+  }
+  const selection = packageDecision.selection;
+  if (selection === null) {
+    return safeStop(context.request.request_id, true, packageDecision);
   }
 
   if (context.request.dry_run) {
     if (!hasUsableDryRunControls(initial, action, selection)) {
       return safeStop(context.request.request_id, true);
     }
-    return {
-      schema_version: 1,
-      request_id: context.request.request_id,
-      outcome: "DRY_RUN",
-      exit_code: 0,
-      action_submitted: false,
-      confirmation_verified: false,
-      availability:
-        action === "book" ? "BOOKING_AVAILABLE" : "WAITLIST_AVAILABLE",
-      observed_class: initial.observation.observed_class,
-      package_selected: selection.configuredName,
-      packages_before: selection.balances,
-      safety_checks: {
-        exact_class_match: true,
-        approved_package_verified: true,
-        no_charge: false,
-        cancellation_policy_accepted: false
-      },
-      details: DETAILS.DRY_RUN
-    };
+    return actionableDryRun(context, initial, action, selection);
   }
 
   if (!hasUsableInitialControls(initial, selection)) {
@@ -261,9 +255,13 @@ function isFullyAuthorized(
     return false;
   }
 
-  const finalSelection = choosePackage(context.policy, state.packages);
+  const finalSelection = decidePackage(
+    context.policy,
+    state.packages
+  )?.selection;
   return (
     finalSelection !== undefined &&
+    finalSelection !== null &&
     finalSelection.configuredName === initialSelection.configuredName &&
     finalSelection.option.row === initialSelection.option.row &&
     normalizePackageNameForComparison(finalSelection.option.name) ===
@@ -313,6 +311,33 @@ function existingEnrollment(
   };
 }
 
+function actionableDryRun(
+  context: ExecutionContext,
+  state: BookingPageState,
+  action: PermittedAction,
+  selection: PackageSelection
+): TerminalBookingPreparation {
+  return {
+    schema_version: 1,
+    request_id: context.request.request_id,
+    outcome: "DRY_RUN",
+    exit_code: 0,
+    action_submitted: false,
+    confirmation_verified: false,
+    availability:
+      action === "book" ? "BOOKING_AVAILABLE" : "WAITLIST_AVAILABLE",
+    observed_class: state.observation.observed_class,
+    ...selectedPackageEvidence(selection),
+    safety_checks: {
+      exact_class_match: true,
+      approved_package_verified: true,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: DETAILS.DRY_RUN
+  };
+}
+
 function existingDryRun(
   context: ExecutionContext,
   state: BookingPageState,
@@ -337,7 +362,8 @@ function existingDryRun(
 
 function safeStop(
   requestId: string,
-  exactClassMatch: boolean
+  exactClassMatch: boolean,
+  packageDecision?: PackageDecision
 ): TerminalBookingPreparation {
   return {
     schema_version: 1,
@@ -350,28 +376,63 @@ function safeStop(
       ...incompleteSafetyChecks,
       exact_class_match: exactClassMatch
     },
+    ...(packageDecision?.selection === null
+      ? {
+          package_selected: null,
+          packages_before: packageDecision.balances
+        }
+      : {}),
     details: DETAILS.SAFE_STOP
+  };
+}
+
+function selectedPackageEvidence(selection: PackageSelection): Readonly<{
+  package_selected: string;
+  packages_before: PackageSelection["balances"];
+}> {
+  return {
+    package_selected: selection.configuredName,
+    packages_before: selection.balances
   };
 }
 
 function confirmedResult(
   requestId: string,
   preparation: AuthorizedBooking,
-  outcome: "BOOKED" | "WAITLISTED"
+  confirmation: Extract<
+    import("./booking-page.js").BookingConfirmation,
+    { kind: "BOOKED" | "WAITLISTED" }
+  >
 ): BookingResult {
-  const result: BookingResult = {
-    schema_version: 1,
-    request_id: requestId,
-    outcome,
-    exit_code: 0,
-    action_submitted: true,
-    confirmation_verified: true,
-    observed_class: preparation.observed_class,
-    package_selected: preparation.selection.configuredName,
-    packages_before: preparation.selection.balances,
-    safety_checks: preparation.safety_checks,
-    details: outcome === "BOOKED" ? DETAILS.BOOKED : DETAILS.WAITLISTED
-  };
+  const result: BookingResult =
+    confirmation.kind === "BOOKED"
+      ? {
+          schema_version: 1,
+          request_id: requestId,
+          outcome: "BOOKED",
+          exit_code: 0,
+          action_submitted: true,
+          confirmation_verified: true,
+          observed_class: preparation.observed_class,
+          ...selectedPackageEvidence(preparation.selection),
+          safety_checks: preparation.safety_checks,
+          ...(confirmation.googleCalendarUrl === undefined
+            ? {}
+            : { google_calendar_url: confirmation.googleCalendarUrl }),
+          details: DETAILS.BOOKED
+        }
+      : {
+          schema_version: 1,
+          request_id: requestId,
+          outcome: "WAITLISTED",
+          exit_code: 0,
+          action_submitted: true,
+          confirmation_verified: true,
+          observed_class: preparation.observed_class,
+          ...selectedPackageEvidence(preparation.selection),
+          safety_checks: preparation.safety_checks,
+          details: DETAILS.WAITLISTED
+        };
   if (!validateResult(result)) throw new BookingWorkflowError();
   return result;
 }

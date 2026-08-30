@@ -22,6 +22,10 @@ const expectedClass: ExpectedClass = {
   timezone: "America/Los_Angeles"
 };
 
+const calendarClassId = "SYNTHETIC_CLASS_ID";
+const googleCalendarUrl =
+  "https://app.arketa.co/api/calendar/google?classId=SYNTHETIC_CLASS_ID";
+
 let browser: Browser;
 
 beforeAll(async () => {
@@ -863,8 +867,8 @@ async function revealConfirmation(
 
 describe("BookingPage confirmation boundary", () => {
   it.each([
-    ["book", "confirmation-booked", "BOOKED"],
-    ["waitlist", "confirmation-waitlisted", "WAITLISTED"]
+    ["book", "confirmation-booked", { kind: "BOOKED" }],
+    ["waitlist", "confirmation-waitlisted", { kind: "WAITLISTED" }]
   ] as const)(
     "returns the exact singleton %s confirmation",
     async (action, testId, expected) => {
@@ -876,7 +880,9 @@ describe("BookingPage confirmation boundary", () => {
       await booking.submit(action);
       const reveal = revealConfirmation(page, testId);
 
-      await expect(booking.waitForConfirmation(action)).resolves.toBe(expected);
+      await expect(booking.waitForConfirmation(action)).resolves.toEqual(
+        expected
+      );
       await reveal;
       await page.close();
     }
@@ -891,7 +897,9 @@ describe("BookingPage confirmation boundary", () => {
     await booking.submit("book");
     const reveal = revealConfirmation(page, "confirmation-waitlisted");
 
-    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "UNKNOWN"
+    });
     await reveal;
     await page.close();
   });
@@ -908,7 +916,9 @@ describe("BookingPage confirmation boundary", () => {
       revealConfirmation(page, "confirmation-waitlisted")
     ]);
 
-    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "UNKNOWN"
+    });
     await reveal;
     await page.close();
   });
@@ -924,7 +934,9 @@ describe("BookingPage confirmation boundary", () => {
     await booking.submit("book");
     const reveal = revealConfirmation(page, "confirmation-booked");
 
-    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "UNKNOWN"
+    });
     await reveal;
     await page.close();
   });
@@ -942,7 +954,9 @@ describe("BookingPage confirmation boundary", () => {
     await booking.read();
     await booking.submit("book");
 
-    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "UNKNOWN"
+    });
     await page.close();
   });
 
@@ -958,7 +972,9 @@ describe("BookingPage confirmation boundary", () => {
       await page.goto("data:text/html,<p>synthetic navigation</p>");
     })();
 
-    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "UNKNOWN"
+    });
     await navigation;
     await page.close();
   });
@@ -986,7 +1002,134 @@ describe("BookingPage confirmation boundary", () => {
     await booking.submit("book");
 
     expect(page.url()).toContain("#submitted");
-    await expect(booking.waitForConfirmation("book")).resolves.toBe("BOOKED");
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "BOOKED"
+    });
+    await page.close();
+  });
+
+  it("hydrates one exact Google link after booked evidence before the shared deadline", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass, {
+      classId: calendarClassId,
+      confirmationTimeoutMs: 200
+    });
+    await booking.read();
+    await booking.submit("book");
+
+    const hydrate = (async () => {
+      await revealConfirmation(page, "confirmation-booked");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await page.locator("body").evaluate((body, href) => {
+        const link = document.createElement("a");
+        link.href = href;
+        link.textContent = "Google";
+        body.append(link);
+      }, googleCalendarUrl);
+    })();
+
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "BOOKED",
+      googleCalendarUrl
+    });
+    await hydrate;
+    await page.close();
+  });
+
+  it("returns booked without a Google link at the shared deadline", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass, {
+      classId: calendarClassId,
+      confirmationTimeoutMs: 50
+    });
+    await booking.read();
+    await booking.submit("book");
+    const reveal = revealConfirmation(page, "confirmation-booked");
+
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "BOOKED"
+    });
+    await reveal;
+    await page.close();
+  });
+
+  it.each([
+    ["invalid URL", ["https://invalid.example/calendar"]],
+    ["duplicate links", [googleCalendarUrl, googleCalendarUrl]],
+    [
+      "wrong class",
+      ["https://app.arketa.co/api/calendar/google?classId=OTHER_CLASS"]
+    ]
+  ] as const)("does not hydrate a %s Google link", async (_case, hrefs) => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass, {
+      classId: calendarClassId,
+      confirmationTimeoutMs: 50
+    });
+    await booking.read();
+    await booking.submit("book");
+    const reveal = (async () => {
+      await revealConfirmation(page, "confirmation-booked");
+      await page.locator("body").evaluate((body, links) => {
+        for (const href of links) {
+          const link = document.createElement("a");
+          link.href = href;
+          link.textContent = "Google";
+          body.append(link);
+        }
+      }, hrefs);
+    })();
+
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "BOOKED"
+    });
+    await reveal;
+    await page.close();
+  });
+
+  it("does not attach a Google link to a waitlist confirmation", async () => {
+    const page = await syntheticPage(bookingPageHtml({ action: "waitlist" }));
+    const booking = createBookingPage(page, expectedClass, {
+      classId: calendarClassId,
+      confirmationTimeoutMs: 200
+    });
+    await booking.read();
+    await booking.submit("waitlist");
+    const reveal = (async () => {
+      await revealConfirmation(page, "confirmation-waitlisted");
+      await page.locator("body").evaluate((body, href) => {
+        const link = document.createElement("a");
+        link.href = href;
+        link.textContent = "Google";
+        body.append(link);
+      }, googleCalendarUrl);
+    })();
+
+    await expect(booking.waitForConfirmation("waitlist")).resolves.toEqual({
+      kind: "WAITLISTED"
+    });
+    await reveal;
+    await page.close();
+  });
+
+  it("keeps booked success when navigation interrupts optional Google link hydration", async () => {
+    const page = await syntheticPage();
+    const booking = createBookingPage(page, expectedClass, {
+      classId: calendarClassId,
+      confirmationTimeoutMs: 200
+    });
+    await booking.read();
+    await booking.submit("book");
+    const navigation = (async () => {
+      await revealConfirmation(page, "confirmation-booked");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await page.goto("data:text/html,<p>synthetic navigation</p>");
+    })();
+
+    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+      kind: "BOOKED"
+    });
+    await navigation;
     await page.close();
   });
 });
