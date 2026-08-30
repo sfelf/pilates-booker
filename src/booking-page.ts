@@ -1013,6 +1013,7 @@ async function readConfirmationCounts(
         const style = getComputedStyle(element);
         if (style.display === "none" || style.visibility === "hidden")
           return false;
+        if (element.getClientRects().length === 0) return false;
         if ((element.textContent ?? "").trim() !== expected) return false;
         return ![...element.children].some(
           (child) => (child.textContent ?? "").trim() === expected
@@ -1043,15 +1044,6 @@ function parseLiveDateTime(
   if (`${match[1]}, ${match[2]} ${match[3]}` !== expectedPrefix) {
     throw new Error("class date mismatch");
   }
-  const expectedZoneName = new Intl.DateTimeFormat("en-US", {
-    timeZone: expectedClass.timezone,
-    timeZoneName: "short"
-  })
-    .formatToParts(expectedDate)
-    .find((part) => part.type === "timeZoneName")?.value;
-  if (expectedZoneName === undefined || match[10] !== expectedZoneName) {
-    throw new Error("class timezone mismatch");
-  }
   const to24Hour = (hour: string, minute: string, meridiem: string): string => {
     const numeric = (Number(hour) % 12) + (meridiem === "PM" ? 12 : 0);
     return `${String(numeric).padStart(2, "0")}:${minute}`;
@@ -1060,7 +1052,51 @@ function parseLiveDateTime(
   const end = to24Hour(match[7]!, match[8]!, match[9]!);
   if (start !== expectedClass.start_time)
     throw new Error("class time mismatch");
+  if (
+    !zoneNamesForLocalDateTime(
+      expectedClass.date,
+      start,
+      expectedClass.timezone
+    ).has(match[10]!)
+  ) {
+    throw new Error("class timezone mismatch");
+  }
   return { start, end };
+}
+
+function zoneNamesForLocalDateTime(
+  date: string,
+  time: string,
+  timezone: string
+): ReadonlySet<string> {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "short"
+  });
+  const desired = `${date}T${time}`;
+  const localAsUtc = Date.parse(`${desired}:00Z`);
+  const names = new Set<string>();
+  for (let offset = -14; offset <= 14; offset += 1) {
+    const parts = formatter.formatToParts(
+      new Date(localAsUtc + offset * 60 * 60 * 1000)
+    );
+    const value = (type: Intl.DateTimeFormatPartTypes): string | undefined =>
+      parts.find((part) => part.type === type)?.value;
+    if (
+      `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}` ===
+      desired
+    ) {
+      const zoneName = value("timeZoneName");
+      if (zoneName !== undefined) names.add(zoneName);
+    }
+  }
+  return names;
 }
 
 async function readExactActionState(

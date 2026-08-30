@@ -14,6 +14,8 @@ Dry runs inspect the supported checkout without changing it. In a non-dry run, t
 
 The workflow performs one coherent authorization read after applying those checkout fields, then assumes the supported Arketa checkout remains stable until its single submission click. Concurrent user interaction, browser-extension mutation, and spontaneous checkout mutation during that short interval are outside the v0.1.0 operating model.
 
+The calling process is responsible for supplying the checkout link for the correct class year. Because the supported Arketa checkout displays the weekday, month, and day without a year, the workflow verifies those displayed components and the class time against the request; it does not derive a year from hidden page state.
+
 A positive balance on the selected approved package is the complete no-charge evidence. The workflow does not inspect payment text or controls.
 
 The workflow does not retry automatically after submission uncertainty. A deliberate rerun is allowed, and Arketa's existing-enrollment state is authoritative.
@@ -39,6 +41,22 @@ npm run build
 
 Create a dedicated absolute runtime directory outside this repository and copy both synthetic examples outside the repository before replacing them with private values. Keep the runtime, policy, request, generated journal, result, and authenticated browser profile out of Git. Close any browser already using the dedicated profile before invoking the command.
 
+Bootstrap the dedicated profile manually before the first booking run. On POSIX shells, open Arketa with the same profile directory, complete sign-in or MFA, and then close the browser window:
+
+```sh
+npx playwright open --user-data-dir "/absolute/private/pilates-runtime/Profile" "https://app.arketa.co"
+```
+
+In PowerShell:
+
+```powershell
+$runtime = "C:\private\pilates-runtime"
+$profile = Join-Path $runtime "Profile"
+npx playwright open --user-data-dir $profile "https://app.arketa.co"
+```
+
+The booking command does not automate login or follow sign-in redirects. Repeat this manual bootstrap if the dedicated profile's authenticated session expires.
+
 Start with `"dry_run": true`. On POSIX shells:
 
 ```sh
@@ -54,7 +72,7 @@ $request = "C:\private\booking-request.json"
 npm start -- --runtime $runtime --policy $policy $request
 ```
 
-The first interactive run uses `<runtime>/Profile`; sign in to Arketa in that dedicated window if needed. Each canonical request UUID owns `<runtime>/journals/<uuid>.json` and `<runtime>/results/<uuid>.json`. Repeating a UUID returns its completed result without opening the browser; use a new UUID for a new requested transaction. The runtime lock prevents overlapping invocations against the same profile.
+Each canonical request UUID owns `<runtime>/journals/<uuid>.json` and `<runtime>/results/<uuid>.json`. Repeating a UUID returns its completed result without opening the browser; use a new UUID for a new requested transaction. The runtime lock prevents overlapping invocations against the same profile.
 
 [`config/booking-request.example.json`](config/booking-request.example.json) and [`config/booking-policy.example.json`](config/booking-policy.example.json) contain synthetic values only. A non-dry run can perform one booking or waitlist submission, so inspect the dry-run result before changing `dry_run` to `false`.
 

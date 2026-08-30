@@ -68,6 +68,47 @@ describe("BookingPage read boundary", () => {
     await page.close();
   });
 
+  it("uses the class start instant for the live timezone abbreviation", async () => {
+    const transitionClass: ExpectedClass = {
+      ...expectedClass,
+      date: "2030-03-10",
+      start_time: "01:30"
+    };
+    const page = await syntheticPage(
+      liveBookingPageHtml().replace(
+        "Tuesday, Sep 1 • 9:30 AM - 10:20 AM PDT",
+        "Sunday, Mar 10 • 1:30 AM - 2:20 AM PST"
+      )
+    );
+
+    const state = await createBookingPage(page, transitionClass).read();
+
+    expect(state.observation.observed_class).toMatchObject({
+      date: "2030-03-10",
+      start_time: "01:30",
+      end_time: "02:20",
+      timezone: "America/Los_Angeles"
+    });
+    await page.close();
+  });
+
+  it("ignores exact confirmation text inside a hidden ancestor", async () => {
+    const page = await syntheticPage(
+      liveBookingPageHtml().replace(
+        "<div hidden>You are Booked!</div>",
+        "<div hidden><span>You are Booked!</span></div>"
+      )
+    );
+
+    const state = await createBookingPage(page, expectedClass).read();
+
+    expect(state.confirmation).toEqual({
+      bookedVisibleCount: 0,
+      waitlistedVisibleCount: 0
+    });
+    await page.close();
+  });
+
   it.each(["iframe", "shadow root"])(
     "does not cross the supported main-frame light-DOM boundary into an %s",
     async (boundary) => {
