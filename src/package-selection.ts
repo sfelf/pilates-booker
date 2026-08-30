@@ -23,6 +23,11 @@ export type PackageSelection = Readonly<{
   balances: NonEmptyPackageBalances;
 }>;
 
+export type PackageDecision = Readonly<{
+  balances: readonly PackageBalance[];
+  selection: PackageSelection | null;
+}>;
+
 const EDGE_DECORATION = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
 
 export function normalizePackageNameForComparison(value: string): string {
@@ -34,67 +39,89 @@ export function normalizePackageNameForComparison(value: string): string {
     .replace(/\s+/gu, " ");
 }
 
-export function choosePackage(
+export function decidePackage(
   policy: BookingPolicy,
   options: readonly PackageOption[]
-): PackageSelection | undefined {
-  const configuredNames = new Set<string>();
+): PackageDecision | undefined {
+  const configuredByNormalizedName = new Map<string, string>();
   const configured = [] as { name: string; normalizedName: string }[];
   for (const name of policy.allowed_packages) {
     const normalizedName = normalizePackageNameForComparison(name);
-    if (normalizedName === "" || configuredNames.has(normalizedName)) {
+    if (
+      normalizedName === "" ||
+      configuredByNormalizedName.has(normalizedName)
+    ) {
       return undefined;
     }
-    configuredNames.add(normalizedName);
+    configuredByNormalizedName.set(normalizedName, name);
     configured.push({ name, normalizedName });
   }
-  const normalizedNames = new Set<string>();
   const activePackages = options.filter(
     (candidate) => candidate.active && !candidate.product
   );
 
   for (const candidate of activePackages) {
+    if (!Number.isSafeInteger(candidate.remaining) || candidate.remaining < 0) {
+      return undefined;
+    }
+  }
+
+  const positivePackages = activePackages.filter(
+    (candidate) => candidate.remaining > 0
+  );
+  const normalizedNames = new Set<string>();
+  for (const candidate of positivePackages) {
     const normalizedName = normalizePackageNameForComparison(candidate.name);
-    if (
-      normalizedNames.has(normalizedName) ||
-      !Number.isSafeInteger(candidate.remaining) ||
-      candidate.remaining < 0
-    ) {
+    if (normalizedName === "" || normalizedNames.has(normalizedName)) {
       return undefined;
     }
     normalizedNames.add(normalizedName);
   }
 
-  const balances: readonly PackageBalance[] = activePackages.map(
-    (candidate) => ({
-      name: candidate.name,
-      remaining: candidate.remaining,
-      approved: configuredNames.has(
-        normalizePackageNameForComparison(candidate.name)
-      )
-    })
+  const balances: readonly PackageBalance[] = positivePackages.map(
+    (candidate) => {
+      const normalizedName = normalizePackageNameForComparison(candidate.name);
+      const configuredName = configuredByNormalizedName.get(normalizedName);
+      return {
+        name: configuredName ?? normalizedName,
+        remaining: candidate.remaining,
+        approved: configuredName !== undefined
+      };
+    }
   );
   const firstBalance = balances[0];
-  if (firstBalance === undefined) return undefined;
+  if (firstBalance === undefined) {
+    return { balances, selection: null };
+  }
   const nonEmptyBalances: NonEmptyPackageBalances = [
     firstBalance,
     ...balances.slice(1)
   ];
 
   for (const candidate of configured) {
-    const option = activePackages.find(
+    const option = positivePackages.find(
       (observed) =>
         normalizePackageNameForComparison(observed.name) ===
           candidate.normalizedName && observed.remaining > 0
     );
     if (option !== undefined) {
       return {
-        option,
-        configuredName: candidate.name,
-        balances: nonEmptyBalances
+        balances,
+        selection: {
+          option,
+          configuredName: candidate.name,
+          balances: nonEmptyBalances
+        }
       };
     }
   }
 
-  return undefined;
+  return { balances, selection: null };
+}
+
+export function choosePackage(
+  policy: BookingPolicy,
+  options: readonly PackageOption[]
+): PackageSelection | undefined {
+  return decidePackage(policy, options)?.selection ?? undefined;
 }

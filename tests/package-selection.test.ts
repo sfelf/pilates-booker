@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   choosePackage,
+  decidePackage,
   normalizePackageNameForComparison,
   type PackageOption
 } from "../src/package-selection.js";
@@ -46,6 +47,60 @@ describe("normalizePackageNameForComparison", () => {
 });
 
 describe("choosePackage", () => {
+  it("projects canonical positive balances in page order before choosing by policy priority", () => {
+    const decision = decidePackage(
+      {
+        ...policy,
+        allowed_packages: ["Synthetic Priority Package"]
+      },
+      [
+        option({
+          row: 1,
+          name: " ✨ Founder's Other Pack ★ ",
+          remaining: 2
+        }),
+        option({
+          row: 2,
+          name: "⭐ Synthetic Priority Package ★",
+          remaining: 3
+        }),
+        option({ row: 3, name: "Zero Balance", remaining: 0 }),
+        option({ row: 4, name: "Inactive", remaining: 8, active: false }),
+        option({ row: 5, name: "Product", remaining: 5, product: true })
+      ]
+    );
+
+    expect(decision?.balances).toEqual([
+      { name: "Founder's Other Pack", remaining: 2, approved: false },
+      { name: "Synthetic Priority Package", remaining: 3, approved: true }
+    ]);
+    expect(decision?.selection).toMatchObject({
+      configuredName: "Synthetic Priority Package",
+      option: { row: 2 }
+    });
+  });
+
+  it("retains trustworthy positive inventory with no approved selection", () => {
+    const decision = decidePackage(policy, [
+      option({
+        name: " ✨ Founder's Other Pack ★ ",
+        remaining: 2
+      })
+    ]);
+
+    expect(decision).toEqual({
+      balances: [
+        { name: "Founder's Other Pack", remaining: 2, approved: false }
+      ],
+      selection: null
+    });
+    expect(
+      choosePackage(policy, [
+        option({ name: "Founder's Other Pack", remaining: 2 })
+      ])
+    ).toBeUndefined();
+  });
+
   it("selects the first configured package instead of the first page option", () => {
     const options = [
       option({ row: 1, name: "10 Reformer Classes", remaining: 2 }),
@@ -134,9 +189,7 @@ describe("choosePackage", () => {
       expect(choosePackage(policy, [excluded, selected])).toEqual({
         option: selected,
         configuredName: "5 Reformer Classes",
-        balances: [
-          { name: "5 Reformer Classes ★", remaining: 4, approved: true }
-        ]
+        balances: [{ name: "5 Reformer Classes", remaining: 4, approved: true }]
       });
     }
   );
@@ -147,7 +200,7 @@ describe("choosePackage", () => {
       option({ row: 2, name: "5 Reformer Classes ★", remaining: 2 })
     ];
 
-    expect(choosePackage(policy, options)).toBeUndefined();
+    expect(decidePackage(policy, options)).toBeUndefined();
   });
 
   it.each([
@@ -160,7 +213,7 @@ describe("choosePackage", () => {
     const invalidPolicy: BookingPolicy = { ...policy, allowed_packages };
 
     expect(
-      choosePackage(invalidPolicy, [
+      decidePackage(invalidPolicy, [
         option({ row: 1, name: "5 Reformer Classes", remaining: 4 })
       ])
     ).toBeUndefined();
@@ -170,7 +223,7 @@ describe("choosePackage", () => {
     "fails closed for a non-negative safe integer balance of %s",
     (remaining) => {
       expect(
-        choosePackage(policy, [
+        decidePackage(policy, [
           option({ row: 1, name: "5 Reformer Classes", remaining })
         ])
       ).toBeUndefined();
@@ -199,7 +252,9 @@ describe("choosePackage", () => {
     expect(choosePackage(configuredPolicy, [selected, unapproved])).toEqual({
       option: selected,
       configuredName: "⭐ 5 Reformer Classes",
-      balances: [{ name: "5 Reformer Classes ★", remaining: 4, approved: true }]
+      balances: [
+        { name: "⭐ 5 Reformer Classes", remaining: 4, approved: true }
+      ]
     });
   });
 });

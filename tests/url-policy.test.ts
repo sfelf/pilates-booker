@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import resultSchema from "../schemas/result.schema.json" with { type: "json" };
 import { validateCalendarUrl, validateCheckoutUrl } from "../src/url-policy.js";
+import { validateCalendarUrlForCheckout } from "../src/result-validator.js";
 
 const require = createRequire(import.meta.url);
 const Ajv = require("ajv").default;
@@ -177,4 +178,31 @@ describe("validateCalendarUrl", () => {
       }
     }
   );
+});
+
+describe("validateCalendarUrlForCheckout", () => {
+  const calendarUrl =
+    "https://app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID";
+
+  it("accepts only the calendar URL bound to the validated checkout class", () => {
+    expect(validateCalendarUrlForCheckout(calendarUrl, checkoutUrl)).toBe(true);
+  });
+
+  it.each([
+    "http://app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID",
+    "https://user@app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID",
+    "https://evil.example/api/calendar/google?classId=FAKE_CHECKOUT_ID",
+    "https://app.arketa.co/calendar/google?classId=FAKE_CHECKOUT_ID",
+    "https://app.arketa.co/api/calendar/google",
+    "https://app.arketa.co/api/calendar/google?classId=",
+    "https://app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID&classId=FAKE_CHECKOUT_ID",
+    "https://app.arketa.co/api/calendar/google?classId=OTHER_CHECKOUT_ID",
+    "https://app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID&view=calendar",
+    "https://app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID#event",
+    "https://app.arketa.co/api/calendar/google%3FclassId=FAKE_CHECKOUT_ID",
+    "https://app.arketa.co/api/calendar/google?classId=FAKE%5FCHECKOUT_ID",
+    "https://app.arketa.co/api/calendar/google?classId=FAKE%255FCHECKOUT_ID"
+  ])("rejects calendar URL %s", (raw) => {
+    expect(validateCalendarUrlForCheckout(raw, checkoutUrl)).toBe(false);
+  });
 });
