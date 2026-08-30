@@ -963,7 +963,7 @@ describe("BookingPage confirmation boundary", () => {
     await page.close();
   });
 
-  it("returns unknown when navigation completes inside submission before polling begins", async () => {
+  it("accepts exact confirmation after submission changes the URL", async () => {
     const page = await syntheticPage();
     const booking = createBookingPage(page, expectedClass, {
       confirmationTimeoutMs: 100
@@ -986,7 +986,7 @@ describe("BookingPage confirmation boundary", () => {
     await booking.submit("book");
 
     expect(page.url()).toContain("#submitted");
-    await expect(booking.waitForConfirmation("book")).resolves.toBe("UNKNOWN");
+    await expect(booking.waitForConfirmation("book")).resolves.toBe("BOOKED");
     await page.close();
   });
 });

@@ -140,7 +140,6 @@ export function createBookingPage(
 ): BookingPage {
   const confirmationTimeoutMs = options.confirmationTimeoutMs ?? 30_000;
   let lastReadConfirmation: BookingPageState["confirmation"] | undefined;
-  let preSubmissionUrl: string | undefined;
   return {
     read: async () => {
       const state = await readBookingPage(page, expectedClass);
@@ -164,17 +163,13 @@ export function createBookingPage(
           })
         )
       ),
-    submit: async (action) => {
-      preSubmissionUrl = page.url();
-      await submitExactAction(page, action);
-    },
+    submit: (action) => submitExactAction(page, action),
     waitForConfirmation: (action) =>
       waitForExactConfirmation(
         page,
         action,
         confirmationTimeoutMs,
-        lastReadConfirmation,
-        preSubmissionUrl
+        lastReadConfirmation
       )
   };
 }
@@ -515,19 +510,16 @@ function accessibleActionButton(page: Page, action: PermittedAction): Locator {
 type ConfirmationCounts = Readonly<{
   bookedVisibleCount: number;
   waitlistedVisibleCount: number;
-  navigated: boolean;
 }>;
 
 async function waitForExactConfirmation(
   page: Page,
   action: PermittedAction,
   timeoutMs: number,
-  preSubmission: BookingPageState["confirmation"] | undefined,
-  preSubmissionUrl: string | undefined
+  preSubmission: BookingPageState["confirmation"] | undefined
 ): Promise<BookingConfirmation> {
   if (
     preSubmission === undefined ||
-    preSubmissionUrl === undefined ||
     preSubmission.bookedVisibleCount !== 0 ||
     preSubmission.waitlistedVisibleCount !== 0
   ) {
@@ -535,16 +527,8 @@ async function waitForExactConfirmation(
   }
 
   try {
-    if (page.url() !== preSubmissionUrl) return "UNKNOWN";
     const handle = await page.waitForFunction(
-      ({ initialUrl: expectedUrl }): false | ConfirmationCounts => {
-        if (window.location.href !== expectedUrl) {
-          return {
-            bookedVisibleCount: 0,
-            waitlistedVisibleCount: 0,
-            navigated: true
-          };
-        }
+      (): false | ConfirmationCounts => {
         const isVisible = (element: Element): element is HTMLElement => {
           if (!(element instanceof HTMLElement) || element.hidden) return false;
           const style = getComputedStyle(element);
@@ -564,22 +548,18 @@ async function waitForExactConfirmation(
           }).length;
         const counts = {
           bookedVisibleCount: exactLeafTextCount("You are Booked!"),
-          waitlistedVisibleCount: exactLeafTextCount("You're on the waitlist"),
-          navigated: false
+          waitlistedVisibleCount: exactLeafTextCount("You're on the waitlist")
         };
         return counts.bookedVisibleCount + counts.waitlistedVisibleCount === 0
           ? false
           : counts;
       },
-      { initialUrl: preSubmissionUrl },
+      undefined,
       { polling: 25, timeout: timeoutMs }
     );
     const counts = (await handle.jsonValue()) as ConfirmationCounts;
     await handle.dispose();
-    if (
-      counts.navigated ||
-      counts.bookedVisibleCount + counts.waitlistedVisibleCount !== 1
-    ) {
+    if (counts.bookedVisibleCount + counts.waitlistedVisibleCount !== 1) {
       return "UNKNOWN";
     }
     if (action === "book" && counts.bookedVisibleCount === 1) {
