@@ -7,8 +7,10 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "format": "prettier --write README.md .github config schemas src tests package.json tsconfig.json eslint.config.js .prettierrc.json",
-    "format:check": "prettier --check README.md .github config schemas src tests package.json tsconfig.json eslint.config.js .prettierrc.json",
+    "format": "prettier --write README.md .github config schemas src tests package.json tsconfig.json tsconfig.build.json eslint.config.js .prettierrc.json",
+    "format:check": "prettier --check README.md .github config schemas src tests package.json tsconfig.json tsconfig.build.json eslint.config.js .prettierrc.json",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

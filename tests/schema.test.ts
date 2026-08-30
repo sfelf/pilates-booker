@@ -158,6 +158,15 @@ describe("schema foundations", () => {
     ).toBe(false);
   });
 
+  it("rejects a non-canonical uppercase request UUID", () => {
+    expect(
+      validateRequest({
+        ...validRequest,
+        request_id: "00000000-0000-4000-8000-00000000000A"
+      })
+    ).toBe(false);
+  });
+
   it("rejects empty and duplicate permitted actions", () => {
     expect(validateRequest({ ...validRequest, permitted_actions: [] })).toBe(
       false

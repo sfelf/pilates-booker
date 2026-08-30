@@ -1,3 +1,7 @@
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import type { BookingPolicy } from "../src/contracts.js";
@@ -28,6 +32,21 @@ const request = {
 };
 
 describe("validateRequest", () => {
+  it("loads the repository's synthetic request example", async () => {
+    const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const example = JSON.parse(
+      await readFile(
+        join(repositoryRoot, "config/booking-request.example.json"),
+        "utf8"
+      )
+    ) as unknown;
+
+    expect(validateRequest(example, policy)).toMatchObject({
+      request_id: "00000000-0000-4000-8000-000000000001",
+      dry_run: true
+    });
+  });
+
   it("returns a schema-valid request with an exact matching policy version", () => {
     expect(validateRequest(request, policy)).toEqual(request);
   });
@@ -45,6 +64,33 @@ describe("validateRequest", () => {
         policy
       )
     ).toThrow("Invalid booking request.");
+  });
+
+  it("limits v0.1 requests to the America timezone namespace", () => {
+    expect(() =>
+      validateRequest(
+        {
+          ...request,
+          expected_class: {
+            ...request.expected_class,
+            timezone: "Europe/London"
+          }
+        },
+        policy
+      )
+    ).toThrow("Invalid booking request.");
+    expect(
+      validateRequest(
+        {
+          ...request,
+          expected_class: {
+            ...request.expected_class,
+            timezone: "America/St_Johns"
+          }
+        },
+        policy
+      ).expected_class.timezone
+    ).toBe("America/St_Johns");
   });
 
   it("accepts dry-run only as a non-mutating request marker", () => {

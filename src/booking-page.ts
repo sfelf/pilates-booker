@@ -227,7 +227,7 @@ async function openBookingBrowser<T>(
     : withPersistentBrowser(profileDir, inContext, launcher);
 }
 
-async function waitForBookingReady(
+export async function waitForBookingReady(
   page: Page,
   timeoutMs: number
 ): Promise<void> {
@@ -245,6 +245,113 @@ async function waitForBookingReady(
       };
       const visibleMarker = (selector: string): boolean =>
         [...document.querySelectorAll(selector)].some(visible);
+      const liveTitles = [...document.querySelectorAll(".classTitle")].filter(
+        visible
+      );
+      if (liveTitles.length > 0) {
+        if (liveTitles.length !== 1) return false;
+        const title = liveTitles[0]!;
+        const sibling = title.nextElementSibling;
+        const instructor = sibling?.nextElementSibling ?? null;
+        const exactVisibleInput = (
+          selector: string,
+          accessibleName: string
+        ): boolean => {
+          const matches = [...document.querySelectorAll(selector)].filter(
+            (candidate): candidate is HTMLInputElement => {
+              if (
+                !(candidate instanceof HTMLInputElement) ||
+                !visible(candidate)
+              ) {
+                return false;
+              }
+              const labels = [...(candidate.labels ?? [])]
+                .map((label) =>
+                  (label.textContent ?? "").replace(/\s+/gu, " ").trim()
+                )
+                .join(" ");
+              return labels === accessibleName;
+            }
+          );
+          return matches.length === 1;
+        };
+        const actions = [...document.querySelectorAll("button")].filter(
+          (button) =>
+            visible(button) &&
+            ["Book", "Join the waitlist"].includes(
+              (button.textContent ?? "").replace(/\s+/gu, " ").trim()
+            )
+        );
+        const booked = [...document.querySelectorAll("button")].filter(
+          (button) =>
+            visible(button) &&
+            (button.textContent ?? "").replace(/\s+/gu, " ").trim() ===
+              "Book Another Spot"
+        );
+        const waitlisted = [
+          ...document.querySelectorAll("h1,h2,h3,h4,h5,h6")
+        ].filter(
+          (heading) =>
+            visible(heading) &&
+            (heading.textContent ?? "").replace(/\s+/gu, " ").trim() ===
+              "You're on the waitlist"
+        );
+        const stateCount = actions.length + booked.length + waitlisted.length;
+        if (stateCount !== 1) return false;
+        if (booked.length === 1) {
+          const section = booked[0]!.parentElement;
+          const details =
+            section === null
+              ? []
+              : [...section.querySelectorAll("button")].filter(
+                  (button) =>
+                    visible(button) &&
+                    (button.textContent ?? "").replace(/\s+/gu, " ").trim() ===
+                      "View Details"
+                );
+          return (
+            visible(sibling) && visible(instructor) && details.length === 1
+          );
+        }
+        if (waitlisted.length === 1) {
+          return visible(sibling) && visible(instructor);
+        }
+        const packages = [...document.querySelectorAll("div.card")].filter(
+          (card) =>
+            visible(card) &&
+            card.closest("a[href]") === null &&
+            card.querySelector("h1,h2,h3,h4,h5,h6") !== null &&
+            card.querySelector("p") !== null
+        );
+        return (
+          visible(sibling) &&
+          visible(instructor) &&
+          actions.length === 1 &&
+          packages.length > 0 &&
+          exactVisibleInput(
+            'input[type="radio"][name="reserveFor"]',
+            "Myself"
+          ) &&
+          [
+            ...document.querySelectorAll(
+              'input[type="text"], input:not([type])'
+            )
+          ].filter(
+            (input) =>
+              input instanceof HTMLInputElement &&
+              visible(input) &&
+              [...(input.labels ?? [])].some((label) =>
+                /^Do you have any injuries\?(?:\s*\*)?\s*$/u.test(
+                  (label.textContent ?? "").replace(/\s+/gu, " ").trim()
+                )
+              )
+          ).length === 1 &&
+          exactVisibleInput(
+            'input[type="checkbox"]',
+            "I agree to the Cancellation Policy"
+          )
+        );
+      }
       if (visibleMarker('[data-testid="login-required"]')) return true;
       if (!visibleMarker('[data-testid="authenticated"]')) return false;
       const classMetadataPresent = [
@@ -314,7 +421,11 @@ async function waitForBookingReady(
 async function exactEnabledVisible(locator: Locator): Promise<Locator> {
   try {
     const visible = locator.filter({ visible: true });
-    if ((await visible.count()) !== 1 || !(await visible.isEnabled())) {
+    if (
+      (await visible.count()) !== 1 ||
+      !(await isMainLightDom(visible)) ||
+      !(await visible.isEnabled())
+    ) {
       throw new Error("unavailable");
     }
     return visible;
@@ -353,6 +464,12 @@ async function selectPackageRow(page: Page, row: number): Promise<void> {
     throw new BookingPageControlError();
   }
   try {
+    if (await hasLiveCheckout(page)) {
+      const cards = livePackageCards(page);
+      if ((await cards.count()) <= row) throw new Error("missing package");
+      await (await exactEnabledVisible(cards.nth(row))).click();
+      return;
+    }
     const offering = page
       .locator('[data-testid="offering"]')
       .filter({ visible: true })
@@ -368,7 +485,9 @@ async function submitExactAction(
   action: PermittedAction
 ): Promise<void> {
   try {
-    const button = exactActionButton(page, action);
+    const button = (await hasLiveCheckout(page))
+      ? accessibleActionButton(page, action)
+      : exactActionButton(page, action);
     await button.click({ timeout: 250 });
   } catch {
     throw new BookingPageControlError();
@@ -381,14 +500,16 @@ function exactActionButton(page: Page, action: PermittedAction): Locator {
       ? '[data-testid="action-book"]'
       : '[data-testid="action-waitlist"]'
   );
-  const accessibleButton =
-    action === "book"
-      ? page.getByRole("button", { name: "Book", exact: true })
-      : page.getByRole("button", {
-          name: "Join the waitlist",
-          exact: true
-        });
-  return marker.and(accessibleButton);
+  return marker.and(accessibleActionButton(page, action));
+}
+
+function accessibleActionButton(page: Page, action: PermittedAction): Locator {
+  return action === "book"
+    ? page.getByRole("button", { name: "Book", exact: true })
+    : page.getByRole("button", {
+        name: "Join the waitlist",
+        exact: true
+      });
 }
 
 type ConfirmationCounts = Readonly<{
@@ -478,6 +599,9 @@ async function readBookingPage(
   expectedClass: ExpectedClass
 ): Promise<BookingPageState> {
   try {
+    if (await hasLiveCheckout(page)) {
+      return await readLiveBookingPage(page, expectedClass);
+    }
     const raw = await page.locator("body").evaluate((root): RawPageState => {
       const isVisible = (element: Element): element is HTMLElement => {
         if (!(element instanceof HTMLElement) || element.hidden) return false;
@@ -724,6 +848,363 @@ async function readBookingPage(
   } catch {
     throw new BookingPageError();
   }
+}
+
+async function hasLiveCheckout(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    return [...document.querySelectorAll(".classTitle")].some((element) => {
+      if (!(element instanceof HTMLElement) || element.hidden) return false;
+      const style = getComputedStyle(element);
+      return style.display !== "none" && style.visibility !== "hidden";
+    });
+  });
+}
+
+async function readLiveBookingPage(
+  page: Page,
+  expectedClass: ExpectedClass
+): Promise<BookingPageState> {
+  const title = page.locator(".classTitle").filter({ visible: true });
+  if ((await title.count()) !== 1) throw new Error("ambiguous class");
+  const metadata = title.locator("xpath=following-sibling::*");
+  if ((await metadata.count()) < 2) throw new Error("incomplete class");
+  const dateTimeText = (await metadata.nth(0).innerText()).trim();
+  const instructorText = (await metadata.nth(1).innerText()).trim();
+  const parsed = parseLiveDateTime(dateTimeText, expectedClass);
+  if (!instructorText.startsWith("with ")) throw new Error("incomplete class");
+  const observedClass = {
+    name: (await title.innerText()).trim(),
+    instructor: instructorText.slice("with ".length).trim(),
+    date: expectedClass.date,
+    start_time: parsed.start,
+    end_time: parsed.end,
+    timezone: expectedClass.timezone
+  };
+  const enrollment = await readLiveEnrollment(page);
+  if (enrollment !== undefined) {
+    return {
+      observation: {
+        status: "observed",
+        observed_class: observedClass,
+        action: enrollment,
+        packages: []
+      },
+      myself: { visibleCount: 0, selected: false, enabled: false },
+      injuries: { visibleCount: 0, value: "", enabled: false },
+      packages: [],
+      cancellation: { visibleCount: 0, accepted: false, enabled: false },
+      submission: {
+        book: { visibleCount: 0, enabled: false },
+        waitlist: { visibleCount: 0, enabled: false }
+      },
+      confirmation: await readConfirmationCounts(page)
+    };
+  }
+
+  const myselfLocator = page
+    .locator('input[type="radio"][name="reserveFor"]')
+    .and(page.getByRole("radio", { name: "Myself", exact: true }))
+    .filter({ visible: true });
+  const injuryLocator = page
+    .locator('input[type="text"], input:not([type])')
+    .and(
+      page.getByRole("textbox", {
+        name: /^Do you have any injuries\?(?:\s*\*)?\s*$/u
+      })
+    )
+    .filter({ visible: true });
+  const cancellationLocator = page
+    .locator('input[type="checkbox"]')
+    .and(
+      page.getByRole("checkbox", {
+        name: "I agree to the Cancellation Policy",
+        exact: true
+      })
+    )
+    .filter({ visible: true });
+  if (
+    (await myselfLocator.count()) > 1 ||
+    (await injuryLocator.count()) > 1 ||
+    (await cancellationLocator.count()) > 1
+  ) {
+    throw new Error("ambiguous control");
+  }
+  for (const control of [myselfLocator, injuryLocator, cancellationLocator]) {
+    if ((await control.count()) === 1 && !(await isMainLightDom(control))) {
+      throw new Error("unsupported control boundary");
+    }
+  }
+
+  const cards = livePackageCards(page);
+  const packages: PackageOption[] = [];
+  const selectedRows: number[] = [];
+  for (let row = 0; row < (await cards.count()); row += 1) {
+    const card = cards.nth(row);
+    const heading = card.getByRole("heading").filter({ visible: true });
+    const balances = card.locator("p").filter({ visible: true });
+    if ((await heading.count()) !== 1 || (await balances.count()) !== 1) {
+      throw new Error("invalid package");
+    }
+    const balanceMatch = (await balances.innerText())
+      .trim()
+      .match(/^(0|[1-9][0-9]*) remaining$/u);
+    if (balanceMatch?.[1] === undefined) throw new Error("invalid package");
+    const remaining = Number(balanceMatch[1]);
+    if (!Number.isSafeInteger(remaining)) throw new Error("invalid package");
+    const selected = await card.evaluate((element) =>
+      element.classList.contains("border-primaryColor")
+    );
+    if (selected) selectedRows.push(row);
+    packages.push({
+      row,
+      name: (await heading.innerText()).trim(),
+      remaining,
+      active: remaining > 0,
+      product: false,
+      control: {
+        visibleCount: 1,
+        selected,
+        enabled: await card.isEnabled()
+      }
+    });
+  }
+  if (selectedRows.length > 1) throw new Error("ambiguous package");
+
+  const [book, waitlist] = await Promise.all([
+    readLiveActionState(page, "book"),
+    readLiveActionState(page, "waitlist")
+  ]);
+  const actions = [
+    ...(book.visibleCount === 1 ? (["book"] as const) : []),
+    ...(waitlist.visibleCount === 1 ? (["waitlist"] as const) : [])
+  ];
+  if (actions.length !== 1) throw new Error("ambiguous action");
+  const confirmation = await readConfirmationCounts(page);
+  return {
+    observation: {
+      status: "observed",
+      observed_class: observedClass,
+      action: actions[0]!,
+      packages: packages.map(({ name, remaining }) => ({
+        name,
+        remaining,
+        approved: false
+      }))
+    },
+    myself: await readRadioState(myselfLocator),
+    injuries: {
+      visibleCount: await injuryLocator.count(),
+      value:
+        (await injuryLocator.count()) === 1 &&
+        (await injuryLocator.inputValue()).trim().length > 0
+          ? "PRESENT"
+          : "",
+      enabled:
+        (await injuryLocator.count()) === 1 && (await injuryLocator.isEnabled())
+    },
+    packages,
+    ...(selectedRows[0] === undefined
+      ? {}
+      : { selectedPackageRow: selectedRows[0] }),
+    cancellation: {
+      visibleCount: await cancellationLocator.count(),
+      accepted:
+        (await cancellationLocator.count()) === 1 &&
+        (await cancellationLocator.isChecked()),
+      enabled:
+        (await cancellationLocator.count()) === 1 &&
+        (await cancellationLocator.isEnabled())
+    },
+    submission: { book, waitlist },
+    confirmation
+  };
+}
+
+async function readLiveEnrollment(
+  page: Page
+): Promise<"already_booked" | "already_waitlisted" | undefined> {
+  const booked = page
+    .getByRole("button", { name: "Book Another Spot", exact: true })
+    .filter({ visible: true });
+  const waitlisted = page
+    .getByRole("heading", { name: "You're on the waitlist", exact: true })
+    .filter({ visible: true });
+  const bookAction = accessibleActionButton(page, "book").filter({
+    visible: true
+  });
+  const waitlistAction = accessibleActionButton(page, "waitlist").filter({
+    visible: true
+  });
+  const [bookedCount, waitlistedCount, bookCount, waitlistCount] =
+    await Promise.all([
+      booked.count(),
+      waitlisted.count(),
+      bookAction.count(),
+      waitlistAction.count()
+    ]);
+  if (
+    bookedCount + waitlistedCount > 1 ||
+    ((bookedCount === 1 || waitlistedCount === 1) &&
+      bookCount + waitlistCount !== 0)
+  ) {
+    throw new Error("ambiguous enrollment");
+  }
+  if (waitlistedCount === 1) {
+    if (!(await isMainLightDom(waitlisted))) {
+      throw new Error("unsupported enrollment boundary");
+    }
+    return "already_waitlisted";
+  }
+  if (bookedCount === 0) return undefined;
+  if (!(await isMainLightDom(booked))) {
+    throw new Error("unsupported enrollment boundary");
+  }
+  const section = booked.locator("xpath=..");
+  const details = section
+    .getByRole("button", { name: "View Details", exact: true })
+    .filter({ visible: true });
+  await (await exactEnabledVisible(details)).click();
+  const proof = section
+    .getByText("You are Booked!", { exact: true })
+    .filter({ visible: true });
+  if ((await proof.count()) !== 1 || !(await isMainLightDom(proof))) {
+    throw new Error("missing booking proof");
+  }
+  return "already_booked";
+}
+
+function livePackageCards(page: Page): Locator {
+  return page
+    .locator(
+      'xpath=//div[contains(concat(" ", normalize-space(@class), " "), " card ") and not(ancestor::a[@href])]'
+    )
+    .filter({ visible: true });
+}
+
+async function readLiveActionState(
+  page: Page,
+  action: PermittedAction
+): Promise<Readonly<{ visibleCount: number; enabled: boolean }>> {
+  const visible = accessibleActionButton(page, action).filter({
+    visible: true
+  });
+  const visibleCount = await visible.count();
+  return {
+    visibleCount,
+    enabled:
+      visibleCount === 1 &&
+      (await isMainLightDom(visible)) &&
+      (await visible.isEnabled())
+  };
+}
+
+async function isMainLightDom(locator: Locator): Promise<boolean> {
+  return locator.evaluate((element) => element.getRootNode() === document);
+}
+
+async function readRadioState(locator: Locator): Promise<ControlState> {
+  const visibleCount = await locator.count();
+  return {
+    visibleCount,
+    selected: visibleCount === 1 && (await locator.isChecked()),
+    enabled: visibleCount === 1 && (await locator.isEnabled())
+  };
+}
+
+async function readConfirmationCounts(
+  page: Page
+): Promise<BookingPageState["confirmation"]> {
+  return page.evaluate(() => {
+    const exactVisibleLeafCount = (expected: string): number =>
+      [...document.querySelectorAll("body *")].filter((element) => {
+        if (!(element instanceof HTMLElement) || element.hidden) return false;
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden")
+          return false;
+        if (element.getClientRects().length === 0) return false;
+        if ((element.textContent ?? "").trim() !== expected) return false;
+        return ![...element.children].some(
+          (child) => (child.textContent ?? "").trim() === expected
+        );
+      }).length;
+    return {
+      bookedVisibleCount: exactVisibleLeafCount("You are Booked!"),
+      waitlistedVisibleCount: exactVisibleLeafCount("You're on the waitlist")
+    };
+  });
+}
+
+function parseLiveDateTime(
+  value: string,
+  expectedClass: ExpectedClass
+): Readonly<{ start: string; end: string }> {
+  const match = value.match(
+    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12][0-9]|3[01]) • ([1-9]|1[0-2]):([0-5][0-9]) (AM|PM) - ([1-9]|1[0-2]):([0-5][0-9]) (AM|PM) ((?:[A-Z]{2,5}|GMT[+-](?:[0-9]|1[0-4])(?::[0-5][0-9])?))$/u
+  );
+  if (match === null) throw new Error("invalid class time");
+  const expectedDate = new Date(`${expectedClass.date}T12:00:00Z`);
+  const expectedPrefix = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC"
+  }).format(expectedDate);
+  if (`${match[1]}, ${match[2]} ${match[3]}` !== expectedPrefix) {
+    throw new Error("class date mismatch");
+  }
+  const to24Hour = (hour: string, minute: string, meridiem: string): string => {
+    const numeric = (Number(hour) % 12) + (meridiem === "PM" ? 12 : 0);
+    return `${String(numeric).padStart(2, "0")}:${minute}`;
+  };
+  const start = to24Hour(match[4]!, match[5]!, match[6]!);
+  const end = to24Hour(match[7]!, match[8]!, match[9]!);
+  if (start !== expectedClass.start_time)
+    throw new Error("class time mismatch");
+  if (
+    !zoneNamesForLocalDateTime(
+      expectedClass.date,
+      start,
+      expectedClass.timezone
+    ).has(match[10]!)
+  ) {
+    throw new Error("class timezone mismatch");
+  }
+  return { start, end };
+}
+
+function zoneNamesForLocalDateTime(
+  date: string,
+  time: string,
+  timezone: string
+): ReadonlySet<string> {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "short"
+  });
+  const desired = `${date}T${time}`;
+  const localAsUtc = Date.parse(`${desired}:00Z`);
+  const names = new Set<string>();
+  for (let quarterHours = -56; quarterHours <= 56; quarterHours += 1) {
+    const parts = formatter.formatToParts(
+      new Date(localAsUtc + quarterHours * 15 * 60 * 1000)
+    );
+    const value = (type: Intl.DateTimeFormatPartTypes): string | undefined =>
+      parts.find((part) => part.type === type)?.value;
+    if (
+      `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}` ===
+      desired
+    ) {
+      const zoneName = value("timeZoneName");
+      if (zoneName !== undefined) names.add(zoneName);
+    }
+  }
+  return names;
 }
 
 async function readExactActionState(
