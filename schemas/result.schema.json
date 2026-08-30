@@ -70,7 +70,11 @@
         "required": ["name", "remaining", "approved"],
         "properties": {
           "name": { "type": "string", "minLength": 1 },
-          "remaining": { "type": "number", "minimum": 0 },
+          "remaining": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
           "approved": { "type": "boolean" }
         }
       }
@@ -184,7 +188,11 @@
                   "type": "object",
                   "required": ["remaining", "approved"],
                   "properties": {
-                    "remaining": { "type": "number", "exclusiveMinimum": 0 },
+                    "remaining": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "approved": { "const": true }
                   }
                 }

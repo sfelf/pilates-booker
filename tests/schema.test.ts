@@ -266,6 +266,20 @@ describe("schema foundations", () => {
     expect(validateResult({ ...actionableDryRun, packages_before: [] })).toBe(
       false
     );
+    for (const remaining of [0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(
+        validateResult({
+          ...actionableDryRun,
+          packages_before: [
+            {
+              name: "Synthetic Priority Package",
+              remaining,
+              approved: true
+            }
+          ]
+        })
+      ).toBe(false);
+    }
     expect(
       validateResult({
         ...actionableDryRun,

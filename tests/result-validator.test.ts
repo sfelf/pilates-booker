@@ -53,6 +53,24 @@ describe("validateResult actionable dry-run evidence", () => {
     ).toBe(false);
   });
 
+  it.each([0.5, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects a non-safe-integer package balance of %s",
+    (remaining) => {
+      expect(
+        validateResult({
+          ...actionableDryRun,
+          packages_before: [
+            {
+              name: "Synthetic Priority Package ★",
+              remaining,
+              approved: true
+            }
+          ]
+        })
+      ).toBe(false);
+    }
+  );
+
   it("rejects existing-enrollment dry runs without observed class evidence", () => {
     const {
       package_used: ignoredPackage,

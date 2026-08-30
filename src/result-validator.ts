@@ -23,6 +23,14 @@ export const validateResult = (value: unknown): value is BookingResult => {
   ) {
     return true;
   }
+  if (
+    result.packages_before.some(
+      (candidate) =>
+        !Number.isSafeInteger(candidate.remaining) || candidate.remaining < 0
+    )
+  ) {
+    return false;
+  }
 
   const configuredName = normalizePackageNameForComparison(result.package_used);
   return (

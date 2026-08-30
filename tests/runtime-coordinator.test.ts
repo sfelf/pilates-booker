@@ -285,6 +285,34 @@ describe("resultMatchesDurableState", () => {
       "VALIDATED"
     ],
     [
+      "rejects actionable dry-run evidence with a fractional package balance",
+      {
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Priority Package ★",
+            remaining: 0.5,
+            approved: true
+          }
+        ]
+      },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence with an unsafe integer package balance",
+      {
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Priority Package ★",
+            remaining: Number.MAX_SAFE_INTEGER + 1,
+            approved: true
+          }
+        ]
+      },
+      "VALIDATED"
+    ],
+    [
       "rejects actionable dry-run evidence for a different configured package",
       {
         ...actionableDryRun,
