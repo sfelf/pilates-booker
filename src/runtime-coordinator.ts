@@ -11,23 +11,24 @@ export type RuntimeOperations = Readonly<{
   readJournal(): Promise<JournalRecord | undefined>;
   writeJournal(record: JournalRecord): Promise<void>;
   readResult(): Promise<ResultReadStatus>;
-  writeResult(result: BookingResult): Promise<void>;
+  writeResult(result: BookingResult): Promise<string>;
 }>;
 
 export type ResultReadStatus =
   | Readonly<{ status: "missing" }>
-  | Readonly<{ status: "valid"; result: BookingResult }>
+  | Readonly<{ status: "valid"; result: BookingResult; bytes: string }>
   | Readonly<{ status: "invalid"; inspectionRequestId?: string }>
   | Readonly<{ status: "failure" }>;
 
 export type CoordinatorDecision = Readonly<{
   result: BookingResult;
   publish: boolean;
+  bytes?: string;
 }>;
 
 export type FinalizedDecision = Readonly<{
   result: BookingResult;
-  published: boolean;
+  bytes?: string;
 }>;
 
 export type RuntimeExecutionContext = Readonly<{
@@ -113,10 +114,9 @@ export class RuntimeCoordinator {
     }
 
     if (resultStatus.status === "invalid") {
-      const inspectionRequestId = resultStatus.inspectionRequestId;
       return {
         result: classifyFailure(this.requestId, journal.state),
-        publish: inspectionRequestId === this.requestId
+        publish: false
       };
     }
 
@@ -127,17 +127,23 @@ export class RuntimeCoordinator {
       };
     }
 
-    const safeResult = withFixedDetails(resultStatus.result);
-    if (resultMatchesDurableState(safeResult, journal.state, this.requestId)) {
+    if (
+      resultMatchesDurableState(
+        resultStatus.result,
+        journal.state,
+        this.requestId
+      )
+    ) {
       return {
-        result: safeResult,
-        publish: safeResult !== resultStatus.result
+        result: resultStatus.result,
+        publish: false,
+        bytes: resultStatus.bytes
       };
     }
 
     return {
       result: classifyFailure(this.requestId, journal.state),
-      publish: true
+      publish: false
     };
   }
 
@@ -175,12 +181,16 @@ export class RuntimeCoordinator {
 
   async finalize(decision: CoordinatorDecision): Promise<FinalizedDecision> {
     const result = withFixedDetails(decision.result);
-    if (!decision.publish) return { result, published: true };
+    if (!decision.publish) {
+      return decision.bytes === undefined
+        ? { result }
+        : { result, bytes: decision.bytes };
+    }
     try {
-      await this.operations.writeResult(result);
-      return { result, published: true };
+      const bytes = await this.operations.writeResult(result);
+      return { result, bytes };
     } catch {
-      return { result, published: false };
+      return { result };
     }
   }
 

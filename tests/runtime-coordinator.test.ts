@@ -174,12 +174,14 @@ const request = {
 class InMemoryRuntimeOperations implements RuntimeOperations {
   journal: JournalRecord | undefined;
   result: BookingResult | undefined;
+  resultBytes: string | undefined;
   resultStatus: ResultReadStatus | undefined;
   failWriteAt: JournalState | undefined;
   failReadJournal = false;
   failReadResult = false;
   failReadJournalAfterSubmission = false;
   failWriteResult = false;
+  resultWrites = 0;
 
   async readJournal(): Promise<JournalRecord | undefined> {
     if (
@@ -204,16 +206,59 @@ class InMemoryRuntimeOperations implements RuntimeOperations {
     if (this.resultStatus !== undefined) return this.resultStatus;
     return this.result === undefined
       ? { status: "missing" }
-      : { status: "valid", result: this.result };
+      : {
+          status: "valid",
+          result: this.result,
+          bytes: this.resultBytes ?? `${JSON.stringify(this.result)}\n`
+        };
   }
 
-  async writeResult(result: BookingResult): Promise<void> {
+  async writeResult(result: BookingResult): Promise<string> {
     if (this.failWriteResult) throw new Error("result write failed");
+    this.resultWrites += 1;
     this.result = result;
+    this.resultBytes = `${JSON.stringify(result)}\n`;
+    return this.resultBytes;
   }
 }
 
 describe("resultMatchesDurableState", () => {
+  const resultByOutcome = {
+    BOOKED: booked,
+    WAITLISTED: {
+      ...booked,
+      outcome: "WAITLISTED",
+      details: "Waitlist confirmed."
+    },
+    ALREADY_BOOKED: alreadyBookedExact,
+    ALREADY_WAITLISTED: {
+      ...alreadyBookedExact,
+      outcome: "ALREADY_WAITLISTED",
+      details: "Existing waitlist confirmed."
+    },
+    DRY_RUN: actionableDryRun,
+    SAFE_STOP: safeStop,
+    TECHNICAL_FAILURE: technicalFailure,
+    CONFIRMATION_UNCERTAIN: confirmationUncertain
+  } as const satisfies Readonly<
+    Record<BookingResult["outcome"], BookingResult>
+  >;
+  const allowedByState = {
+    INITIALIZED: ["TECHNICAL_FAILURE"],
+    VALIDATED: [
+      "ALREADY_BOOKED",
+      "ALREADY_WAITLISTED",
+      "DRY_RUN",
+      "SAFE_STOP",
+      "TECHNICAL_FAILURE"
+    ],
+    READY_TO_SUBMIT: ["SAFE_STOP", "TECHNICAL_FAILURE"],
+    SUBMITTING: ["CONFIRMATION_UNCERTAIN"],
+    CONFIRMED: ["BOOKED", "WAITLISTED", "CONFIRMATION_UNCERTAIN"]
+  } as const satisfies Readonly<
+    Record<JournalState, readonly BookingResult["outcome"][]>
+  >;
+
   test.each([
     ["INITIALIZED", technicalFailure, true],
     ["VALIDATED", alreadyBookedExact, true],
@@ -228,6 +273,19 @@ describe("resultMatchesDurableState", () => {
   ] as const)("checks %s result evidence", (state, result, expected) => {
     expect(resultMatchesDurableState(result, state, requestId)).toBe(expected);
   });
+
+  test.each(
+    (Object.keys(allowedByState) as JournalState[]).flatMap((state) =>
+      (Object.keys(resultByOutcome) as BookingResult["outcome"][])
+        .filter((outcome) => !allowedByState[state].includes(outcome as never))
+        .map((outcome) => [state, outcome, resultByOutcome[outcome]] as const)
+    )
+  )(
+    "rejects %s / %s as an invalid durable combination",
+    (state, _outcome, result) => {
+      expect(resultMatchesDurableState(result, state, requestId)).toBe(false);
+    }
+  );
 
   test.each([
     [
@@ -381,6 +439,14 @@ describe("classifyFailure", () => {
         ? "Booking confirmation is uncertain."
         : "Runtime operation failed."
     );
+    for (const removed of [
+      "submission_attempts",
+      "retryable",
+      "failure_stage",
+      "current_payment_state"
+    ]) {
+      expect(result).not.toHaveProperty(removed);
+    }
   });
 });
 
@@ -662,14 +728,16 @@ describe("RuntimeCoordinator execution", () => {
 });
 
 describe("RuntimeCoordinator publication", () => {
-  test("reports a preserved result as already published without rewriting it", async () => {
+  test("returns carried bytes for a preserved result without rewriting it", async () => {
     const operations = new InMemoryRuntimeOperations();
     operations.failWriteResult = true;
     const coordinator = new RuntimeCoordinator(request, operations);
+    const bytes = `  ${JSON.stringify(booked)}\n`;
 
     await expect(
-      coordinator.finalize({ result: booked, publish: false })
-    ).resolves.toEqual({ result: booked, published: true });
+      coordinator.finalize({ result: booked, publish: false, bytes })
+    ).resolves.toEqual({ result: booked, bytes });
+    expect(operations.resultWrites).toBe(0);
   });
 
   test.each([
@@ -686,8 +754,7 @@ describe("RuntimeCoordinator publication", () => {
       const decision = { result: selectedResult, publish: true } as const;
 
       await expect(coordinator.finalize(decision)).resolves.toEqual({
-        result: selectedResult,
-        published: false
+        result: selectedResult
       });
     }
   );
@@ -706,9 +773,11 @@ describe("RuntimeCoordinator publication", () => {
     });
 
     await expect(coordinator.finalize(decision)).resolves.toMatchObject({
-      result: { outcome: "CONFIRMATION_UNCERTAIN", exit_code: 40 },
-      published: false
+      result: { outcome: "CONFIRMATION_UNCERTAIN", exit_code: 40 }
     });
+    await expect(coordinator.finalize(decision)).resolves.not.toHaveProperty(
+      "bytes"
+    );
   });
 });
 
@@ -722,7 +791,7 @@ describe("RuntimeCoordinator recovery", () => {
     await expect(coordinator.recover()).resolves.toBeUndefined();
   });
 
-  test("replays a matching valid result without publishing it", async () => {
+  test("replays a matching valid result with its exact original bytes", async () => {
     const operations = new InMemoryRuntimeOperations();
     operations.journal = {
       schema_version: 1,
@@ -730,13 +799,54 @@ describe("RuntimeCoordinator recovery", () => {
       state: "INITIALIZED"
     };
     operations.result = technicalFailure;
+    operations.resultBytes = ` { "details": "Runtime operation failed.", "safety_checks": ${JSON.stringify(noSubmissionSafetyChecks)}, "confirmation_verified": false, "action_submitted": false, "exit_code": 30, "outcome": "TECHNICAL_FAILURE", "request_id": "${requestId}", "schema_version": 1 }\n`;
     const coordinator = new RuntimeCoordinator(request, operations);
 
     await expect(coordinator.recover()).resolves.toEqual({
       result: technicalFailure,
-      publish: false
+      publish: false,
+      bytes: operations.resultBytes
     });
     expect(coordinator.lastDurableState).toBe("INITIALIZED");
+  });
+
+  test("classifies an incomplete journal without invoking the executor", async () => {
+    const operations = new InMemoryRuntimeOperations();
+    operations.journal = {
+      schema_version: 1,
+      request_id: requestId,
+      state: "READY_TO_SUBMIT"
+    };
+    const coordinator = new RuntimeCoordinator(request, operations);
+    let executions = 0;
+
+    const decision = await coordinator.run(async () => {
+      executions += 1;
+      return booked;
+    });
+    const finalized = await coordinator.finalize(decision);
+
+    expect(executions).toBe(0);
+    expect(finalized).toEqual({
+      result: technicalFailure,
+      bytes: `${JSON.stringify(technicalFailure)}\n`
+    });
+    expect(operations.resultWrites).toBe(1);
+  });
+
+  test("treats a result without a journal as contradictory and carries no bytes", async () => {
+    const operations = new InMemoryRuntimeOperations();
+    operations.result = technicalFailure;
+    operations.resultBytes = ` ${JSON.stringify(technicalFailure)}\n`;
+    const coordinator = new RuntimeCoordinator(request, operations);
+
+    const decision = await coordinator.recover();
+
+    expect(decision).toEqual({ result: technicalFailure, publish: false });
+    await expect(coordinator.finalize(decision!)).resolves.toEqual({
+      result: technicalFailure
+    });
+    expect(operations.resultWrites).toBe(0);
   });
 
   test.each([
@@ -785,12 +895,12 @@ describe("RuntimeCoordinator recovery", () => {
   );
 
   test.each([
-    ["missing", undefined],
-    ["malformed", {} as unknown as BookingResult],
-    ["contradictory", technicalFailure]
+    ["missing", undefined, true],
+    ["malformed", {} as unknown as BookingResult, false],
+    ["contradictory", technicalFailure, false]
   ] as const)(
     "classifies a matching SUBMITTING journal with a %s result as uncertainty",
-    async (_case, result) => {
+    async (_case, result, publish) => {
       const operations = new InMemoryRuntimeOperations();
       operations.journal = {
         schema_version: 1,
@@ -806,7 +916,7 @@ describe("RuntimeCoordinator recovery", () => {
 
       await expect(coordinator.recover()).resolves.toMatchObject({
         result: { outcome: "CONFIRMATION_UNCERTAIN", exit_code: 40 },
-        publish: _case === "malformed" ? false : true
+        publish
       });
       expect(coordinator.lastDurableState).toBe("SUBMITTING");
     }
@@ -824,7 +934,8 @@ describe("RuntimeCoordinator recovery", () => {
 
     await expect(coordinator.recover()).resolves.toEqual({
       result: confirmationUncertain,
-      publish: false
+      publish: false,
+      bytes: `${JSON.stringify(confirmationUncertain)}\n`
     });
   });
 
@@ -851,7 +962,7 @@ describe("RuntimeCoordinator recovery", () => {
     }
   );
 
-  test("does not replay a schema-invalid confirmed booking result", async () => {
+  test("does not replay or overwrite a schema-invalid confirmed booking result", async () => {
     const operations = new InMemoryRuntimeOperations();
     operations.journal = {
       schema_version: 1,
@@ -864,14 +975,51 @@ describe("RuntimeCoordinator recovery", () => {
     };
     const coordinator = new RuntimeCoordinator(request, operations);
 
-    await expect(coordinator.recover()).resolves.toMatchObject({
+    const decision = await coordinator.recover();
+    expect(decision).toMatchObject({
       result: {
         outcome: "CONFIRMATION_UNCERTAIN",
         exit_code: 40,
         details: "Booking confirmation is uncertain."
       },
-      publish: true
+      publish: false
     });
+    await expect(coordinator.finalize(decision!)).resolves.not.toHaveProperty(
+      "bytes"
+    );
+    expect(operations.resultWrites).toBe(0);
+  });
+
+  test("preserves a recovered result whose fixed details are contradictory", async () => {
+    const operations = new InMemoryRuntimeOperations();
+    operations.journal = {
+      schema_version: 1,
+      request_id: requestId,
+      state: "CONFIRMED"
+    };
+    const contradictory = {
+      ...booked,
+      details: "synthetic private session text"
+    } as BookingResult;
+    const priorBytes = `${JSON.stringify(contradictory)}\n`;
+    operations.resultStatus = {
+      status: "valid",
+      result: contradictory,
+      bytes: priorBytes
+    };
+    const coordinator = new RuntimeCoordinator(request, operations);
+
+    const decision = await coordinator.recover();
+
+    expect(decision).toMatchObject({
+      result: { outcome: "CONFIRMATION_UNCERTAIN", exit_code: 40 },
+      publish: false
+    });
+    expect(decision).not.toHaveProperty("bytes");
+    await expect(coordinator.finalize(decision!)).resolves.not.toHaveProperty(
+      "bytes"
+    );
+    expect(operations.resultWrites).toBe(0);
   });
 
   test("does not publish after a journal read failure leaves ownership unknown", async () => {

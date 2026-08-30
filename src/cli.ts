@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import type {
   BookingPolicy,
@@ -16,7 +17,7 @@ import {
   type LockReleaseResult,
   type ProfileLock
 } from "./lock.js";
-import { validateResult } from "./result-validator.js";
+import { validateResultForRequest } from "./result-validator.js";
 import { resolveRuntimePaths } from "./runtime-paths.js";
 import { RuntimeCoordinator } from "./runtime-coordinator.js";
 import type { ResultReadStatus } from "./runtime-coordinator.js";
@@ -42,7 +43,10 @@ export type CliDependencies = Readonly<{
   acquireLock?(path: string): Promise<ProfileLock>;
 }>;
 
-async function readResult(path: string): Promise<ResultReadStatus> {
+async function readResult(
+  path: string,
+  request: BookingRequest
+): Promise<ResultReadStatus> {
   let raw;
   try {
     raw = await readFile(path, "utf8");
@@ -60,7 +64,9 @@ async function readResult(path: string): Promise<ResultReadStatus> {
     return { status: "invalid" };
   }
 
-  if (validateResult(value)) return { status: "valid", result: value };
+  if (validateResultForRequest(value, request)) {
+    return { status: "valid", result: value, bytes: raw };
+  }
   const requestId = inspectionRequestId(value);
   return requestId === undefined
     ? { status: "invalid" }
@@ -75,11 +81,31 @@ function inspectionRequestId(value: unknown): string | undefined {
   return typeof requestId === "string" ? requestId : undefined;
 }
 
-async function publishResult(
+export async function publishResult(
   path: string,
-  result: BookingResult
-): Promise<void> {
-  await writeJsonAtomic(path, result, validateResult);
+  result: BookingResult,
+  request: BookingRequest,
+  readFinalized: (path: string) => Promise<string> = (selectedPath) =>
+    readFile(selectedPath, "utf8")
+): Promise<string> {
+  await writeJsonAtomic(path, result, (value) =>
+    validateResultForRequest(value, request)
+  );
+  const bytes = await readFinalized(path);
+  let value: unknown;
+  try {
+    value = JSON.parse(bytes);
+  } catch {
+    throw new Error("finalized result is invalid");
+  }
+  if (
+    bytes !== `${JSON.stringify(value)}\n` ||
+    !validateResultForRequest(value, request) ||
+    !isDeepStrictEqual(value, result)
+  ) {
+    throw new Error("finalized result is invalid");
+  }
+  return bytes;
 }
 
 export async function runCli(
@@ -125,8 +151,8 @@ export async function runCli(
   const coordinator = new RuntimeCoordinator(request, {
     readJournal: () => readJournal(paths.journalFile),
     writeJournal: (record) => advanceJournal(paths.journalFile, record),
-    readResult: () => readResult(paths.resultFile),
-    writeResult: (result) => publishResult(paths.resultFile, result)
+    readResult: () => readResult(paths.resultFile, request),
+    writeResult: (result) => publishResult(paths.resultFile, result, request)
   });
   const execute: CliExecutor =
     dependencies.execute ??

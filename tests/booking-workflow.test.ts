@@ -284,7 +284,7 @@ class WorkflowRuntimeOperations implements RuntimeOperations {
     return { status: "missing" };
   }
 
-  async writeResult(result: BookingResult): Promise<void> {
+  async writeResult(result: BookingResult): Promise<string> {
     void result;
     throw new Error("not used by coordinator execution");
   }

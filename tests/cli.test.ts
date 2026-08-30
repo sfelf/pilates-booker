@@ -8,7 +8,7 @@ import type {
   BookingPage,
   BookingPageState
 } from "../src/booking-page.js";
-import { runCli, type CliDependencies } from "../src/cli.js";
+import { publishResult, runCli, type CliDependencies } from "../src/cli.js";
 import type {
   BookingPolicy,
   BookingRequest,
@@ -42,6 +42,23 @@ const observedClass = {
 const packagesBefore = [
   { name: "Synthetic Priority Package", remaining: 3, approved: true }
 ] as const;
+const request: BookingRequest = {
+  schema_version: 1,
+  request_id: requestId,
+  booking_url:
+    "https://app.arketa.co/iframe/synthetic/calendar/checkout/expected",
+  expected_class: {
+    name: observedClass.name,
+    date: observedClass.date,
+    start_time: observedClass.start_time,
+    timezone: observedClass.timezone
+  },
+  reserve_for: "myself",
+  permitted_actions: ["book", "waitlist"],
+  policy_version: policy.policy_version,
+  allow_monetary_charge: false,
+  dry_run: false
+};
 
 const result = (outcome: "SAFE_STOP" | "TECHNICAL_FAILURE"): BookingResult =>
   outcome === "SAFE_STOP"
@@ -73,8 +90,8 @@ const dependencies = (
   baseDir,
   cwd: baseDir,
   loadPolicy: vi.fn(async () => policy),
-  loadRequest: vi.fn(async () => ({ request_id: requestId })),
-  validateRequest: vi.fn((value) => value as BookingRequest),
+  loadRequest: vi.fn(async () => request),
+  validateRequest: vi.fn(() => request),
   execute: vi.fn(execute)
 });
 
@@ -138,6 +155,73 @@ const lockWithRelease = (
   release: () => Promise<LockReleaseResult>
 ): ProfileLock => ({ release });
 
+describe("publishResult", () => {
+  test("returns the exact request-aware bytes read after atomic replacement", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-publish-"));
+    const path = join(base, "result.json");
+    const selected = selectedResult(0);
+
+    const bytes = await publishResult(path, selected, request);
+
+    expect(bytes).toBe(`${JSON.stringify(selected)}\n`);
+    expect(await readFile(path, "utf8")).toBe(bytes);
+    expect(bytes.endsWith("\n")).toBe(true);
+    expect(bytes.endsWith("\n\n")).toBe(false);
+  });
+
+  test("preserves prior evidence and returns no bytes when atomic validation fails", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-publish-"));
+    const path = join(base, "result.json");
+    const priorBytes = '{"opaque":"prior evidence"}\n';
+    await writeFile(path, priorBytes, "utf8");
+    const contradictoryRequest = {
+      ...request,
+      request_id: "00000000-0000-4000-8000-000000000004"
+    } as BookingRequest;
+
+    await expect(
+      publishResult(path, selectedResult(0), contradictoryRequest)
+    ).rejects.toThrow("JSON validation failed");
+    expect(await readFile(path, "utf8")).toBe(priorBytes);
+  });
+
+  test.each([
+    ["two trailing newlines", `${JSON.stringify(selectedResult(0))}\n\n`],
+    [
+      "different semantic result",
+      `${JSON.stringify(result("TECHNICAL_FAILURE"))}\n`
+    ]
+  ] as const)(
+    "returns no bytes when the post-rename read has %s",
+    async (_case, observedBytes) => {
+      const base = await mkdtemp(join(tmpdir(), "arketa-cli-publish-"));
+      const path = join(base, "result.json");
+      let reads = 0;
+      let bytes: string | undefined;
+
+      try {
+        bytes = await publishResult(
+          path,
+          selectedResult(0),
+          request,
+          async () => {
+            reads += 1;
+            return observedBytes;
+          }
+        );
+      } catch {
+        bytes = undefined;
+      }
+
+      expect(bytes).toBeUndefined();
+      expect(reads).toBe(1);
+      expect(await readFile(path, "utf8")).toBe(
+        `${JSON.stringify(selectedResult(0))}\n`
+      );
+    }
+  );
+});
+
 describe("runCli", () => {
   test("requires an explicit policy option and resolves its relative path from the invoking directory", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
@@ -150,10 +234,7 @@ describe("runCli", () => {
     delete realPolicyDeps.loadPolicy;
 
     await expect(runCli(cliArgs, realPolicyDeps)).resolves.toBe(20);
-    expect(deps.validateRequest).toHaveBeenCalledWith(
-      { request_id: requestId },
-      policy
-    );
+    expect(deps.validateRequest).toHaveBeenCalledWith(request, policy);
   });
 
   test("passes the exact validated policy to the executor", async () => {
@@ -197,7 +278,7 @@ describe("runCli", () => {
       end_time: "11:20",
       timezone: "America/Los_Angeles"
     } as const;
-    const request: BookingRequest = {
+    const workflowRequest: BookingRequest = {
       schema_version: 1,
       request_id: requestId,
       booking_url:
@@ -281,13 +362,16 @@ describe("runCli", () => {
       baseDir: base,
       cwd: base,
       loadPolicy: async () => policy,
-      loadRequest: async () => request,
-      validateRequest: () => request,
+      loadRequest: async () => workflowRequest,
+      validateRequest: () => workflowRequest,
       bookingBrowser
     };
 
     await expect(runCli(cliArgs, deps)).resolves.toBe(0);
-    expect(browserInputs).toEqual([join(base, "Profile"), request.booking_url]);
+    expect(browserInputs).toEqual([
+      join(base, "Profile"),
+      workflowRequest.booking_url
+    ]);
     await expect(
       readFile(join(base, "results", evidenceName), "utf8").then(
         (value) => (JSON.parse(value) as BookingResult).outcome
@@ -661,7 +745,7 @@ describe("runCli", () => {
     expect(await runCli(cliArgs, deps)).toBe(30);
   });
 
-  test("replays a matching valid durable result without overwriting it", async () => {
+  test("replays matching durable bytes without opening the browser or rewriting", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results"));
@@ -692,15 +776,17 @@ describe("runCli", () => {
       },
       details: "Booking confirmed."
     } as const;
-    const serialized = `${JSON.stringify(durableResult)}\n`;
+    const serialized = ` { "details": "Booking confirmed.", "safety_checks": ${JSON.stringify(durableResult.safety_checks)}, "packages_before": ${JSON.stringify(packagesBefore)}, "package_selected": "Synthetic Priority Package", "observed_class": ${JSON.stringify(observedClass)}, "confirmation_verified": true, "action_submitted": true, "exit_code": 0, "outcome": "BOOKED", "request_id": "${requestId}", "schema_version": 1 }\n`;
     await writeFile(join(base, "results", evidenceName), serialized, "utf8");
-    const deps = dependencies(base, vi.fn());
+    const bookingBrowser = vi.fn();
+    const deps = { ...dependencies(base, vi.fn()), bookingBrowser };
+    delete deps.execute;
 
     expect(await runCli(cliArgs, deps)).toBe(0);
     expect(await readFile(join(base, "results", evidenceName), "utf8")).toBe(
       serialized
     );
-    expect(deps.execute).not.toHaveBeenCalled();
+    expect(bookingBrowser).not.toHaveBeenCalled();
   });
 
   test("does not overwrite artifacts belonging to another request", async () => {
@@ -787,7 +873,7 @@ describe("runCli", () => {
       "Booking confirmation is uncertain."
     ]
   ] as const)(
-    "replaces a schema-invalid same-request result using %s state safety",
+    "preserves a schema-invalid same-request result using %s state safety",
     async (state, outcome, exitCode, details) => {
       const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
       await mkdir(join(base, "journals"));
@@ -801,24 +887,25 @@ describe("runCli", () => {
         }),
         "utf8"
       );
-      await writeFile(
-        join(base, "results", evidenceName),
-        JSON.stringify({
-          ...result("TECHNICAL_FAILURE"),
-          unexpected_private_field: "must not survive replacement"
-        }),
-        "utf8"
-      );
+      const priorBytes = JSON.stringify({
+        ...result("TECHNICAL_FAILURE"),
+        unexpected_private_field: "must remain byte-for-byte"
+      });
+      const resultPath = join(base, "results", evidenceName);
+      await writeFile(resultPath, priorBytes, "utf8");
 
       await expect(runCli(cliArgs, dependencies(base, vi.fn()))).resolves.toBe(
         exitCode
       );
-      const written = JSON.parse(
-        await readFile(join(base, "results", evidenceName), "utf8")
-      ) as Record<string, unknown>;
-      expect(written.outcome).toBe(outcome);
-      expect(written.details).toBe(details);
-      expect(written).not.toHaveProperty("unexpected_private_field");
+      expect(outcome).toBe(
+        state === "SUBMITTING" ? "CONFIRMATION_UNCERTAIN" : "TECHNICAL_FAILURE"
+      );
+      expect(details).toBe(
+        state === "SUBMITTING"
+          ? "Booking confirmation is uncertain."
+          : "Runtime operation failed."
+      );
+      expect(await readFile(resultPath, "utf8")).toBe(priorBytes);
     }
   );
 
@@ -859,7 +946,7 @@ describe("runCli", () => {
     );
   });
 
-  test("replaces recovered diagnostic text while preserving legitimate catalog fields", async () => {
+  test("preserves contradictory recovered details byte-for-byte", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results"));
@@ -872,59 +959,44 @@ describe("runCli", () => {
       }),
       "utf8"
     );
-    const observedClass = {
-      name: "Synthetic Crème Brûlée & Mobility",
-      instructor: "Synthetic O'Neil",
-      date: "2030-01-16",
-      start_time: "10:30",
-      end_time: "11:30",
-      timezone: "America/Los_Angeles"
-    } as const;
-    const packagesBefore = [
-      {
-        name: "Synthetic Founder's Pack + Flow",
-        remaining: 2,
-        approved: true
-      }
-    ] as const;
     const recovered = {
-      schema_version: 1,
-      request_id: requestId,
-      outcome: "BOOKED",
-      exit_code: 0,
-      action_submitted: true,
-      confirmation_verified: true,
-      observed_class: observedClass,
-      package_selected: "Synthetic Founder's Pack + Flow",
-      packages_before: packagesBefore,
-      google_calendar_url:
-        "https://calendar.example.test/event?name=Cr%C3%A8me%20Br%C3%BBl%C3%A9e",
-      safety_checks: {
-        exact_class_match: true,
-        approved_package_verified: true,
-        no_charge: true,
-        cancellation_policy_accepted: true
-      },
+      ...selectedResult(0),
       details: "synthetic /private/runtime/session-token"
-    } as const satisfies BookingResult;
-    await writeFile(
-      join(base, "results", evidenceName),
-      JSON.stringify(recovered),
-      "utf8"
-    );
+    } as const;
+    const priorBytes = `${JSON.stringify(recovered)}\n`;
+    const resultPath = join(base, "results", evidenceName);
+    await writeFile(resultPath, priorBytes, "utf8");
     const deps = dependencies(base, vi.fn());
 
-    await expect(runCli(cliArgs, deps)).resolves.toBe(0);
-    const written = JSON.parse(
-      await readFile(join(base, "results", evidenceName), "utf8")
-    ) as BookingResult;
-    expect(written.details).toBe("Booking confirmed.");
-    expect(written.observed_class).toEqual(observedClass);
-    expect(written.package_selected).toBe("Synthetic Founder's Pack + Flow");
-    expect(written.packages_before).toEqual(packagesBefore);
-    expect(written.google_calendar_url).toBe(
-      "https://calendar.example.test/event?name=Cr%C3%A8me%20Br%C3%BBl%C3%A9e"
+    await expect(runCli(cliArgs, deps)).resolves.toBe(40);
+    expect(await readFile(resultPath, "utf8")).toBe(priorBytes);
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  test("preserves request-incoherent recovered evidence byte-for-byte", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    await mkdir(join(base, "journals"));
+    await mkdir(join(base, "results"));
+    await writeFile(
+      join(base, "journals", evidenceName),
+      JSON.stringify({
+        schema_version: 1,
+        request_id: requestId,
+        state: "CONFIRMED"
+      }),
+      "utf8"
     );
+    const incoherent = {
+      ...selectedResult(0),
+      observed_class: { ...observedClass, name: "Synthetic Other Class" }
+    };
+    const priorBytes = `${JSON.stringify(incoherent)}\n`;
+    const resultPath = join(base, "results", evidenceName);
+    await writeFile(resultPath, priorBytes, "utf8");
+    const deps = dependencies(base, vi.fn());
+
+    await expect(runCli(cliArgs, deps)).resolves.toBe(40);
+    expect(await readFile(resultPath, "utf8")).toBe(priorBytes);
     expect(deps.execute).not.toHaveBeenCalled();
   });
 
