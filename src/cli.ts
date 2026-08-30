@@ -8,6 +8,8 @@ import type {
   JournalState
 } from "./contracts.js";
 import { writeJsonAtomic } from "./atomic-json.js";
+import type { BookingBrowser } from "./booking-page.js";
+import { executeBookingWorkflow } from "./booking-workflow.js";
 import { advanceJournal, readJournal } from "./journal.js";
 import {
   acquireProfileLock,
@@ -23,8 +25,11 @@ import { loadPolicy as loadPolicyFile } from "./policy.js";
 export type ExecutionContext = Readonly<{
   request: BookingRequest;
   policy: BookingPolicy;
+  profileDir: string;
   advance(state: Exclude<JournalState, "INITIALIZED">): Promise<void>;
 }>;
+
+export type CliExecutor = (context: ExecutionContext) => Promise<BookingResult>;
 
 export type CliDependencies = Readonly<{
   baseDir?: string;
@@ -32,7 +37,8 @@ export type CliDependencies = Readonly<{
   loadPolicy?(path: string): Promise<BookingPolicy>;
   loadRequest(path: string): Promise<unknown>;
   validateRequest(value: unknown, policy: BookingPolicy): BookingRequest;
-  execute(context: ExecutionContext): Promise<BookingResult>;
+  execute?: CliExecutor;
+  bookingBrowser?: BookingBrowser;
   acquireLock?(path: string): Promise<ProfileLock>;
 }>;
 
@@ -122,9 +128,17 @@ export async function runCli(
     readResult: () => readResult(paths.resultFile),
     writeResult: (result) => publishResult(paths.resultFile, result)
   });
+  const execute: CliExecutor =
+    dependencies.execute ??
+    ((context) => executeBookingWorkflow(context, dependencies.bookingBrowser));
 
   const decision = await coordinator.run(({ request, advance }) =>
-    dependencies.execute({ request, policy, advance })
+    execute({
+      request,
+      policy,
+      profileDir: paths.profileDir,
+      advance
+    })
   );
   const finalized = await coordinator.finalize(decision);
   let lockRelease: LockReleaseResult | undefined;

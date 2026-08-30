@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 
+import type {
+  BookingBrowser,
+  BookingPage,
+  BookingPageState
+} from "../src/booking-page.js";
 import { runCli, type CliDependencies } from "../src/cli.js";
 import type {
   BookingPolicy,
@@ -55,7 +60,7 @@ const result = (outcome: "SAFE_STOP" | "TECHNICAL_FAILURE"): BookingResult =>
 
 const dependencies = (
   baseDir: string,
-  execute: CliDependencies["execute"]
+  execute: NonNullable<CliDependencies["execute"]>
 ): CliDependencies => ({
   baseDir,
   cwd: baseDir,
@@ -111,7 +116,7 @@ const selectedResult = (exitCode: 0 | 20 | 30 | 40): BookingResult => {
 };
 
 const executeForExitCode =
-  (exitCode: 0 | 20 | 30 | 40): CliDependencies["execute"] =>
+  (exitCode: 0 | 20 | 30 | 40): NonNullable<CliDependencies["execute"]> =>
   async ({ advance }) => {
     await advance("VALIDATED");
     if (exitCode === 0 || exitCode === 40) {
@@ -160,6 +165,127 @@ describe("runCli", () => {
     };
 
     await expect(runCli(cliArgs, deps)).resolves.toBe(20);
+  });
+
+  test("passes the resolved persistent profile path to the executor", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    let receivedProfile = "";
+    const deps = dependencies(base, async ({ advance, profileDir }) => {
+      receivedProfile = profileDir;
+      await advance("VALIDATED");
+      return result("SAFE_STOP");
+    });
+
+    await expect(runCli(cliArgs, deps)).resolves.toBe(20);
+    expect(receivedProfile).toBe(join(base, "Profile"));
+  });
+
+  test("uses the booking workflow when no executor override is supplied", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-workflow-"));
+    const observedClass = {
+      name: "Synthetic Reformer Flow",
+      instructor: "Synthetic Instructor",
+      date: "2030-01-16",
+      start_time: "10:30",
+      end_time: "11:20",
+      timezone: "America/Los_Angeles"
+    } as const;
+    const request: BookingRequest = {
+      schema_version: 1,
+      request_id: requestId,
+      booking_url:
+        "https://app.arketa.co/iframe/synthetic/calendar/checkout/workflow",
+      expected_class: {
+        name: observedClass.name,
+        date: observedClass.date,
+        start_time: observedClass.start_time,
+        timezone: observedClass.timezone
+      },
+      reserve_for: "myself",
+      permitted_actions: ["book"],
+      policy_version: policy.policy_version,
+      allow_monetary_charge: false,
+      dry_run: true
+    };
+    const state: BookingPageState = {
+      observation: {
+        status: "observed",
+        observed_class: observedClass,
+        action: "book",
+        packages: [
+          {
+            name: "Synthetic Priority Package",
+            remaining: 2,
+            approved: false
+          }
+        ]
+      },
+      myself: { visibleCount: 1, selected: true, enabled: true },
+      injuries: { visibleCount: 1, value: "PRESENT", enabled: true },
+      packages: [
+        {
+          row: 0,
+          name: "Synthetic Priority Package",
+          remaining: 2,
+          active: true,
+          product: false,
+          control: { visibleCount: 1, selected: true, enabled: true }
+        }
+      ],
+      selectedPackageRow: 0,
+      cancellation: { visibleCount: 1, accepted: false, enabled: true },
+      submission: {
+        book: { visibleCount: 1, enabled: true },
+        waitlist: { visibleCount: 0, enabled: false }
+      },
+      confirmation: { bookedVisibleCount: 0, waitlistedVisibleCount: 0 }
+    };
+    const page: BookingPage = {
+      read: async () => state,
+      selectMyself: async () => {
+        throw new Error("dry run must not mutate");
+      },
+      fillInjuriesIfEmpty: async () => {
+        throw new Error("dry run must not mutate");
+      },
+      selectPackage: async () => {
+        throw new Error("dry run must not mutate");
+      },
+      acceptCancellationPolicy: async () => {
+        throw new Error("dry run must not mutate");
+      },
+      submit: async () => {
+        throw new Error("dry run must not submit");
+      },
+      waitForConfirmation: async () => {
+        throw new Error("dry run must not wait for confirmation");
+      }
+    };
+    const browserInputs: string[] = [];
+    const bookingBrowser: BookingBrowser = async (
+      profileDir,
+      checkoutUrl,
+      use
+    ) => {
+      browserInputs.push(profileDir, checkoutUrl);
+      return use(page);
+    };
+    const deps = {
+      baseDir: base,
+      cwd: base,
+      loadPolicy: async () => policy,
+      loadRequest: async () => request,
+      validateRequest: () => request,
+      bookingBrowser
+    };
+
+    await expect(runCli(cliArgs, deps)).resolves.toBe(0);
+    expect(browserInputs).toEqual([join(base, "Profile"), request.booking_url]);
+    await expect(
+      readFile(join(base, "results/current.json"), "utf8").then(
+        (value) => (JSON.parse(value) as BookingResult).outcome
+      )
+    ).resolves.toBe("DRY_RUN");
   });
 
   test("preserves an explicit absolute policy path", async () => {

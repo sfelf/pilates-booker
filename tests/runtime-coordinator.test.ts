@@ -65,6 +65,59 @@ const alreadyBookedWrongClass = {
   safety_checks: noSubmissionSafetyChecks
 } as unknown as BookingResult;
 
+const actionableDryRun = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: false,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "BOOKING_AVAILABLE",
+  observed_class: {
+    name: "Synthetic Reformer Flow",
+    instructor: "Synthetic Instructor",
+    date: "2030-01-16",
+    start_time: "10:30",
+    end_time: "11:30",
+    timezone: "America/Los_Angeles"
+  },
+  package_used: "⭐ Synthetic Priority Package",
+  packages_before: [
+    { name: "Synthetic Backup Package", remaining: 4, approved: false },
+    { name: "Synthetic Priority Package ★", remaining: 2, approved: true }
+  ],
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+} as const satisfies BookingResult;
+
+const existingEnrollmentDryRun = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "ALREADY_BOOKED",
+  observed_class: actionableDryRun.observed_class,
+  google_calendar_url: "https://calendar.example.test/event/synthetic",
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+} as const satisfies BookingResult;
+
 const safeStop = {
   ...technicalFailure,
   outcome: "SAFE_STOP",
@@ -162,6 +215,8 @@ describe("resultMatchesDurableState", () => {
     ["INITIALIZED", technicalFailure, true],
     ["VALIDATED", alreadyBookedExact, true],
     ["VALIDATED", alreadyBookedWrongClass, false],
+    ["VALIDATED", actionableDryRun, true],
+    ["VALIDATED", existingEnrollmentDryRun, true],
     ["READY_TO_SUBMIT", safeStop, true],
     ["SUBMITTING", confirmationUncertain, true],
     ["SUBMITTING", technicalFailure, false],
@@ -191,8 +246,99 @@ describe("resultMatchesDurableState", () => {
       "VALIDATED"
     ],
     [
+      "rejects actionable dry-run evidence with a submission",
+      { ...actionableDryRun, action_submitted: true },
+      "VALIDATED"
+    ],
+    [
+      "rejects dry-run evidence with an unknown availability",
+      { ...existingEnrollmentDryRun, availability: "UNKNOWN" },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence without an observed class",
+      { ...actionableDryRun, observed_class: undefined },
+      "VALIDATED"
+    ],
+    [
+      "rejects existing-enrollment dry-run evidence without an observed class",
+      { ...existingEnrollmentDryRun, observed_class: undefined },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence with an empty package list",
+      { ...actionableDryRun, packages_before: [] },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence without a positive approved package",
+      {
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Priority Package ★",
+            remaining: 0,
+            approved: true
+          }
+        ]
+      },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence with a fractional package balance",
+      {
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Priority Package ★",
+            remaining: 0.5,
+            approved: true
+          }
+        ]
+      },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence with an unsafe integer package balance",
+      {
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Priority Package ★",
+            remaining: Number.MAX_SAFE_INTEGER + 1,
+            approved: true
+          }
+        ]
+      },
+      "VALIDATED"
+    ],
+    [
+      "rejects actionable dry-run evidence for a different configured package",
+      {
+        ...actionableDryRun,
+        packages_before: [
+          {
+            name: "Synthetic Other Package",
+            remaining: 2,
+            approved: true
+          }
+        ]
+      },
+      "VALIDATED"
+    ],
+    [
       "rejects retryable confirmation uncertainty",
       { ...confirmationUncertain, retryable: true },
+      "SUBMITTING"
+    ],
+    [
+      "rejects confirmation uncertainty without a submitted action",
+      { ...confirmationUncertain, action_submitted: false },
+      "SUBMITTING"
+    ],
+    [
+      "rejects confirmation uncertainty with more than one attempt",
+      { ...confirmationUncertain, submission_attempts: 2 },
       "SUBMITTING"
     ],
     [
@@ -432,6 +578,84 @@ describe("RuntimeCoordinator execution", () => {
       expect(decision.result.details).toBe(marker);
     }
   );
+
+  test.each([actionableDryRun, existingEnrollmentDryRun] as const)(
+    "publishes a canonical %s result from VALIDATED unchanged",
+    async (executorResult) => {
+      const coordinator = new RuntimeCoordinator(
+        request,
+        new InMemoryRuntimeOperations()
+      );
+
+      await expect(
+        coordinator.run(async ({ advance }) => {
+          await advance("VALIDATED");
+          return executorResult;
+        })
+      ).resolves.toEqual({ result: executorResult, publish: true });
+    }
+  );
+
+  test("rejects a dry-run result after READY_TO_SUBMIT", async () => {
+    const coordinator = new RuntimeCoordinator(
+      request,
+      new InMemoryRuntimeOperations()
+    );
+
+    await expect(
+      coordinator.run(async ({ advance }) => {
+        await advance("VALIDATED");
+        await advance("READY_TO_SUBMIT");
+        return actionableDryRun;
+      })
+    ).resolves.toMatchObject({
+      result: { outcome: "TECHNICAL_FAILURE", exit_code: 30 }
+    });
+  });
+
+  test("rejects dry-run submission evidence", async () => {
+    const coordinator = new RuntimeCoordinator(
+      request,
+      new InMemoryRuntimeOperations()
+    );
+
+    await expect(
+      coordinator.run(async ({ advance }) => {
+        await advance("VALIDATED");
+        return {
+          ...actionableDryRun,
+          action_submitted: true
+        } as unknown as BookingResult;
+      })
+    ).resolves.toMatchObject({
+      result: { outcome: "TECHNICAL_FAILURE", exit_code: 30 }
+    });
+  });
+
+  test("rejects actionable dry-run evidence for a different configured package", async () => {
+    const coordinator = new RuntimeCoordinator(
+      request,
+      new InMemoryRuntimeOperations()
+    );
+
+    await expect(
+      coordinator.run(async ({ advance }) => {
+        await advance("VALIDATED");
+        return {
+          ...actionableDryRun,
+          packages_before: [
+            {
+              name: "Synthetic Other Package",
+              remaining: 2,
+              approved: true
+            }
+          ]
+        } as unknown as BookingResult;
+      })
+    ).resolves.toMatchObject({
+      result: { outcome: "TECHNICAL_FAILURE", exit_code: 30 }
+    });
+  });
 });
 
 describe("RuntimeCoordinator publication", () => {

@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 
 import policySchema from "../schemas/policy.schema.json" with { type: "json" };
 import type { BookingPolicy, PackageBalance } from "./contracts.js";
+import { choosePackage } from "./package-selection.js";
 
 const require = createRequire(import.meta.url);
 const Ajv = require("ajv").default;
@@ -26,31 +27,23 @@ export function selectEligiblePackage(
   policy: BookingPolicy,
   observed: readonly PackageBalance[]
 ): PackageBalance | undefined {
-  const names = new Set<string>();
-  for (const candidate of observed) {
-    if (
-      names.has(candidate.name) ||
-      !Number.isFinite(candidate.remaining) ||
-      !Number.isInteger(candidate.remaining) ||
-      candidate.remaining < 0
-    ) {
-      return undefined;
-    }
-    names.add(candidate.name);
-  }
+  const selection = choosePackage(
+    policy,
+    observed.map((candidate, index) => ({
+      row: index,
+      name: candidate.name,
+      remaining: candidate.remaining,
+      active: true,
+      product: false,
+      control: { visibleCount: 1, selected: false, enabled: true }
+    }))
+  );
 
-  for (const allowedName of policy.allowed_packages) {
-    const candidate = observed.find(
-      ({ name, remaining }) => name === allowedName && remaining > 0
-    );
-    if (candidate !== undefined) {
-      return {
-        name: candidate.name,
-        remaining: candidate.remaining,
-        approved: true
-      };
-    }
-  }
+  if (selection === undefined) return undefined;
 
-  return undefined;
+  return {
+    name: selection.option.name,
+    remaining: selection.option.remaining,
+    approved: true
+  };
 }

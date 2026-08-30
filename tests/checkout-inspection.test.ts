@@ -147,7 +147,7 @@ describe("inspectCheckoutSnapshot", () => {
     );
   });
 
-  it("keeps valid catalog text and excludes product offers", () => {
+  it("keeps valid catalog text and excludes product and inactive offers before duplicate checks", () => {
     const result = inspectCheckoutSnapshot(
       request,
       validSnapshot({
@@ -170,7 +170,7 @@ describe("inspectCheckoutSnapshot", () => {
           },
           {
             kind: "class_package",
-            name: "Ancien forfait",
+            name: "Studio / 10-Class Pack",
             remaining: 4,
             active: false
           }

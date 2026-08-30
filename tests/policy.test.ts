@@ -140,11 +140,49 @@ describe("selectEligiblePackage", () => {
     ).toBeUndefined();
   });
 
+  it("normalizes observed package names before applying policy priority", () => {
+    expect(
+      selectEligiblePackage(policy, [
+        {
+          name: "✨ Synthetic Priority Package ★",
+          remaining: 4,
+          approved: false
+        },
+        {
+          name: "Synthetic Backup Package",
+          remaining: 2,
+          approved: false
+        }
+      ])
+    ).toEqual({
+      name: "✨ Synthetic Priority Package ★",
+      remaining: 4,
+      approved: true
+    });
+  });
+
   it("fails closed when an observed package name is duplicated", () => {
     expect(
       selectEligiblePackage(policy, [
         { name: "Synthetic Priority Package", remaining: 1, approved: false },
         { name: "Synthetic Priority Package", remaining: 2, approved: false }
+      ])
+    ).toBeUndefined();
+  });
+
+  it("fails closed when observed names duplicate after normalization", () => {
+    expect(
+      selectEligiblePackage(policy, [
+        {
+          name: "✨ Synthetic Priority Package",
+          remaining: 1,
+          approved: false
+        },
+        {
+          name: "Synthetic Priority Package ★",
+          remaining: 2,
+          approved: false
+        }
       ])
     ).toBeUndefined();
   });

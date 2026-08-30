@@ -3,6 +3,7 @@ import type {
   BookingRequest,
   BookingResult
 } from "../src/contracts.js";
+import type { BookingPreparation } from "../src/booking-workflow.js";
 
 const commonRequestFields = {
   schema_version: 1 as const,
@@ -104,6 +105,11 @@ const validBooked: BookingResult = {
   }
 };
 
+const validWaitlisted: BookingResult = {
+  ...validBooked,
+  outcome: "WAITLISTED"
+};
+
 // @ts-expect-error BOOKED requires submitted and verified evidence.
 const unverifiedBooked: BookingResult = {
   ...commonResultFields,
@@ -130,6 +136,157 @@ const validConfirmationUncertain: BookingResult = {
   retryable: false,
   submission_attempts: 1
 };
+
+const acceptBookingPreparation = (preparation: BookingPreparation): void => {
+  void preparation;
+};
+
+// @ts-expect-error Booking preparation cannot contain a submitted booking.
+acceptBookingPreparation(validBooked);
+// @ts-expect-error Booking preparation cannot contain a submitted waitlist.
+acceptBookingPreparation(validWaitlisted);
+// @ts-expect-error Booking preparation cannot contain uncertain confirmation.
+acceptBookingPreparation(validConfirmationUncertain);
+// @ts-expect-error Booking preparation cannot contain infrastructure failure.
+acceptBookingPreparation(validTechnicalFailure);
+
+const validActionableDryRun = {
+  schema_version: 1,
+  request_id: "00000000-0000-4000-8000-000000000001",
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: false,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "BOOKING_AVAILABLE",
+  observed_class: {
+    name: "Example Movement Class (Level 2)",
+    instructor: "Synthetic Instructor",
+    date: "2030-01-16",
+    start_time: "10:30",
+    end_time: "11:30",
+    timezone: "America/Los_Angeles"
+  },
+  package_used: "Synthetic Reserved Package",
+  packages_before: [
+    { name: "Synthetic Reserved Package", remaining: 2, approved: true }
+  ],
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+} as const satisfies BookingResult;
+
+const validExistingEnrollmentDryRun = {
+  schema_version: 1,
+  request_id: "00000000-0000-4000-8000-000000000001",
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  retryable: false,
+  submission_attempts: 0,
+  availability: "ALREADY_BOOKED",
+  observed_class: validActionableDryRun.observed_class,
+  google_calendar_url: "https://calendar.example.test/event/synthetic",
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run completed."
+} as const satisfies BookingResult;
+
+const acceptActionableDryRun = (
+  result: Extract<
+    BookingResult,
+    { outcome: "DRY_RUN"; confirmation_verified: false }
+  >
+): void => {
+  void result;
+};
+
+const acceptExistingBookedDryRun = (
+  result: Extract<
+    BookingResult,
+    { outcome: "DRY_RUN"; availability: "ALREADY_BOOKED" }
+  >
+): void => {
+  void result;
+};
+
+const acceptExistingWaitlistedDryRun = (
+  result: Extract<
+    BookingResult,
+    { outcome: "DRY_RUN"; availability: "ALREADY_WAITLISTED" }
+  >
+): void => {
+  void result;
+};
+
+const { availability: ignoredAvailability, ...dryRunWithoutAvailability } =
+  validActionableDryRun;
+void ignoredAvailability;
+
+acceptActionableDryRun(validActionableDryRun);
+
+// @ts-expect-error DRY_RUN requires availability evidence.
+acceptActionableDryRun(dryRunWithoutAvailability);
+
+// @ts-expect-error Actionable DRY_RUN requires selected package evidence.
+acceptActionableDryRun({ ...validActionableDryRun, package_used: undefined });
+
+const { observed_class: ignoredObservedClass, ...dryRunWithoutObservedClass } =
+  validActionableDryRun;
+void ignoredObservedClass;
+
+// @ts-expect-error Actionable DRY_RUN requires observed class evidence.
+acceptActionableDryRun(dryRunWithoutObservedClass);
+
+// @ts-expect-error Actionable DRY_RUN requires non-empty package evidence.
+acceptActionableDryRun({ ...validActionableDryRun, packages_before: [] });
+
+acceptExistingBookedDryRun({
+  ...validExistingEnrollmentDryRun,
+  // @ts-expect-error Existing-enrollment DRY_RUN cannot project package evidence.
+  package_used: "Synthetic Reserved Package"
+});
+
+const {
+  observed_class: ignoredExistingObservedClass,
+  ...existingDryRunWithoutObservedClass
+} = validExistingEnrollmentDryRun;
+void ignoredExistingObservedClass;
+
+// @ts-expect-error Existing-enrollment DRY_RUN requires observed class evidence.
+acceptExistingBookedDryRun(existingDryRunWithoutObservedClass);
+
+// @ts-expect-error DRY_RUN cannot include a submitted action.
+acceptActionableDryRun({ ...validActionableDryRun, action_submitted: true });
+
+acceptActionableDryRun({
+  ...validActionableDryRun,
+  // @ts-expect-error Actionable availability cannot claim confirmation.
+  confirmation_verified: true
+});
+
+acceptActionableDryRun({
+  ...validActionableDryRun,
+  // @ts-expect-error Actionable DRY_RUN cannot project a calendar URL.
+  google_calendar_url: "https://calendar.example.test/event/synthetic"
+});
+
+acceptExistingWaitlistedDryRun({
+  ...validExistingEnrollmentDryRun,
+  availability: "ALREADY_WAITLISTED",
+  // @ts-expect-error Waitlist enrollment DRY_RUN cannot project a calendar URL.
+  google_calendar_url: "https://calendar.example.test/event/synthetic"
+});
 
 // @ts-expect-error CONFIRMATION_UNCERTAIN must use exit code 40.
 const confirmationUncertainWithWrongExitCode: BookingResult = {
@@ -164,6 +321,17 @@ const confirmationUncertainWithNoAttempt: BookingResult = {
   submission_attempts: 0
 };
 
+const confirmationUncertainWithMultipleAttempts: BookingResult = {
+  ...commonResultFields,
+  outcome: "CONFIRMATION_UNCERTAIN",
+  exit_code: 40,
+  action_submitted: true,
+  confirmation_verified: false,
+  retryable: false,
+  // @ts-expect-error CONFIRMATION_UNCERTAIN permits at most one attempt.
+  submission_attempts: 2
+};
+
 // @ts-expect-error CONFIRMATION_UNCERTAIN cannot be verified.
 const confirmationUncertainWithVerification: BookingResult = {
   ...commonResultFields,
@@ -196,12 +364,16 @@ const impossibleOutcomeExitPair: BookingResult = {
 void validSafeStop;
 void validTechnicalFailure;
 void validBooked;
+void validWaitlisted;
 void unverifiedBooked;
 void submittedTechnicalFailure;
 void validConfirmationUncertain;
+void validActionableDryRun;
+void validExistingEnrollmentDryRun;
 void confirmationUncertainWithWrongExitCode;
 void confirmationUncertainWithoutSubmission;
 void confirmationUncertainWithNoAttempt;
+void confirmationUncertainWithMultipleAttempts;
 void confirmationUncertainWithVerification;
 void retryableConfirmationUncertain;
 void impossibleOutcomeExitPair;

@@ -93,7 +93,7 @@ function inspectPackages(
   const packages: PackageBalance[] = [];
 
   for (const offering of offerings) {
-    if (offering.kind === "product") continue;
+    if (offering.kind === "product" || !offering.active) continue;
     if (
       offering.name.length === 0 ||
       names.has(offering.name) ||
@@ -104,7 +104,6 @@ function inspectPackages(
       throw new CheckoutInspectionError("AMBIGUOUS_CHECKOUT_STATE");
     }
     names.add(offering.name);
-    if (!offering.active) continue;
     packages.push({
       name: offering.name,
       remaining: offering.remaining,
