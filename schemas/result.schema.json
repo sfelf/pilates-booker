@@ -201,7 +201,7 @@
             }
           },
           {
-            "required": ["availability"],
+            "required": ["availability", "observed_class"],
             "not": {
               "anyOf": [
                 {
@@ -230,7 +230,7 @@
             }
           },
           {
-            "required": ["availability"],
+            "required": ["availability", "observed_class"],
             "not": {
               "anyOf": [
                 {

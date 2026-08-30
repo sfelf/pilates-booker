@@ -804,10 +804,12 @@ function lifecycleHarness(
       navigations.push(args);
     },
     url: () => (typeof finalUrl === "string" ? finalUrl : finalUrl()),
-    locator: () => {
+    locator: (selector: string) => {
       const readinessLocator = {
         filter: () => readinessLocator,
-        first: () => ({ waitFor: readinessWait })
+        first: () => ({ waitFor: readinessWait }),
+        count: async () =>
+          selector === '[data-testid="login-required"]' ? 1 : 0
       };
       return readinessLocator;
     }
@@ -833,6 +835,56 @@ function lifecycleHarness(
 }
 
 describe("BookingBrowser lifecycle", () => {
+  it("waits for an authenticated checkout to become completely readable", async () => {
+    const realPage = await syntheticPage(`<!doctype html>
+      <html><body>
+        <div data-testid="authenticated">Authenticated</div>
+      </body></html>`);
+    const page = new Proxy(realPage, {
+      get(target, property) {
+        if (property === "goto") return async () => undefined;
+        if (property === "url") return () => checkoutUrl;
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    let closes = 0;
+    const context: BrowserContextLike = {
+      pages: () => [page],
+      newPage: async () => page,
+      close: async () => {
+        closes += 1;
+      }
+    };
+    const launcher: PersistentBrowserLauncher = async () => context;
+    const browserBoundary = createBookingBrowser(expectedClass, launcher, {
+      readinessTimeoutMs: 200
+    });
+    let callbackCalled = false;
+
+    try {
+      const running = browserBoundary(
+        "/tmp/profile",
+        checkoutUrl,
+        async (booking) => {
+          callbackCalled = true;
+          return booking.read();
+        }
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(callbackCalled).toBe(false);
+
+      await realPage.setContent(bookingPageHtml());
+
+      await expect(running).resolves.toMatchObject({
+        observation: { status: "observed", action: "book" }
+      });
+      expect(closes).toBe(1);
+    } finally {
+      await realPage.close();
+    }
+  });
+
   it("accepts a visible supported marker after a hidden first DOM match", async () => {
     const realPage = await syntheticPage(`<!doctype html>
       <html><body>

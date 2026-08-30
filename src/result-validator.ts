@@ -13,6 +13,9 @@ const resultValidator = ajv.compile(resultSchema);
 export const validateResult = (value: unknown): value is BookingResult => {
   if (!(resultValidator(value) as boolean)) return false;
   const result = value as BookingResult;
+  if (result.outcome === "DRY_RUN" && result.observed_class === undefined) {
+    return false;
+  }
   if (
     result.outcome !== "DRY_RUN" ||
     (result.availability !== "BOOKING_AVAILABLE" &&

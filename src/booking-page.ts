@@ -232,12 +232,56 @@ async function openBookingBrowser<T>(
     } catch {
       throw new BookingBrowserError();
     }
-    return use(createBookingPage(page, expectedClass));
+    const bookingPage = createBookingPage(page, expectedClass);
+    let readyPage = bookingPage;
+    try {
+      const loginRequiredCount = await page
+        .locator('[data-testid="login-required"]')
+        .filter({ visible: true })
+        .count();
+      if (loginRequiredCount === 0) {
+        const initialState = await waitForReadableBookingPage(
+          bookingPage,
+          readinessTimeoutMs
+        );
+        let cachedState: BookingPageState | undefined = initialState;
+        readyPage = {
+          ...bookingPage,
+          read: async () => {
+            if (cachedState === undefined) return bookingPage.read();
+            const state = cachedState;
+            cachedState = undefined;
+            return state;
+          }
+        };
+      }
+    } catch {
+      throw new BookingBrowserReadinessError();
+    }
+    return use(readyPage);
   };
 
   return launcher === undefined
     ? withPersistentBrowser(profileDir, inContext)
     : withPersistentBrowser(profileDir, inContext, launcher);
+}
+
+async function waitForReadableBookingPage(
+  page: BookingPage,
+  timeoutMs: number
+): Promise<BookingPageState> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      return await page.read();
+    } catch {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) throw new BookingBrowserReadinessError();
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(25, remainingMs))
+      );
+    }
+  }
 }
 
 async function exactEnabledVisible(locator: Locator): Promise<Locator> {

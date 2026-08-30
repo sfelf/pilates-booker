@@ -93,6 +93,7 @@ const existingEnrollmentDryRun = {
   retryable: false,
   submission_attempts: 0,
   availability: "ALREADY_BOOKED",
+  observed_class: actionableDryRun.observed_class,
   google_calendar_url: "https://calendar.example.test/event/synthetic",
   safety_checks: {
     exact_class_match: true,
@@ -253,9 +254,15 @@ describe("schema foundations", () => {
     };
     delete missingObservedClass.observed_class;
 
+    const existingEnrollmentMissingObservedClass: Record<string, unknown> = {
+      ...existingEnrollmentDryRun
+    };
+    delete existingEnrollmentMissingObservedClass.observed_class;
+
     expect(validateResult(missingAvailability)).toBe(false);
     expect(validateResult(missingPackageEvidence)).toBe(false);
     expect(validateResult(missingObservedClass)).toBe(false);
+    expect(validateResult(existingEnrollmentMissingObservedClass)).toBe(false);
     expect(validateResult({ ...actionableDryRun, packages_before: [] })).toBe(
       false
     );

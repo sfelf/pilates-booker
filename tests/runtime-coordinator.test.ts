@@ -107,6 +107,7 @@ const existingEnrollmentDryRun = {
   retryable: false,
   submission_attempts: 0,
   availability: "ALREADY_BOOKED",
+  observed_class: actionableDryRun.observed_class,
   google_calendar_url: "https://calendar.example.test/event/synthetic",
   safety_checks: {
     exact_class_match: true,
@@ -257,6 +258,11 @@ describe("resultMatchesDurableState", () => {
     [
       "rejects actionable dry-run evidence without an observed class",
       { ...actionableDryRun, observed_class: undefined },
+      "VALIDATED"
+    ],
+    [
+      "rejects existing-enrollment dry-run evidence without an observed class",
+      { ...existingEnrollmentDryRun, observed_class: undefined },
       "VALIDATED"
     ],
     [

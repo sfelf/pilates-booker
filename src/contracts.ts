@@ -156,6 +156,7 @@ type ExistingBookedDryRunBookingResult = Readonly<
     confirmation_verified: true;
     retryable: false;
     availability: "ALREADY_BOOKED";
+    observed_class: ObservedClass;
     package_used?: never;
     packages_before?: never;
     safety_checks: SafetyChecks & Readonly<{ exact_class_match: true }>;
@@ -171,6 +172,7 @@ type ExistingWaitlistedDryRunBookingResult = Readonly<
     confirmation_verified: true;
     retryable: false;
     availability: "ALREADY_WAITLISTED";
+    observed_class: ObservedClass;
     package_used?: never;
     packages_before?: never;
     google_calendar_url?: never;

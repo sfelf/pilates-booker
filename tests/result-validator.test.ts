@@ -52,4 +52,30 @@ describe("validateResult actionable dry-run evidence", () => {
       })
     ).toBe(false);
   });
+
+  it("rejects existing-enrollment dry runs without observed class evidence", () => {
+    const {
+      package_used: ignoredPackage,
+      packages_before: ignoredPackages,
+      ...dryRunBase
+    } = actionableDryRun;
+    void ignoredPackage;
+    void ignoredPackages;
+    const validExistingEnrollment = {
+      ...dryRunBase,
+      availability: "ALREADY_BOOKED",
+      confirmation_verified: true,
+      google_calendar_url: "https://calendar.example.test/event/synthetic",
+      safety_checks: {
+        ...actionableDryRun.safety_checks,
+        approved_package_verified: false
+      }
+    };
+    const { observed_class: ignoredObservedClass, ...withoutObservedClass } =
+      validExistingEnrollment;
+    void ignoredObservedClass;
+
+    expect(validateResult(validExistingEnrollment)).toBe(true);
+    expect(validateResult(withoutObservedClass)).toBe(false);
+  });
 });

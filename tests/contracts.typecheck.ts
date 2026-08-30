@@ -191,6 +191,7 @@ const validExistingEnrollmentDryRun = {
   retryable: false,
   submission_attempts: 0,
   availability: "ALREADY_BOOKED",
+  observed_class: validActionableDryRun.observed_class,
   google_calendar_url: "https://calendar.example.test/event/synthetic",
   safety_checks: {
     exact_class_match: true,
@@ -255,6 +256,15 @@ acceptExistingBookedDryRun({
   // @ts-expect-error Existing-enrollment DRY_RUN cannot project package evidence.
   package_used: "Synthetic Reserved Package"
 });
+
+const {
+  observed_class: ignoredExistingObservedClass,
+  ...existingDryRunWithoutObservedClass
+} = validExistingEnrollmentDryRun;
+void ignoredExistingObservedClass;
+
+// @ts-expect-error Existing-enrollment DRY_RUN requires observed class evidence.
+acceptExistingBookedDryRun(existingDryRunWithoutObservedClass);
 
 // @ts-expect-error DRY_RUN cannot include a submitted action.
 acceptActionableDryRun({ ...validActionableDryRun, action_submitted: true });
