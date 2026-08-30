@@ -403,12 +403,10 @@ describe("booking workflow dry-run decisions", () => {
         outcome: "DRY_RUN",
         exit_code: 0,
         action_submitted: false,
-        submission_attempts: 0,
         confirmation_verified: false,
-        retryable: false,
         availability,
         observed_class: observedClass,
-        package_used: "Synthetic Priority Pack",
+        package_selected: "Synthetic Priority Pack",
         packages_before: [
           {
             name: "Synthetic Backup Pack",
@@ -472,9 +470,7 @@ describe("booking workflow dry-run decisions", () => {
         outcome: "DRY_RUN",
         exit_code: 0,
         action_submitted: false,
-        submission_attempts: 0,
         confirmation_verified: true,
-        retryable: false,
         availability,
         observed_class: observedClass,
         safety_checks: {
@@ -573,9 +569,7 @@ describe("booking workflow dry-run decisions", () => {
       outcome: "SAFE_STOP",
       exit_code: 20,
       action_submitted: false,
-      submission_attempts: 0,
       confirmation_verified: false,
-      retryable: false,
       safety_checks: {
         exact_class_match: true,
         approved_package_verified: false,
@@ -617,9 +611,7 @@ describe("booking workflow existing-enrollment decisions", () => {
         outcome,
         exit_code: 0,
         action_submitted: false,
-        submission_attempts: 0,
         confirmation_verified: true,
-        retryable: false,
         observed_class: observedClass,
         safety_checks: {
           exact_class_match: true,
@@ -690,9 +682,7 @@ function expectSafeStop(
     outcome: "SAFE_STOP",
     exit_code: 20,
     action_submitted: false,
-    submission_attempts: 0,
     confirmation_verified: false,
-    retryable: false,
     safety_checks: {
       exact_class_match: exactClassMatch,
       approved_package_verified: false,
@@ -1154,8 +1144,7 @@ describe("booking workflow confirmed submission", () => {
     expect(result).toBe(callbackResult);
     expect(result).toMatchObject({
       outcome: "DRY_RUN",
-      action_submitted: false,
-      submission_attempts: 0
+      action_submitted: false
     });
     expect(browserInputs).toEqual([
       context.profileDir,
@@ -1189,11 +1178,9 @@ describe("booking workflow confirmed submission", () => {
         outcome,
         exit_code: 0,
         action_submitted: true,
-        submission_attempts: 1,
         confirmation_verified: true,
-        retryable: false,
         observed_class: observedClass,
-        package_used: "Synthetic Priority Pack",
+        package_selected: "Synthetic Priority Pack",
         packages_before: [
           {
             name: "Synthetic Backup Pack",
@@ -1308,9 +1295,7 @@ describe("booking workflow post-submit uncertainty", () => {
           outcome: "CONFIRMATION_UNCERTAIN",
           exit_code: 40,
           action_submitted: true,
-          submission_attempts: 1,
           confirmation_verified: false,
-          retryable: false,
           safety_checks: {
             exact_class_match: true,
             approved_package_verified: true,
@@ -1358,9 +1343,7 @@ describe("booking workflow post-submit uncertainty", () => {
         outcome: "CONFIRMATION_UNCERTAIN",
         exit_code: 40,
         action_submitted: true,
-        submission_attempts: 1,
-        confirmation_verified: false,
-        retryable: false
+        confirmation_verified: false
       }
     });
     expect(run.executorError).toBeInstanceOf(BookingWorkflowError);

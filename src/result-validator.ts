@@ -32,7 +32,9 @@ export const validateResult = (value: unknown): value is BookingResult => {
     return false;
   }
 
-  const configuredName = normalizePackageNameForComparison(result.package_used);
+  const configuredName = normalizePackageNameForComparison(
+    result.package_selected
+  );
   return (
     configuredName.length > 0 &&
     result.packages_before.some(

@@ -30,6 +30,17 @@ const submittedSafetyChecks = {
   no_charge: true,
   cancellation_policy_accepted: true
 } as const;
+const observedClass = {
+  name: "Synthetic Reformer Flow",
+  instructor: "Synthetic Instructor",
+  date: "2030-01-16",
+  start_time: "10:30",
+  end_time: "11:30",
+  timezone: "America/Los_Angeles"
+} as const;
+const packagesBefore = [
+  { name: "Synthetic Priority Package", remaining: 3, approved: true }
+] as const;
 
 const technicalFailure = {
   schema_version: 1,
@@ -38,8 +49,6 @@ const technicalFailure = {
   exit_code: 30,
   action_submitted: false,
   confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 0,
   safety_checks: noSubmissionSafetyChecks,
   details: "Runtime operation failed."
 } as const satisfies BookingResult;
@@ -51,8 +60,7 @@ const alreadyBookedExact = {
   exit_code: 0,
   action_submitted: false,
   confirmation_verified: true,
-  retryable: false,
-  submission_attempts: 0,
+  observed_class: observedClass,
   safety_checks: {
     ...noSubmissionSafetyChecks,
     exact_class_match: true
@@ -72,8 +80,6 @@ const actionableDryRun = {
   exit_code: 0,
   action_submitted: false,
   confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 0,
   availability: "BOOKING_AVAILABLE",
   observed_class: {
     name: "Synthetic Reformer Flow",
@@ -83,7 +89,7 @@ const actionableDryRun = {
     end_time: "11:30",
     timezone: "America/Los_Angeles"
   },
-  package_used: "⭐ Synthetic Priority Package",
+  package_selected: "⭐ Synthetic Priority Package",
   packages_before: [
     { name: "Synthetic Backup Package", remaining: 4, approved: false },
     { name: "Synthetic Priority Package ★", remaining: 2, approved: true }
@@ -104,8 +110,6 @@ const existingEnrollmentDryRun = {
   exit_code: 0,
   action_submitted: false,
   confirmation_verified: true,
-  retryable: false,
-  submission_attempts: 0,
   availability: "ALREADY_BOOKED",
   observed_class: actionableDryRun.observed_class,
   google_calendar_url: "https://calendar.example.test/event/synthetic",
@@ -132,8 +136,6 @@ const confirmationUncertain = {
   exit_code: 40,
   action_submitted: true,
   confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 1,
   safety_checks: submittedSafetyChecks,
   details: "Booking confirmation is uncertain."
 } as const satisfies BookingResult;
@@ -145,8 +147,9 @@ const booked = {
   exit_code: 0,
   action_submitted: true,
   confirmation_verified: true,
-  retryable: false,
-  submission_attempts: 1,
+  observed_class: observedClass,
+  package_selected: "Synthetic Priority Package",
+  packages_before: packagesBefore,
   safety_checks: submittedSafetyChecks,
   details: "Booking confirmed."
 } as const satisfies BookingResult;

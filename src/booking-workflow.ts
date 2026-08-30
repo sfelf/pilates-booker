@@ -150,13 +150,11 @@ export async function prepareBookingWorkflow(
       outcome: "DRY_RUN",
       exit_code: 0,
       action_submitted: false,
-      submission_attempts: 0,
       confirmation_verified: false,
-      retryable: false,
       availability:
         action === "book" ? "BOOKING_AVAILABLE" : "WAITLIST_AVAILABLE",
       observed_class: initial.observation.observed_class,
-      package_used: selection.configuredName,
+      package_selected: selection.configuredName,
       packages_before: selection.balances,
       safety_checks: {
         exact_class_match: true,
@@ -302,9 +300,7 @@ function existingEnrollment(
     outcome,
     exit_code: 0,
     action_submitted: false,
-    submission_attempts: 0,
     confirmation_verified: true,
-    retryable: false,
     observed_class: state.observation.observed_class,
     safety_checks: {
       ...incompleteSafetyChecks,
@@ -328,9 +324,7 @@ function existingDryRun(
     outcome: "DRY_RUN",
     exit_code: 0,
     action_submitted: false,
-    submission_attempts: 0,
     confirmation_verified: true,
-    retryable: false,
     availability,
     observed_class: state.observation.observed_class,
     safety_checks: {
@@ -351,9 +345,7 @@ function safeStop(
     outcome: "SAFE_STOP",
     exit_code: 20,
     action_submitted: false,
-    submission_attempts: 0,
     confirmation_verified: false,
-    retryable: false,
     safety_checks: {
       ...incompleteSafetyChecks,
       exact_class_match: exactClassMatch
@@ -373,11 +365,9 @@ function confirmedResult(
     outcome,
     exit_code: 0,
     action_submitted: true,
-    submission_attempts: 1,
     confirmation_verified: true,
-    retryable: false,
     observed_class: preparation.observed_class,
-    package_used: preparation.selection.configuredName,
+    package_selected: preparation.selection.configuredName,
     packages_before: preparation.selection.balances,
     safety_checks: preparation.safety_checks,
     details: outcome === "BOOKED" ? DETAILS.BOOKED : DETAILS.WAITLISTED

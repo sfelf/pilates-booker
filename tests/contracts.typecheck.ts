@@ -3,11 +3,271 @@ import type {
   BookingRequest,
   BookingResult
 } from "../src/contracts.js";
-import type { BookingPreparation } from "../src/booking-workflow.js";
 
-const commonRequestFields = {
-  schema_version: 1 as const,
-  request_id: "00000000-0000-4000-8000-000000000001",
+const requestId = "00000000-0000-4000-8000-000000000001";
+
+const observedClass = {
+  name: "Example Movement Class (Level 2)",
+  instructor: "Synthetic Instructor",
+  date: "2030-01-16",
+  start_time: "10:30",
+  end_time: "11:30",
+  timezone: "America/Los_Angeles"
+} as const;
+
+const approvedPackages = [
+  { name: "Synthetic Priority Package", remaining: 3, approved: true },
+  { name: "Synthetic Other Package", remaining: 2, approved: false }
+] as const;
+
+const booked: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "BOOKED",
+  exit_code: 0,
+  action_submitted: true,
+  confirmation_verified: true,
+  observed_class: observedClass,
+  package_selected: "Synthetic Priority Package",
+  packages_before: [
+    { name: "Synthetic Priority Package", remaining: 3, approved: true },
+    { name: "Synthetic Other Package", remaining: 2, approved: false }
+  ],
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: true,
+    cancellation_policy_accepted: true
+  },
+  details: "Booking confirmed."
+};
+
+const waitlisted: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "WAITLISTED",
+  exit_code: 0,
+  action_submitted: true,
+  confirmation_verified: true,
+  observed_class: observedClass,
+  package_selected: "Synthetic Priority Package",
+  packages_before: approvedPackages,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: true,
+    cancellation_policy_accepted: true
+  },
+  details: "Waitlist enrollment confirmed."
+};
+
+const alreadyBooked: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "ALREADY_BOOKED",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  observed_class: observedClass,
+  google_calendar_url: "https://app.arketa.co/api/calendar/google?classId=FAKE",
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: true,
+    cancellation_policy_accepted: false
+  },
+  details: "Existing booking confirmed."
+};
+
+const alreadyWaitlisted: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "ALREADY_WAITLISTED",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  observed_class: observedClass,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: true,
+    cancellation_policy_accepted: false
+  },
+  details: "Existing waitlist enrollment confirmed."
+};
+
+const actionableDryRun: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: false,
+  availability: "BOOKING_AVAILABLE",
+  observed_class: observedClass,
+  package_selected: "Synthetic Priority Package",
+  packages_before: approvedPackages,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run found a bookable class."
+};
+
+const existingEnrollmentDryRun: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "DRY_RUN",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  availability: "ALREADY_BOOKED",
+  observed_class: observedClass,
+  google_calendar_url: "https://app.arketa.co/api/calendar/google?classId=FAKE",
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: true,
+    cancellation_policy_accepted: false
+  },
+  details: "Dry run found an existing booking."
+};
+
+const safeStopWithoutPackageEvidence: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "SAFE_STOP",
+  exit_code: 20,
+  action_submitted: false,
+  confirmation_verified: false,
+  observed_class: observedClass,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: true,
+    cancellation_policy_accepted: false
+  },
+  details: "Stopped before submission."
+};
+
+const safeStopWithPackageEvidence: BookingResult = {
+  ...safeStopWithoutPackageEvidence,
+  package_selected: null,
+  packages_before: approvedPackages
+};
+
+const technicalFailure: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "TECHNICAL_FAILURE",
+  exit_code: 30,
+  action_submitted: false,
+  confirmation_verified: false,
+  safety_checks: {
+    exact_class_match: false,
+    approved_package_verified: false,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Technical failure."
+};
+
+const confirmationUncertain: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "CONFIRMATION_UNCERTAIN",
+  exit_code: 40,
+  action_submitted: true,
+  confirmation_verified: false,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: true,
+    cancellation_policy_accepted: true
+  },
+  details: "Booking confirmation is uncertain."
+};
+
+const bookedWithCalendarUrl: BookingResult = {
+  ...booked,
+  google_calendar_url: "https://app.arketa.co/api/calendar/google?classId=FAKE"
+};
+
+// @ts-expect-error package_used is excluded from schema version 1 results.
+const removedPackageUsed: BookingResult = { ...booked, package_used: "Legacy" };
+const removedSubmissionAttempts: BookingResult = {
+  ...booked,
+  // @ts-expect-error submission_attempts is excluded from schema version 1 results.
+  submission_attempts: 1
+};
+// @ts-expect-error retryable is excluded from schema version 1 results.
+const removedRetryable: BookingResult = { ...booked, retryable: false };
+const removedFailureStage: BookingResult = {
+  ...technicalFailure,
+  // @ts-expect-error failure_stage is excluded from schema version 1 results.
+  failure_stage: "legacy"
+};
+const removedPaymentState: BookingResult = {
+  ...technicalFailure,
+  // @ts-expect-error current_payment_state is excluded from schema version 1 results.
+  current_payment_state: "legacy"
+};
+// @ts-expect-error Package selection cannot appear without package balances.
+const unpairedSelectedPackage: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "SAFE_STOP",
+  exit_code: 20,
+  action_submitted: false,
+  confirmation_verified: false,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: true,
+    cancellation_policy_accepted: false
+  },
+  details: "Stopped before submission.",
+  package_selected: null
+};
+// @ts-expect-error Package balances cannot appear without package selection.
+const unpairedPackageBalances: BookingResult = {
+  schema_version: 1,
+  request_id: requestId,
+  outcome: "SAFE_STOP",
+  exit_code: 20,
+  action_submitted: false,
+  confirmation_verified: false,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: false,
+    no_charge: true,
+    cancellation_policy_accepted: false
+  },
+  details: "Stopped before submission.",
+  packages_before: approvedPackages
+};
+// @ts-expect-error Successful actionable outcomes require a non-null selected package.
+const bookedWithoutSelectedPackage: BookingResult = {
+  ...booked,
+  package_selected: null
+};
+// @ts-expect-error WAITLISTED outcomes cannot include a calendar URL.
+const waitlistedWithCalendarUrl: BookingResult = {
+  ...waitlisted,
+  google_calendar_url: "https://app.arketa.co/api/calendar/google?classId=FAKE"
+};
+// @ts-expect-error Existing enrollment outcomes cannot include package evidence.
+const existingEnrollmentWithPackageEvidence: BookingResult = {
+  ...alreadyBooked,
+  package_selected: "Synthetic Priority Package",
+  packages_before: approvedPackages
+};
+
+const validRequest: BookingRequest = {
+  schema_version: 1,
+  request_id: requestId,
   booking_url:
     "https://app.arketa.co/iframe/example/calendar/checkout/FAKE_CHECKOUT_ID",
   expected_class: {
@@ -16,370 +276,39 @@ const commonRequestFields = {
     start_time: "10:30",
     timezone: "America/Los_Angeles"
   },
-  reserve_for: "myself" as const,
+  reserve_for: "myself",
+  permitted_actions: ["book"],
   policy_version: "2030-01-01",
-  allow_monetary_charge: false as const,
+  allow_monetary_charge: false,
   dry_run: false
 };
 
-const validOneActionRequest: BookingRequest = {
-  ...commonRequestFields,
-  permitted_actions: ["book"]
-};
-
-const validTwoActionRequest: BookingRequest = {
-  ...commonRequestFields,
-  permitted_actions: ["waitlist", "book"]
-};
-
-const emptyActionRequest: BookingRequest = {
-  ...commonRequestFields,
-  // @ts-expect-error Booking requests require at least one permitted action.
-  permitted_actions: []
-};
-
-const validOnePackagePolicy: BookingPolicy = {
+const validPolicy: BookingPolicy = {
   schema_version: 1,
   policy_version: "2030-01-01",
-  allowed_packages: ["Synthetic Reserved Package"]
+  allowed_packages: ["Synthetic Priority Package"]
 };
 
-const validMultiplePackagePolicy: BookingPolicy = {
-  schema_version: 1,
-  policy_version: "2030-01-01",
-  allowed_packages: [
-    "Synthetic Reserved Package",
-    "Alternate Synthetic Package"
-  ]
-};
-
-const emptyPackagePolicy: BookingPolicy = {
-  schema_version: 1,
-  policy_version: "2030-01-01",
-  // @ts-expect-error Booking policies require at least one allowed package.
-  allowed_packages: []
-};
-
-const commonResultFields = {
-  schema_version: 1 as const,
-  request_id: "00000000-0000-4000-8000-000000000001",
-  action_submitted: false as const,
-  confirmation_verified: false as const,
-  retryable: false,
-  submission_attempts: 0 as const,
-  safety_checks: {
-    exact_class_match: false,
-    approved_package_verified: false,
-    no_charge: true,
-    cancellation_policy_accepted: false
-  },
-  details: "Synthetic safe stop."
-};
-
-const validSafeStop: BookingResult = {
-  ...commonResultFields,
-  outcome: "SAFE_STOP",
-  exit_code: 20
-};
-
-const validTechnicalFailure: BookingResult = {
-  ...commonResultFields,
-  outcome: "TECHNICAL_FAILURE",
-  exit_code: 30,
-  retryable: true
-};
-
-const validBooked: BookingResult = {
-  ...commonResultFields,
-  outcome: "BOOKED",
-  exit_code: 0,
-  action_submitted: true,
-  confirmation_verified: true,
-  retryable: false,
-  submission_attempts: 1,
-  safety_checks: {
-    exact_class_match: true,
-    approved_package_verified: true,
-    no_charge: true,
-    cancellation_policy_accepted: true
-  }
-};
-
-const validWaitlisted: BookingResult = {
-  ...validBooked,
-  outcome: "WAITLISTED"
-};
-
-// @ts-expect-error BOOKED requires submitted and verified evidence.
-const unverifiedBooked: BookingResult = {
-  ...commonResultFields,
-  outcome: "BOOKED",
-  exit_code: 0
-};
-
-// @ts-expect-error Submitted but unverified results must be confirmation-uncertain.
-const submittedTechnicalFailure: BookingResult = {
-  ...commonResultFields,
-  outcome: "TECHNICAL_FAILURE",
-  exit_code: 30,
-  action_submitted: true,
-  submission_attempts: 1,
-  retryable: true
-};
-
-const validConfirmationUncertain: BookingResult = {
-  ...commonResultFields,
-  outcome: "CONFIRMATION_UNCERTAIN",
-  exit_code: 40,
-  action_submitted: true,
-  confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 1
-};
-
-const acceptBookingPreparation = (preparation: BookingPreparation): void => {
-  void preparation;
-};
-
-// @ts-expect-error Booking preparation cannot contain a submitted booking.
-acceptBookingPreparation(validBooked);
-// @ts-expect-error Booking preparation cannot contain a submitted waitlist.
-acceptBookingPreparation(validWaitlisted);
-// @ts-expect-error Booking preparation cannot contain uncertain confirmation.
-acceptBookingPreparation(validConfirmationUncertain);
-// @ts-expect-error Booking preparation cannot contain infrastructure failure.
-acceptBookingPreparation(validTechnicalFailure);
-
-const validActionableDryRun = {
-  schema_version: 1,
-  request_id: "00000000-0000-4000-8000-000000000001",
-  outcome: "DRY_RUN",
-  exit_code: 0,
-  action_submitted: false,
-  confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 0,
-  availability: "BOOKING_AVAILABLE",
-  observed_class: {
-    name: "Example Movement Class (Level 2)",
-    instructor: "Synthetic Instructor",
-    date: "2030-01-16",
-    start_time: "10:30",
-    end_time: "11:30",
-    timezone: "America/Los_Angeles"
-  },
-  package_used: "Synthetic Reserved Package",
-  packages_before: [
-    { name: "Synthetic Reserved Package", remaining: 2, approved: true }
-  ],
-  safety_checks: {
-    exact_class_match: true,
-    approved_package_verified: true,
-    no_charge: false,
-    cancellation_policy_accepted: false
-  },
-  details: "Dry run completed."
-} as const satisfies BookingResult;
-
-const validExistingEnrollmentDryRun = {
-  schema_version: 1,
-  request_id: "00000000-0000-4000-8000-000000000001",
-  outcome: "DRY_RUN",
-  exit_code: 0,
-  action_submitted: false,
-  confirmation_verified: true,
-  retryable: false,
-  submission_attempts: 0,
-  availability: "ALREADY_BOOKED",
-  observed_class: validActionableDryRun.observed_class,
-  google_calendar_url: "https://calendar.example.test/event/synthetic",
-  safety_checks: {
-    exact_class_match: true,
-    approved_package_verified: false,
-    no_charge: false,
-    cancellation_policy_accepted: false
-  },
-  details: "Dry run completed."
-} as const satisfies BookingResult;
-
-const acceptActionableDryRun = (
-  result: Extract<
-    BookingResult,
-    { outcome: "DRY_RUN"; confirmation_verified: false }
-  >
-): void => {
-  void result;
-};
-
-const acceptExistingBookedDryRun = (
-  result: Extract<
-    BookingResult,
-    { outcome: "DRY_RUN"; availability: "ALREADY_BOOKED" }
-  >
-): void => {
-  void result;
-};
-
-const acceptExistingWaitlistedDryRun = (
-  result: Extract<
-    BookingResult,
-    { outcome: "DRY_RUN"; availability: "ALREADY_WAITLISTED" }
-  >
-): void => {
-  void result;
-};
-
-const { availability: ignoredAvailability, ...dryRunWithoutAvailability } =
-  validActionableDryRun;
-void ignoredAvailability;
-
-acceptActionableDryRun(validActionableDryRun);
-
-// @ts-expect-error DRY_RUN requires availability evidence.
-acceptActionableDryRun(dryRunWithoutAvailability);
-
-// @ts-expect-error Actionable DRY_RUN requires selected package evidence.
-acceptActionableDryRun({ ...validActionableDryRun, package_used: undefined });
-
-const { observed_class: ignoredObservedClass, ...dryRunWithoutObservedClass } =
-  validActionableDryRun;
-void ignoredObservedClass;
-
-// @ts-expect-error Actionable DRY_RUN requires observed class evidence.
-acceptActionableDryRun(dryRunWithoutObservedClass);
-
-// @ts-expect-error Actionable DRY_RUN requires non-empty package evidence.
-acceptActionableDryRun({ ...validActionableDryRun, packages_before: [] });
-
-acceptExistingBookedDryRun({
-  ...validExistingEnrollmentDryRun,
-  // @ts-expect-error Existing-enrollment DRY_RUN cannot project package evidence.
-  package_used: "Synthetic Reserved Package"
-});
-
-const {
-  observed_class: ignoredExistingObservedClass,
-  ...existingDryRunWithoutObservedClass
-} = validExistingEnrollmentDryRun;
-void ignoredExistingObservedClass;
-
-// @ts-expect-error Existing-enrollment DRY_RUN requires observed class evidence.
-acceptExistingBookedDryRun(existingDryRunWithoutObservedClass);
-
-// @ts-expect-error DRY_RUN cannot include a submitted action.
-acceptActionableDryRun({ ...validActionableDryRun, action_submitted: true });
-
-acceptActionableDryRun({
-  ...validActionableDryRun,
-  // @ts-expect-error Actionable availability cannot claim confirmation.
-  confirmation_verified: true
-});
-
-acceptActionableDryRun({
-  ...validActionableDryRun,
-  // @ts-expect-error Actionable DRY_RUN cannot project a calendar URL.
-  google_calendar_url: "https://calendar.example.test/event/synthetic"
-});
-
-acceptExistingWaitlistedDryRun({
-  ...validExistingEnrollmentDryRun,
-  availability: "ALREADY_WAITLISTED",
-  // @ts-expect-error Waitlist enrollment DRY_RUN cannot project a calendar URL.
-  google_calendar_url: "https://calendar.example.test/event/synthetic"
-});
-
-// @ts-expect-error CONFIRMATION_UNCERTAIN must use exit code 40.
-const confirmationUncertainWithWrongExitCode: BookingResult = {
-  ...commonResultFields,
-  outcome: "CONFIRMATION_UNCERTAIN",
-  exit_code: 30,
-  action_submitted: true,
-  confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 1
-};
-
-// @ts-expect-error CONFIRMATION_UNCERTAIN requires a submitted action.
-const confirmationUncertainWithoutSubmission: BookingResult = {
-  ...commonResultFields,
-  outcome: "CONFIRMATION_UNCERTAIN",
-  exit_code: 40,
-  action_submitted: false,
-  confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 1
-};
-
-// @ts-expect-error CONFIRMATION_UNCERTAIN requires exactly one attempt.
-const confirmationUncertainWithNoAttempt: BookingResult = {
-  ...commonResultFields,
-  outcome: "CONFIRMATION_UNCERTAIN",
-  exit_code: 40,
-  action_submitted: true,
-  confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 0
-};
-
-const confirmationUncertainWithMultipleAttempts: BookingResult = {
-  ...commonResultFields,
-  outcome: "CONFIRMATION_UNCERTAIN",
-  exit_code: 40,
-  action_submitted: true,
-  confirmation_verified: false,
-  retryable: false,
-  // @ts-expect-error CONFIRMATION_UNCERTAIN permits at most one attempt.
-  submission_attempts: 2
-};
-
-// @ts-expect-error CONFIRMATION_UNCERTAIN cannot be verified.
-const confirmationUncertainWithVerification: BookingResult = {
-  ...commonResultFields,
-  outcome: "CONFIRMATION_UNCERTAIN",
-  exit_code: 40,
-  action_submitted: true,
-  confirmation_verified: true,
-  retryable: false,
-  submission_attempts: 1
-};
-
-// @ts-expect-error CONFIRMATION_UNCERTAIN cannot be retryable.
-const retryableConfirmationUncertain: BookingResult = {
-  ...commonResultFields,
-  outcome: "CONFIRMATION_UNCERTAIN",
-  exit_code: 40,
-  action_submitted: true,
-  confirmation_verified: false,
-  retryable: true,
-  submission_attempts: 1
-};
-
-// @ts-expect-error SAFE_STOP must use exit code 20.
-const impossibleOutcomeExitPair: BookingResult = {
-  ...commonResultFields,
-  outcome: "SAFE_STOP",
-  exit_code: 0
-};
-
-void validSafeStop;
-void validTechnicalFailure;
-void validBooked;
-void validWaitlisted;
-void unverifiedBooked;
-void submittedTechnicalFailure;
-void validConfirmationUncertain;
-void validActionableDryRun;
-void validExistingEnrollmentDryRun;
-void confirmationUncertainWithWrongExitCode;
-void confirmationUncertainWithoutSubmission;
-void confirmationUncertainWithNoAttempt;
-void confirmationUncertainWithMultipleAttempts;
-void confirmationUncertainWithVerification;
-void retryableConfirmationUncertain;
-void impossibleOutcomeExitPair;
-void validOneActionRequest;
-void validTwoActionRequest;
-void emptyActionRequest;
-void validOnePackagePolicy;
-void validMultiplePackagePolicy;
-void emptyPackagePolicy;
+void booked;
+void waitlisted;
+void alreadyBooked;
+void alreadyWaitlisted;
+void actionableDryRun;
+void existingEnrollmentDryRun;
+void safeStopWithoutPackageEvidence;
+void safeStopWithPackageEvidence;
+void technicalFailure;
+void confirmationUncertain;
+void bookedWithCalendarUrl;
+void removedPackageUsed;
+void removedSubmissionAttempts;
+void removedRetryable;
+void removedFailureStage;
+void removedPaymentState;
+void unpairedSelectedPackage;
+void unpairedPackageBalances;
+void bookedWithoutSelectedPackage;
+void waitlistedWithCalendarUrl;
+void existingEnrollmentWithPackageEvidence;
+void validRequest;
+void validPolicy;

@@ -267,8 +267,6 @@ function technicalFailureResult(requestId: string): BookingResult {
     exit_code: 30,
     action_submitted: false,
     confirmation_verified: false,
-    retryable: false,
-    submission_attempts: 0,
     safety_checks: safetyChecks,
     details: "Runtime operation failed."
   };
@@ -282,8 +280,6 @@ function confirmationUncertainResult(requestId: string): BookingResult {
     exit_code: 40,
     action_submitted: true,
     confirmation_verified: false,
-    retryable: false,
-    submission_attempts: 1,
     safety_checks: submittedSafetyChecks,
     details: "Booking confirmation is uncertain."
   };
@@ -317,7 +313,6 @@ export function resultMatchesDurableState(
 
   const noSubmission =
     !result.action_submitted &&
-    result.submission_attempts === 0 &&
     !result.safety_checks.cancellation_policy_accepted;
 
   switch (result.outcome) {
@@ -325,7 +320,6 @@ export function resultMatchesDurableState(
     case "WAITLISTED":
       return (
         result.action_submitted &&
-        result.submission_attempts === 1 &&
         result.confirmation_verified &&
         result.safety_checks.cancellation_policy_accepted &&
         result.safety_checks.exact_class_match &&
@@ -342,9 +336,7 @@ export function resultMatchesDurableState(
     case "DRY_RUN":
       return (
         !result.action_submitted &&
-        result.submission_attempts === 0 &&
         result.exit_code === 0 &&
-        !result.retryable &&
         result.safety_checks.exact_class_match &&
         (isActionableDryRun(result)
           ? !result.confirmation_verified &&
@@ -359,9 +351,7 @@ export function resultMatchesDurableState(
     case "CONFIRMATION_UNCERTAIN":
       return (
         result.action_submitted &&
-        result.submission_attempts === 1 &&
         !result.confirmation_verified &&
-        !result.retryable &&
         result.safety_checks.exact_class_match &&
         result.safety_checks.approved_package_verified &&
         result.safety_checks.no_charge &&

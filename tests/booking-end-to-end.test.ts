@@ -204,9 +204,7 @@ describe("direct-command synthetic checkout", () => {
         request_id: requestId,
         outcome,
         action_submitted: true,
-        submission_attempts: 1,
         confirmation_verified: true,
-        retryable: false,
         safety_checks: {
           no_charge: true,
           cancellation_policy_accepted: true
@@ -283,9 +281,7 @@ describe("direct-command synthetic checkout", () => {
       request_id: requestId,
       outcome: "CONFIRMATION_UNCERTAIN",
       action_submitted: true,
-      submission_attempts: 1,
-      confirmation_verified: false,
-      retryable: false
+      confirmation_verified: false
     });
   });
 
@@ -342,7 +338,6 @@ describe("direct-command synthetic checkout", () => {
       request_id: requestId,
       outcome: "SAFE_STOP",
       action_submitted: false,
-      submission_attempts: 0,
       confirmation_verified: false
     });
   });

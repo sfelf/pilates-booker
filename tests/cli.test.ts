@@ -31,6 +31,17 @@ const safetyChecks = {
   no_charge: false,
   cancellation_policy_accepted: false
 } as const;
+const observedClass = {
+  name: "Synthetic Reformer Flow",
+  instructor: "Synthetic Instructor",
+  date: "2030-01-16",
+  start_time: "10:30",
+  end_time: "11:30",
+  timezone: "America/Los_Angeles"
+} as const;
+const packagesBefore = [
+  { name: "Synthetic Priority Package", remaining: 3, approved: true }
+] as const;
 
 const result = (outcome: "SAFE_STOP" | "TECHNICAL_FAILURE"): BookingResult =>
   outcome === "SAFE_STOP"
@@ -41,8 +52,6 @@ const result = (outcome: "SAFE_STOP" | "TECHNICAL_FAILURE"): BookingResult =>
         exit_code: 20,
         action_submitted: false,
         confirmation_verified: false,
-        retryable: false,
-        submission_attempts: 0,
         safety_checks: safetyChecks,
         details: "Booking stopped safely."
       }
@@ -53,8 +62,6 @@ const result = (outcome: "SAFE_STOP" | "TECHNICAL_FAILURE"): BookingResult =>
         exit_code: 30,
         action_submitted: false,
         confirmation_verified: false,
-        retryable: false,
-        submission_attempts: 0,
         safety_checks: safetyChecks,
         details: "Runtime operation failed."
       };
@@ -81,8 +88,9 @@ const selectedResult = (exitCode: 0 | 20 | 30 | 40): BookingResult => {
         exit_code: 0,
         action_submitted: true,
         confirmation_verified: true,
-        retryable: false,
-        submission_attempts: 1,
+        observed_class: observedClass,
+        package_selected: "Synthetic Priority Package",
+        packages_before: packagesBefore,
         safety_checks: {
           exact_class_match: true,
           approved_package_verified: true,
@@ -103,8 +111,6 @@ const selectedResult = (exitCode: 0 | 20 | 30 | 40): BookingResult => {
         exit_code: 40,
         action_submitted: true,
         confirmation_verified: false,
-        retryable: false,
-        submission_attempts: 1,
         safety_checks: {
           exact_class_match: true,
           approved_package_verified: true,
@@ -532,7 +538,7 @@ describe("runCli", () => {
         await readFile(join(base, "results", evidenceName), "utf8")
       ) as BookingResult;
       expect(written.outcome).toBe("CONFIRMATION_UNCERTAIN");
-      expect(written.retryable).toBe(false);
+      expect("retryable" in written).toBe(false);
       await expect(access(join(base, "run.lock"))).rejects.toThrow();
     }
   );
@@ -548,8 +554,9 @@ describe("runCli", () => {
         exit_code: 0,
         action_submitted: true,
         confirmation_verified: true,
-        retryable: false,
-        submission_attempts: 1,
+        observed_class: observedClass,
+        package_selected: "Synthetic Priority Package",
+        packages_before: packagesBefore,
         safety_checks: {
           ...safetyChecks,
           exact_class_match: true,
@@ -586,8 +593,9 @@ describe("runCli", () => {
         exit_code: 0,
         action_submitted: true,
         confirmation_verified: true,
-        retryable: false,
-        submission_attempts: 1,
+        observed_class: observedClass,
+        package_selected: "Synthetic Priority Package",
+        packages_before: packagesBefore,
         safety_checks: {
           exact_class_match: true,
           approved_package_verified: true,
@@ -626,8 +634,6 @@ describe("runCli", () => {
         exit_code: 0,
         action_submitted: true,
         confirmation_verified: true,
-        retryable: false,
-        submission_attempts: 1,
         safety_checks: safetyChecks,
         details: "Synthetic existing enrollment."
       } as unknown as BookingResult;
@@ -647,8 +653,6 @@ describe("runCli", () => {
         exit_code: 0,
         action_submitted: false,
         confirmation_verified: true,
-        retryable: false,
-        submission_attempts: 0,
         safety_checks: safetyChecks,
         details: "Synthetic existing enrollment."
       } as unknown as BookingResult;
@@ -677,8 +681,9 @@ describe("runCli", () => {
       exit_code: 0,
       action_submitted: true,
       confirmation_verified: true,
-      retryable: false,
-      submission_attempts: 1,
+      observed_class: observedClass,
+      package_selected: "Synthetic Priority Package",
+      packages_before: packagesBefore,
       safety_checks: {
         exact_class_match: true,
         approved_package_verified: true,
@@ -837,8 +842,6 @@ describe("runCli", () => {
       exit_code: 40,
       action_submitted: true,
       confirmation_verified: false,
-      retryable: false,
-      submission_attempts: 1,
       safety_checks: {
         exact_class_match: true,
         approved_package_verified: true,
@@ -891,10 +894,8 @@ describe("runCli", () => {
       exit_code: 0,
       action_submitted: true,
       confirmation_verified: true,
-      retryable: false,
-      submission_attempts: 1,
       observed_class: observedClass,
-      package_used: "Synthetic Founder's Pack + Flow",
+      package_selected: "Synthetic Founder's Pack + Flow",
       packages_before: packagesBefore,
       google_calendar_url:
         "https://calendar.example.test/event?name=Cr%C3%A8me%20Br%C3%BBl%C3%A9e",
@@ -919,7 +920,7 @@ describe("runCli", () => {
     ) as BookingResult;
     expect(written.details).toBe("Booking confirmed.");
     expect(written.observed_class).toEqual(observedClass);
-    expect(written.package_used).toBe("Synthetic Founder's Pack + Flow");
+    expect(written.package_selected).toBe("Synthetic Founder's Pack + Flow");
     expect(written.packages_before).toEqual(packagesBefore);
     expect(written.google_calendar_url).toBe(
       "https://calendar.example.test/event?name=Cr%C3%A8me%20Br%C3%BBl%C3%A9e"

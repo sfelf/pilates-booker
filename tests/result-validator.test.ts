@@ -9,8 +9,6 @@ const actionableDryRun = {
   exit_code: 0,
   action_submitted: false,
   confirmation_verified: false,
-  retryable: false,
-  submission_attempts: 0,
   availability: "BOOKING_AVAILABLE",
   observed_class: {
     name: "Synthetic Reformer Flow",
@@ -20,7 +18,7 @@ const actionableDryRun = {
     end_time: "11:30",
     timezone: "America/Los_Angeles"
   },
-  package_used: "⭐ Synthetic Priority Package",
+  package_selected: "⭐ Synthetic Priority Package",
   packages_before: [
     { name: "Synthetic Backup Package", remaining: 4, approved: false },
     { name: "Synthetic Priority Package ★", remaining: 2, approved: true }
@@ -73,7 +71,7 @@ describe("validateResult actionable dry-run evidence", () => {
 
   it("rejects existing-enrollment dry runs without observed class evidence", () => {
     const {
-      package_used: ignoredPackage,
+      package_selected: ignoredPackage,
       packages_before: ignoredPackages,
       ...dryRunBase
     } = actionableDryRun;

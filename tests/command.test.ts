@@ -103,8 +103,6 @@ describe("runCommand", () => {
       exit_code: 20,
       action_submitted: false,
       confirmation_verified: false,
-      retryable: false,
-      submission_attempts: 0,
       safety_checks: {
         exact_class_match: false,
         approved_package_verified: false,

@@ -24,8 +24,14 @@ function resultWithCalendarUrl(googleCalendarUrl: string) {
     exit_code: 0,
     action_submitted: false,
     confirmation_verified: true,
-    retryable: false,
-    submission_attempts: 0,
+    observed_class: {
+      name: "Synthetic Reformer Flow",
+      instructor: "Synthetic Instructor",
+      date: "2030-01-16",
+      start_time: "10:30",
+      end_time: "11:30",
+      timezone: "America/Los_Angeles"
+    },
     google_calendar_url: googleCalendarUrl,
     safety_checks: {
       exact_class_match: true,
