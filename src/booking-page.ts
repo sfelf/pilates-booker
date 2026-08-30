@@ -268,6 +268,15 @@ async function waitForBookingControls(
       };
       const visibleMarker = (selector: string): boolean =>
         [...document.querySelectorAll(selector)].some(visible);
+      const classMetadataPresent = [
+        '[data-testid="class-name"]',
+        '[data-testid="instructor"]',
+        '[data-testid="class-date"]',
+        '[data-testid="start-time"]',
+        '[data-testid="end-time"]',
+        '[data-testid="timezone"]'
+      ].every(visibleMarker);
+      if (!classMetadataPresent) return false;
       if (
         visibleMarker('[data-testid="state-sold-out"]') ||
         visibleMarker('[data-testid="state-already-booked"]') ||
@@ -290,8 +299,8 @@ async function waitForBookingControls(
           if (normalized !== labelText) return false;
           const target = candidate.htmlFor
             ? document.getElementById(candidate.htmlFor)
-            : candidate.querySelector("input, textarea");
-          return visible(target);
+            : candidate.querySelector("input");
+          return target instanceof HTMLInputElement && visible(target);
         });
       const packageControlPresent = [
         ...document.querySelectorAll('[data-testid="offering"]')
