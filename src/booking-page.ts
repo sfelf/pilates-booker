@@ -624,11 +624,11 @@ async function waitForGoogleCalendarUrl(
         const links = Array.from(document.querySelectorAll("a")).filter(
           (link) =>
             isVisible(link) &&
-            (link.textContent ?? "").replace(/\s+/gu, " ").trim() ===
-              "Google" &&
-            link.getAttribute("href") === expected
+            (link.textContent ?? "").replace(/\s+/gu, " ").trim() === "Google"
         );
-        return links.length === 1 ? expected : false;
+        return links.length === 1 && links[0]?.getAttribute("href") === expected
+          ? expected
+          : false;
       },
       expectedUrl,
       { polling: 25, timeout: remainingMs }

@@ -1055,10 +1055,17 @@ describe("BookingPage confirmation boundary", () => {
 
   it.each([
     ["invalid URL", ["https://invalid.example/calendar"]],
-    ["duplicate links", [googleCalendarUrl, googleCalendarUrl]],
+    ["valid duplicate", [googleCalendarUrl, googleCalendarUrl]],
     [
       "wrong class",
       ["https://app.arketa.co/api/calendar/google?classId=OTHER_CLASS"]
+    ],
+    [
+      "mixed valid and wrong-class links",
+      [
+        googleCalendarUrl,
+        "https://app.arketa.co/api/calendar/google?classId=OTHER_CLASS"
+      ]
     ]
   ] as const)("does not hydrate a %s Google link", async (_case, hrefs) => {
     const page = await syntheticPage();
