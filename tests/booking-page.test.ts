@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createBookingBrowser,
   createBookingPage,
+  waitForBookingReady,
   type BookingPage,
   type BookingPageState
 } from "../src/booking-page.js";
@@ -1053,6 +1054,33 @@ function lifecycleHarness(
 }
 
 describe("BookingBrowser lifecycle", () => {
+  it("waits for the booked enrollment details control to hydrate", async () => {
+    const page = await syntheticPage(
+      liveBookingPageHtml().replace(
+        '<button type="button" onclick="this.dataset.clicked = \'true\'">Book</button>',
+        '<section><button type="button">Book Another Spot</button></section>'
+      )
+    );
+    let ready = false;
+    const readiness = waitForBookingReady(page, 200).then(() => {
+      ready = true;
+    });
+
+    await page.waitForTimeout(20);
+    expect(ready).toBe(false);
+    await page
+      .getByRole("button", { name: "Book Another Spot", exact: true })
+      .evaluate((button) => {
+        const details = document.createElement("button");
+        details.type = "button";
+        details.textContent = "View Details";
+        button.parentElement?.append(details);
+      });
+
+    await expect(readiness).resolves.toBeUndefined();
+    await page.close();
+  });
+
   it.each([
     [
       "ancestor-hidden checkout controls",

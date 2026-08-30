@@ -227,7 +227,7 @@ async function openBookingBrowser<T>(
     : withPersistentBrowser(profileDir, inContext, launcher);
 }
 
-async function waitForBookingReady(
+export async function waitForBookingReady(
   page: Page,
   timeoutMs: number
 ): Promise<void> {
@@ -298,7 +298,22 @@ async function waitForBookingReady(
         );
         const stateCount = actions.length + booked.length + waitlisted.length;
         if (stateCount !== 1) return false;
-        if (booked.length === 1 || waitlisted.length === 1) {
+        if (booked.length === 1) {
+          const section = booked[0]!.parentElement;
+          const details =
+            section === null
+              ? []
+              : [...section.querySelectorAll("button")].filter(
+                  (button) =>
+                    visible(button) &&
+                    (button.textContent ?? "").replace(/\s+/gu, " ").trim() ===
+                      "View Details"
+                );
+          return (
+            visible(sibling) && visible(instructor) && details.length === 1
+          );
+        }
+        if (waitlisted.length === 1) {
           return visible(sibling) && visible(instructor);
         }
         const packages = [...document.querySelectorAll("div.card")].filter(
