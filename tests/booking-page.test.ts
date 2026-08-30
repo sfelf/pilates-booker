@@ -12,7 +12,7 @@ import type {
   PersistentBrowserLauncher
 } from "../src/browser-session.js";
 import type { ExpectedClass } from "../src/contracts.js";
-import { bookingPageHtml } from "./fixtures/checkout.js";
+import { bookingPageHtml, liveBookingPageHtml } from "./fixtures/checkout.js";
 
 const expectedClass: ExpectedClass = {
   name: "Reformer – Début ✨",
@@ -38,6 +38,59 @@ async function syntheticPage(html = bookingPageHtml()): Promise<Page> {
 }
 
 describe("BookingPage read boundary", () => {
+  it("reads the supported live main-frame light-DOM checkout", async () => {
+    const page = await syntheticPage(liveBookingPageHtml());
+
+    const state = await createBookingPage(page, expectedClass).read();
+
+    expect(state).toMatchObject({
+      observation: {
+        status: "observed",
+        observed_class: {
+          name: "Reformer – Début ✨",
+          instructor: "Ana O’Neil",
+          date: "2026-09-01",
+          start_time: "09:30",
+          end_time: "10:20",
+          timezone: "America/Los_Angeles"
+        },
+        action: "book",
+        packages: [
+          { name: "⭐ Studio / 10-Class Pack", remaining: 3, approved: false }
+        ]
+      },
+      myself: { visibleCount: 1, selected: true, enabled: true },
+      injuries: { visibleCount: 1, value: "", enabled: true },
+      selectedPackageRow: 0,
+      cancellation: { visibleCount: 1, accepted: false, enabled: true },
+      submission: { book: { visibleCount: 1, enabled: true } }
+    });
+    await page.close();
+  });
+
+  it.each(["iframe", "shadow root"])(
+    "does not cross the supported main-frame light-DOM boundary into an %s",
+    async (boundary) => {
+      const page = await syntheticPage("<main></main>");
+      const html = liveBookingPageHtml();
+      if (boundary === "iframe") {
+        await page.locator("main").evaluate((main, content) => {
+          const frame = document.createElement("iframe");
+          frame.srcdoc = content;
+          main.append(frame);
+        }, html);
+      } else {
+        await page.locator("main").evaluate((main, content) => {
+          main.attachShadow({ mode: "open" }).innerHTML = content;
+        }, html);
+      }
+
+      await expect(
+        createBookingPage(page, expectedClass).read()
+      ).rejects.toThrow("Booking page could not be read.");
+      await page.close();
+    }
+  );
   it("inherits disabled state for package and submission controls", async () => {
     const page = await syntheticPage();
     await page
@@ -357,6 +410,43 @@ describe("BookingPage read boundary", () => {
 });
 
 describe("BookingPage mutation boundary", () => {
+  it("mutates only the supported live checkout controls", async () => {
+    const page = await syntheticPage(liveBookingPageHtml());
+    await page
+      .getByLabel("Myself", { exact: true })
+      .evaluate((radio: HTMLInputElement) => {
+        radio.checked = false;
+      });
+    const booking = createBookingPage(page, expectedClass);
+
+    await booking.selectMyself();
+    await booking.fillInjuriesIfEmpty("None");
+    await booking.selectPackage(0);
+    await booking.acceptCancellationPolicy();
+    await booking.submit("book");
+
+    expect(await page.getByLabel("Myself", { exact: true }).isChecked()).toBe(
+      true
+    );
+    expect(
+      await page.getByLabel(/^Do you have any injuries\?/u).inputValue()
+    ).toBe("None");
+    expect(
+      await page.locator("div.card").first().getAttribute("data-clicked")
+    ).toBe("true");
+    expect(
+      await page
+        .getByLabel("I agree to the Cancellation Policy", { exact: true })
+        .isChecked()
+    ).toBe(true);
+    expect(
+      await page
+        .getByRole("button", { name: "Book", exact: true })
+        .getAttribute("data-clicked")
+    ).toBe("true");
+    await page.close();
+  });
+
   it("refuses package selection and submission inside disabled ancestors", async () => {
     const page = await syntheticPage();
     await page

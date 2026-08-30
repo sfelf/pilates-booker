@@ -22,11 +22,41 @@ Private attendee identity and raw injury content are excluded from results and d
 
 ## Local checks
 
-The repository targets Node.js 22. Run `npm ci`, then use `npm run format:check`, `npm run lint`, `npm run typecheck`, and `npm test`. These checks do not install or access a browser profile.
+The repository targets Node.js 22. Run `npm ci`, then use `npm run format:check`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm test`. These checks do not access a browser profile.
 
 ## Booking policy
 
 Every run requires `--policy <path>` before the request path. Relative policy paths resolve from the invoking working directory; absolute paths are accepted. The repository never falls back to a local policy. [`config/booking-policy.example.json`](config/booking-policy.example.json) is synthetic and must be copied outside the repository before adding private configuration.
+
+## Direct invocation
+
+Install the supported Chromium build and compile the command once after `npm ci`:
+
+```sh
+npx playwright install chromium
+npm run build
+```
+
+Create a dedicated absolute runtime directory outside this repository and copy both synthetic examples outside the repository before replacing them with private values. Keep the runtime, policy, request, generated journal, result, and authenticated browser profile out of Git. Close any browser already using the dedicated profile before invoking the command.
+
+Start with `"dry_run": true`. On POSIX shells:
+
+```sh
+npm start -- --runtime "/absolute/private/pilates-runtime" --policy "/absolute/private/booking-policy.json" "/absolute/private/booking-request.json"
+```
+
+In PowerShell:
+
+```powershell
+$runtime = "C:\private\pilates-runtime"
+$policy = "C:\private\booking-policy.json"
+$request = "C:\private\booking-request.json"
+npm start -- --runtime $runtime --policy $policy $request
+```
+
+The first interactive run uses `<runtime>/Profile`; sign in to Arketa in that dedicated window if needed. Each canonical request UUID owns `<runtime>/journals/<uuid>.json` and `<runtime>/results/<uuid>.json`. Repeating a UUID returns its completed result without opening the browser; use a new UUID for a new requested transaction. The runtime lock prevents overlapping invocations against the same profile.
+
+[`config/booking-request.example.json`](config/booking-request.example.json) and [`config/booking-policy.example.json`](config/booking-policy.example.json) contain synthetic values only. A non-dry run can perform one booking or waitlist submission, so inspect the dry-run result before changing `dry_run` to `false`.
 
 ## License
 

@@ -199,6 +199,31 @@ export function bookingPageHtml(
     </html>`;
 }
 
+export function liveBookingPageHtml(): string {
+  return `<!doctype html>
+    <html>
+      <body>
+        <section>
+          <h2 class="classTitle">Reformer – Début ✨</h2>
+          <p>Tuesday, Sep 1 • 9:30 AM - 10:20 AM PDT</p>
+          <p>with Ana O’Neil</p>
+        </section>
+        <div class="card border-primaryColor" tabindex="0" onclick="this.dataset.clicked = 'true'">
+          <h3>⭐ Studio / 10-Class Pack</h3>
+          <p>3 remaining</p>
+        </div>
+        <a href="/shop"><div class="card"><h3>Grip Socks</h3><p>$20</p></div></a>
+        <label><input type="radio" name="reserveFor" checked> Myself</label>
+        <label for="live-injuries">Do you have any injuries? *</label>
+        <input id="live-injuries" type="text" value="">
+        <label><input type="checkbox"> I agree to the Cancellation Policy</label>
+        <button type="button" onclick="this.dataset.clicked = 'true'">Book</button>
+        <div hidden>You are Booked!</div>
+        <div hidden>You're on the waitlist</div>
+      </body>
+    </html>`;
+}
+
 export function bookingFixture(): CheckoutFixture {
   return {
     [selectors.authenticated]: [{}],
