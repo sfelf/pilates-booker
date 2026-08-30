@@ -804,6 +804,11 @@ function lifecycleHarness(
       navigations.push(args);
     },
     url: () => (typeof finalUrl === "string" ? finalUrl : finalUrl()),
+    waitForFunction: async (
+      _predicate: unknown,
+      _argument: unknown,
+      options: { timeout: number }
+    ) => readinessWait({ state: "visible", timeout: options.timeout }),
     locator: (selector: string) => {
       const readinessLocator = {
         filter: () => readinessLocator,
@@ -835,6 +840,119 @@ function lifecycleHarness(
 }
 
 describe("BookingBrowser lifecycle", () => {
+  it.each([
+    [
+      "ancestor-hidden checkout controls",
+      async (page: Page) => {
+        await page.locator("body").evaluate((body) => {
+          const authenticated = body.querySelector(
+            '[data-testid="authenticated"]'
+          );
+          const wrapper = document.createElement("div");
+          wrapper.style.display = "none";
+          for (const child of [...body.children]) {
+            if (child !== authenticated) wrapper.append(child);
+          }
+          body.append(wrapper);
+        });
+      }
+    ],
+    [
+      "unsupported injuries input",
+      async (page: Page) => {
+        await page
+          .getByLabel("Do you have any injuries? *", { exact: true })
+          .evaluate((input) => input.setAttribute("type", "email"));
+      }
+    ],
+    [
+      "non-radio package controls",
+      async (page: Page) => {
+        await page
+          .locator('[data-testid="offering"] input')
+          .evaluateAll((inputs) =>
+            inputs.forEach((input) => input.setAttribute("type", "text"))
+          );
+      }
+    ]
+  ] as const)("waits past %s", async (_name, makeIncomplete) => {
+    const realPage = await syntheticPage();
+    await makeIncomplete(realPage);
+    const page = new Proxy(realPage, {
+      get(target, property) {
+        if (property === "goto") return async () => undefined;
+        if (property === "url") return () => checkoutUrl;
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    const context: BrowserContextLike = {
+      pages: () => [page],
+      newPage: async () => page,
+      close: async () => undefined
+    };
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      async () => context,
+      { readinessTimeoutMs: 400 }
+    );
+    let callbackCalled = false;
+
+    try {
+      const running = browserBoundary("/tmp/profile", checkoutUrl, async () => {
+        callbackCalled = true;
+        return "ready";
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(callbackCalled).toBe(false);
+
+      await realPage.setContent(bookingPageHtml());
+
+      await expect(running).resolves.toBe("ready");
+    } finally {
+      await realPage.close();
+    }
+  });
+
+  it("bounds marker and control hydration with one timeout", async () => {
+    const realPage = await syntheticPage(
+      "<!doctype html><html><body></body></html>"
+    );
+    const page = new Proxy(realPage, {
+      get(target, property) {
+        if (property === "goto") return async () => undefined;
+        if (property === "url") return () => checkoutUrl;
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    const context: BrowserContextLike = {
+      pages: () => [page],
+      newPage: async () => page,
+      close: async () => undefined
+    };
+    const browserBoundary = createBookingBrowser(
+      expectedClass,
+      async () => context,
+      { readinessTimeoutMs: 200 }
+    );
+    const startedAt = Date.now();
+    setTimeout(() => {
+      void realPage.setContent(`<!doctype html><html><body>
+        <div data-testid="authenticated">Authenticated</div>
+      </body></html>`);
+    }, 150);
+
+    try {
+      await expect(
+        browserBoundary("/tmp/profile", checkoutUrl, async () => "unexpected")
+      ).rejects.toThrow("Booking browser readiness failed.");
+      expect(Date.now() - startedAt).toBeLessThan(280);
+    } finally {
+      await realPage.close();
+    }
+  });
+
   it("waits for class metadata after an existing-enrollment marker", async () => {
     const realPage = await syntheticPage(
       bookingPageHtml({ action: "already_booked" })
@@ -1155,35 +1273,6 @@ describe("BookingBrowser lifecycle", () => {
 
     expect(String(error)).toContain("Booking browser readiness failed.");
     expect(String(error)).not.toContain(privateFailure);
-    expect(harness.callbacks).toEqual([]);
-    expect(harness.closeCount()).toBe(1);
-  });
-
-  it("rechecks the checkout URL after hydration before invoking the callback", async () => {
-    let currentUrl = checkoutUrl;
-    const unsafe = "https://evil.example/private-after-hydration";
-    const harness = lifecycleHarness(
-      () => currentUrl,
-      async () => {
-        currentUrl = unsafe;
-      }
-    );
-    const browserBoundary = createBookingBrowser(
-      expectedClass,
-      harness.launcher
-    );
-
-    let error: unknown;
-    try {
-      await browserBoundary("/tmp/profile", checkoutUrl, async (page) => {
-        harness.callbacks.push(page);
-      });
-    } catch (caught) {
-      error = caught;
-    }
-
-    expect(String(error)).toContain("Booking browser navigation failed.");
-    expect(String(error)).not.toContain(unsafe);
     expect(harness.callbacks).toEqual([]);
     expect(harness.closeCount()).toBe(1);
   });

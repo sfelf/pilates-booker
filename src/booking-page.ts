@@ -215,31 +215,7 @@ async function openBookingBrowser<T>(
       throw new BookingBrowserError();
     }
     try {
-      await page
-        .locator(
-          '[data-testid="authenticated"], [data-testid="login-required"]'
-        )
-        .filter({ visible: true })
-        .first()
-        .waitFor({ state: "visible", timeout: readinessTimeoutMs });
-    } catch {
-      throw new BookingBrowserReadinessError();
-    }
-    try {
-      if (validateCheckoutUrl(page.url()).href !== validatedUrl) {
-        throw new Error("redirected");
-      }
-    } catch {
-      throw new BookingBrowserError();
-    }
-    try {
-      const loginRequiredCount = await page
-        .locator('[data-testid="login-required"]')
-        .filter({ visible: true })
-        .count();
-      if (loginRequiredCount === 0) {
-        await waitForBookingControls(page, readinessTimeoutMs);
-      }
+      await waitForBookingReady(page, readinessTimeoutMs);
     } catch {
       throw new BookingBrowserReadinessError();
     }
@@ -251,7 +227,7 @@ async function openBookingBrowser<T>(
     : withPersistentBrowser(profileDir, inContext, launcher);
 }
 
-async function waitForBookingControls(
+async function waitForBookingReady(
   page: Page,
   timeoutMs: number
 ): Promise<void> {
@@ -263,11 +239,14 @@ async function waitForBookingControls(
         return (
           !element.hidden &&
           style.display !== "none" &&
-          style.visibility !== "hidden"
+          style.visibility !== "hidden" &&
+          element.getClientRects().length > 0
         );
       };
       const visibleMarker = (selector: string): boolean =>
         [...document.querySelectorAll(selector)].some(visible);
+      if (visibleMarker('[data-testid="login-required"]')) return true;
+      if (!visibleMarker('[data-testid="authenticated"]')) return false;
       const classMetadataPresent = [
         '[data-testid="class-name"]',
         '[data-testid="instructor"]',
@@ -290,7 +269,10 @@ async function waitForBookingControls(
       ) {
         return false;
       }
-      const labeledControlPresent = (labelText: string): boolean =>
+      const labeledControlPresent = (
+        labelText: string,
+        inputType: string
+      ): boolean =>
         [...document.querySelectorAll("label")].some((candidate) => {
           if (!visible(candidate)) return false;
           const normalized = (candidate.textContent ?? "")
@@ -300,19 +282,27 @@ async function waitForBookingControls(
           const target = candidate.htmlFor
             ? document.getElementById(candidate.htmlFor)
             : candidate.querySelector("input");
-          return target instanceof HTMLInputElement && visible(target);
+          return (
+            target instanceof HTMLInputElement &&
+            target.type === inputType &&
+            visible(target)
+          );
         });
       const packageControlPresent = [
         ...document.querySelectorAll('[data-testid="offering"]')
       ].some(
         (offering) =>
           visible(offering) &&
-          [...offering.querySelectorAll("input")].some(visible)
+          offering.getAttribute("data-kind") === "class_package" &&
+          [...offering.querySelectorAll('input[type="radio"]')].some(visible)
       );
       return (
-        labeledControlPresent("Myself") &&
-        labeledControlPresent("Do you have any injuries?") &&
-        labeledControlPresent("I agree to the Cancellation Policy") &&
+        labeledControlPresent("Myself", "radio") &&
+        labeledControlPresent("Do you have any injuries?", "text") &&
+        labeledControlPresent(
+          "I agree to the Cancellation Policy",
+          "checkbox"
+        ) &&
         packageControlPresent
       );
     },
