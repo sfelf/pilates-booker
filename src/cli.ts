@@ -17,7 +17,10 @@ import {
   type LockReleaseResult,
   type ProfileLock
 } from "./lock.js";
-import { validateResultForRequest } from "./result-validator.js";
+import {
+  validateResultForRecovery,
+  validateResultForRequest
+} from "./result-validator.js";
 import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
 import { resolveRuntimePaths } from "./runtime-paths.js";
 import { RuntimeCoordinator } from "./runtime-coordinator.js";
@@ -60,7 +63,7 @@ function reportCliFailure(dependencies: CliDependencies): 30 {
 
 async function readResult(
   path: string,
-  request: BookingRequest
+  requestId: string
 ): Promise<ResultReadStatus> {
   let raw;
   try {
@@ -79,13 +82,13 @@ async function readResult(
     return { status: "invalid" };
   }
 
-  if (validateResultForRequest(value, request)) {
+  if (validateResultForRecovery(value, requestId)) {
     return { status: "valid", result: value, bytes: raw };
   }
-  const requestId = inspectionRequestId(value);
-  return requestId === undefined
+  const inspectedRequestId = inspectionRequestId(value);
+  return inspectedRequestId === undefined
     ? { status: "invalid" }
-    : { status: "invalid", inspectionRequestId: requestId };
+    : { status: "invalid", inspectionRequestId: inspectedRequestId };
 }
 
 function inspectionRequestId(value: unknown): string | undefined {
@@ -166,7 +169,7 @@ export async function runCli(
   const coordinator = new RuntimeCoordinator(request, {
     readJournal: () => readJournal(paths.journalFile),
     writeJournal: (record) => advanceJournal(paths.journalFile, record),
-    readResult: () => readResult(paths.resultFile, request),
+    readResult: () => readResult(paths.resultFile, request.request_id),
     writeResult: (result) => publishResult(paths.resultFile, result, request)
   });
   const execute: CliExecutor =

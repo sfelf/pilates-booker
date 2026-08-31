@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { BookingRequest } from "../src/contracts.js";
 import {
   validateResult,
+  validateResultForRecovery,
   validateResultForRequest
 } from "../src/result-validator.js";
 
@@ -52,6 +53,24 @@ const actionableDryRun = {
     cancellation_policy_accepted: false
   },
   details: "Dry run completed."
+} as const;
+
+const { availability: ignoredAvailability, ...bookedBase } = actionableDryRun;
+void ignoredAvailability;
+const booked = {
+  ...bookedBase,
+  outcome: "BOOKED",
+  action_submitted: true,
+  confirmation_verified: true,
+  google_calendar_url:
+    "https://app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID",
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: true,
+    cancellation_policy_accepted: true
+  },
+  details: "Booking confirmed."
 } as const;
 
 describe("validateResult actionable dry-run evidence", () => {
@@ -119,24 +138,6 @@ describe("validateResult actionable dry-run evidence", () => {
 });
 
 describe("validateResultForRequest", () => {
-  const { availability: ignoredAvailability, ...bookedBase } = actionableDryRun;
-  void ignoredAvailability;
-  const booked = {
-    ...bookedBase,
-    outcome: "BOOKED",
-    action_submitted: true,
-    confirmation_verified: true,
-    google_calendar_url:
-      "https://app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID",
-    safety_checks: {
-      exact_class_match: true,
-      approved_package_verified: true,
-      no_charge: true,
-      cancellation_policy_accepted: true
-    },
-    details: "Booking confirmed."
-  } as const;
-
   it("accepts canonical package evidence and a checkout-bound booked calendar URL", () => {
     expect(validateResultForRequest(booked, request)).toBe(true);
   });
@@ -167,6 +168,24 @@ describe("validateResultForRequest", () => {
         ...request,
         permitted_actions: ["waitlist"]
       })
+    ).toBe(false);
+  });
+});
+
+describe("validateResultForRecovery", () => {
+  it("accepts structurally coherent finalized evidence without a mutable checkout binding", () => {
+    expect(validateResultForRecovery(booked, request.request_id)).toBe(true);
+  });
+
+  it.each([
+    "https://evil.example/api/calendar/google?classId=FAKE_CHECKOUT_ID",
+    "https://app.arketa.co/api/calendar/google?classId=FAKE_CHECKOUT_ID&view=calendar"
+  ])("rejects malformed finalized calendar evidence %s", (calendarUrl) => {
+    expect(
+      validateResultForRecovery(
+        { ...booked, google_calendar_url: calendarUrl },
+        request.request_id
+      )
     ).toBe(false);
   });
 });

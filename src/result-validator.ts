@@ -10,6 +10,7 @@ const Ajv = require("ajv").default;
 const addFormats = require("ajv-formats").default;
 const ajv = addFormats(new Ajv({ allErrors: true, strict: true }));
 const resultValidator = ajv.compile(resultSchema);
+const CHECKOUT_CLASS_ID = /^[A-Za-z0-9_-]+$/u;
 
 export function validateCalendarUrlForCheckout(
   value: string,
@@ -88,6 +89,43 @@ export function validateResultForRequest(
     (typeof calendarUrl === "string" &&
       permitsCalendarUrl(result) &&
       validateCalendarUrlForCheckout(calendarUrl, request.booking_url))
+  );
+}
+
+export function validateResultForRecovery(
+  result: unknown,
+  requestId: string
+): result is BookingResult {
+  if (
+    !validateResult(result) ||
+    result.request_id !== requestId ||
+    !hasExactSelectedPackageEvidence(result)
+  ) {
+    return false;
+  }
+
+  const calendarUrl = (result as { google_calendar_url?: unknown })
+    .google_calendar_url;
+  return (
+    calendarUrl === undefined ||
+    (typeof calendarUrl === "string" &&
+      permitsCalendarUrl(result) &&
+      validateRecoveredCalendarUrl(calendarUrl))
+  );
+}
+
+function validateRecoveredCalendarUrl(value: string): boolean {
+  if (value.includes("%") || validateCalendarUrl(value) === undefined) {
+    return false;
+  }
+
+  const calendar = new URL(value);
+  const classId = calendar.searchParams.get("classId");
+  return (
+    classId !== null &&
+    CHECKOUT_CLASS_ID.test(classId) &&
+    calendar.pathname === "/api/calendar/google" &&
+    calendar.search === `?classId=${classId}`
   );
 }
 

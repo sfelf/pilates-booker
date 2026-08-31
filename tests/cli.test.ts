@@ -799,6 +799,59 @@ describe("runCli", () => {
     expect(bookingBrowser).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ["dry-run mode", { dry_run: true }],
+    [
+      "expected class",
+      {
+        expected_class: {
+          ...request.expected_class,
+          name: "Synthetic Later Class"
+        }
+      }
+    ]
+  ] as const)(
+    "replays original finalized bytes when a same-UUID request changes its %s",
+    async (_changedField, requestChanges) => {
+      const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+      await mkdir(join(base, "journals"));
+      await mkdir(join(base, "results"));
+      await writeFile(
+        join(base, "journals", evidenceName),
+        JSON.stringify({
+          schema_version: 1,
+          request_id: requestId,
+          state: "CONFIRMED"
+        }),
+        "utf8"
+      );
+      const replayBytes = ` ${JSON.stringify(selectedResult(0))}\n`;
+      const resultPath = join(base, "results", evidenceName);
+      await writeFile(resultPath, replayBytes, "utf8");
+      const changedRequest: BookingRequest = {
+        ...request,
+        ...requestChanges
+      };
+      const bookingBrowser = vi.fn();
+      const emitted: string[] = [];
+      const deps = {
+        ...dependencies(base, vi.fn()),
+        loadRequest: vi.fn(async () => changedRequest),
+        validateRequest: vi.fn(() => changedRequest),
+        bookingBrowser,
+        emitResult: vi.fn(async (bytes: string) => {
+          emitted.push(bytes);
+        })
+      };
+      delete deps.execute;
+
+      expect(await runCli(cliArgs, deps)).toBe(0);
+      expect(emitted).toEqual([replayBytes]);
+      expect(await readFile(resultPath, "utf8")).toBe(replayBytes);
+      expect(bookingBrowser).not.toHaveBeenCalled();
+    }
+  );
+
   test("does not overwrite artifacts belonging to another request", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     await mkdir(join(base, "journals"));
@@ -983,7 +1036,7 @@ describe("runCli", () => {
     expect(deps.execute).not.toHaveBeenCalled();
   });
 
-  test("preserves request-incoherent recovered evidence byte-for-byte", async () => {
+  test("preserves internally incoherent recovered package evidence byte-for-byte", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results"));
@@ -998,7 +1051,7 @@ describe("runCli", () => {
     );
     const incoherent = {
       ...selectedResult(0),
-      observed_class: { ...observedClass, name: "Synthetic Other Class" }
+      package_selected: "Synthetic Other Package"
     };
     const priorBytes = `${JSON.stringify(incoherent)}\n`;
     const resultPath = join(base, "results", evidenceName);
