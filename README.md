@@ -25,35 +25,42 @@ npx playwright install chromium
 npm run build
 ```
 
+In PowerShell:
+
+```powershell
+npm ci
+npx playwright install chromium
+npm run build
+```
+
 ## Keep runtime data private
 
-Create a private base directory outside the checkout. The runtime records journals and results; the profile holds browser authentication; the policy and request are your private configuration files.
+Create a private base directory outside the checkout. The runtime records journals and results; the profile holds browser authentication; the policy and request are your private configuration files. Do not precreate the runtime directory: the app owns its secure creation.
 
 On POSIX shells, choose an absolute path outside the repository:
 
 ```sh
+umask 077
 private_root="/absolute/private/pilates-booker"
 runtime="$private_root/runtime"
 profile="$runtime/Profile"
 policy="$private_root/booking-policy.json"
 request="$private_root/booking-request.json"
-mkdir -p "$private_root" "$runtime" "$profile"
+mkdir -p -m 700 "$private_root"
 ```
 
-In PowerShell, create the same locations with `Join-Path`:
+In PowerShell, use a per-user base with `Join-Path`:
 
 ```powershell
-$privateRoot = "C:\private\pilates-booker"
+$privateRoot = Join-Path $env:LOCALAPPDATA "pilates-booker"
 $runtime = Join-Path $privateRoot "runtime"
 $profile = Join-Path $runtime "Profile"
 $policy = Join-Path $privateRoot "booking-policy.json"
 $request = Join-Path $privateRoot "booking-request.json"
 New-Item -ItemType Directory -Force $privateRoot | Out-Null
-New-Item -ItemType Directory -Force $runtime | Out-Null
-New-Item -ItemType Directory -Force $profile | Out-Null
 ```
 
-Never commit or share these paths or their contents. Do not keep this runtime directory inside the repository.
+On Windows, confirm that inherited ACLs restrict the private base, copied policy and request files, and generated runtime/profile to your Windows account. Never commit or share these paths or their contents. Do not keep this runtime directory inside the repository.
 
 ## Authenticate a dedicated Arketa profile
 
@@ -75,13 +82,14 @@ The command does not automate login or follow sign-in redirects. If the session 
 
 ## Create private policy and request files
 
-Copy only the tracked synthetic examples into the private paths you created. Run these commands from the repository checkout.
+Copy only the tracked [synthetic policy example](config/booking-policy.example.json) and [synthetic request example](config/booking-request.example.json) into the private paths you created. Run these commands from the repository checkout.
 
 On POSIX shells:
 
 ```sh
 cp config/booking-policy.example.json "$policy"
 cp config/booking-request.example.json "$request"
+chmod 600 "$policy" "$request"
 ```
 
 In PowerShell:
@@ -140,11 +148,11 @@ Uncertainty is not proof of failure. Preserve the durable result and journal, in
 
 ## Authorize one live run
 
-Only after you have inspected a successful dry-run result, deliberately change only `dry_run` from `true` to `false` in the private request. Keep the same UUID for that authorized transaction; for a new transaction, use and retain a new transaction UUID. The next invocation can perform one external booking or waitlist mutation.
+Only after you have inspected a successful dry-run result, preserve the finalized dry-run UUID and evidence. Make these two required live-authorizing edits to the private request: assign a fresh request UUID, then set `dry_run` from `true` to `false`. This creates a new live journal/result pair; reusing the finalized dry-run UUID only replays its dry-run result. The next invocation can perform one external booking or waitlist mutation.
 
 For a live request, Arketa must remain stable throughout the sequential authorization read and until the single submission click. Within that supported stable-page model, the command reads the relevant checkout facts sequentially, applies the required `Myself` attendee selection, preserves a non-empty injuries response or supplies `None` for an empty one, accepts the cancellation policy, and uses the first eligible configured positive-balance package. It permits only the exact requested action. Existing-enrollment inspection may expand `View Details` without submitting. After the one submission click, the command checks only for the matching exact Arketa confirmation; it does not recheck form fields or the URL afterward.
 
-Run the same platform command from the dry run only when you have deliberately made that one request edit:
+Run the same platform command from the dry run only when you have deliberately made those two edits:
 
 ```sh
 npm start -- --runtime "$runtime" --policy "$policy" "$request"
