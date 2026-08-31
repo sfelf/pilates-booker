@@ -46,6 +46,22 @@ function troubleshootingEntry(section: string, label: string): string {
 }
 
 describe("README first-use contract", () => {
+  it("starts with an operator mental model and dry-run warning", async () => {
+    const readme = await readRepositoryFile("README.md");
+    const opening = readme.slice(0, headingOffset(readme, "Safety first"));
+
+    expect(opening).toContain(
+      "command-line tool for previewing or submitting one Arketa booking or waitlist request"
+    );
+    expect(opening).toContain(
+      "checks the supplied checkout, request, and policy"
+    );
+    expect(opening).toContain("Start with a dry run");
+    expect(opening).toContain(
+      "live run can make one external booking or waitlist attempt"
+    );
+  });
+
   it("keeps local Markdown links valid", async () => {
     const readme = await readRepositoryFile("README.md");
     const localTargets = [
@@ -65,31 +81,28 @@ describe("README first-use contract", () => {
     expectInOrder(readme, [
       "Safety first",
       "Prerequisites",
-      "Install",
-      "Keep runtime data private",
-      "Authenticate a dedicated Arketa profile",
-      "Create private policy and request files",
-      "Run the first dry run",
-      "Understand the result",
+      "Install Pilates Booker",
+      "Keep private files private",
+      "Sign in to Arketa",
+      "Create private request and policy files",
+      "Run a dry run",
+      "Read the result",
       "Recover safely",
-      "Authorize one live run"
+      "Make one live attempt"
     ]);
   });
 
   it("provides private setup, authentication, copies, and invocations for each platform", async () => {
     const readme = await readRepositoryFile("README.md");
-    const install = readmeSection(readme, "Install");
-    const runtime = readmeSection(readme, "Keep runtime data private");
-    const authentication = readmeSection(
-      readme,
-      "Authenticate a dedicated Arketa profile"
-    );
+    const install = readmeSection(readme, "Install Pilates Booker");
+    const runtime = readmeSection(readme, "Keep private files private");
+    const authentication = readmeSection(readme, "Sign in to Arketa");
     const configuration = readmeSection(
       readme,
-      "Create private policy and request files"
+      "Create private request and policy files"
     );
-    const dryRun = readmeSection(readme, "Run the first dry run");
-    const liveRun = readmeSection(readme, "Authorize one live run");
+    const dryRun = readmeSection(readme, "Run a dry run");
+    const liveRun = readmeSection(readme, "Make one live attempt");
 
     for (const platform of ["sh", "powershell"]) {
       expect(fencedBlock(install, platform)).toContain("npm ci");
@@ -138,7 +151,7 @@ describe("README first-use contract", () => {
     const readme = await readRepositoryFile("README.md");
     const configuration = readmeSection(
       readme,
-      "Create private policy and request files"
+      "Create private request and policy files"
     );
     expect(configuration).toContain(
       "[synthetic request example](config/booking-request.example.json)"
@@ -153,7 +166,7 @@ describe("README first-use contract", () => {
 
   it("states the supported live checkout stability and confirmation boundary", async () => {
     const readme = await readRepositoryFile("README.md");
-    const liveRun = readmeSection(readme, "Authorize one live run");
+    const liveRun = readmeSection(readme, "Make one live attempt");
     expect(liveRun).toContain(
       "Arketa must remain stable throughout the sequential authorization read and until the single submission click"
     );
@@ -165,7 +178,7 @@ describe("README first-use contract", () => {
 
   it("requires two fresh UUID and live-mode edits after preserving dry-run evidence", async () => {
     const readme = await readRepositoryFile("README.md");
-    const liveRun = readmeSection(readme, "Authorize one live run");
+    const liveRun = readmeSection(readme, "Make one live attempt");
 
     expect(liveRun).toContain(
       "preserve the finalized dry-run UUID and evidence"
@@ -181,7 +194,7 @@ describe("README first-use contract", () => {
 
   it("documents the machine-readable result and recovery contract", async () => {
     const readme = await readRepositoryFile("README.md");
-    const result = readmeSection(readme, "Understand the result");
+    const result = readmeSection(readme, "Read the result");
     const recovery = readmeSection(readme, "Recover safely");
     for (const exitCode of ["`0`", "`20`", "`30`", "`40`"]) {
       expect(result).toContain(exitCode);
