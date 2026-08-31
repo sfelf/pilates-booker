@@ -37,6 +37,14 @@ function fencedBlock(section: string, language: string): string {
   return match?.[1] ?? "";
 }
 
+function troubleshootingEntry(section: string, label: string): string {
+  const entry = section
+    .split("\n")
+    .find((line) => line.startsWith(`- **${label}:**`));
+  expect(entry, `missing troubleshooting entry: ${label}`).toBeDefined();
+  return entry ?? "";
+}
+
 describe("README first-use contract", () => {
   it("keeps local Markdown links valid", async () => {
     const readme = await readRepositoryFile("README.md");
@@ -203,6 +211,23 @@ describe("README first-use contract", () => {
     expect(recovery).toContain("verify that no booking process is running");
     expect(recovery).toContain("same request UUID");
     expect(recovery).toContain("new request UUID");
+  });
+
+  it("requires fresh UUID recovery after a finalized safe stop", async () => {
+    const readme = await readRepositoryFile("README.md");
+    const recovery = readmeSection(readme, "Recover safely");
+    const safeStop = troubleshootingEntry(
+      readmeSection(readme, "Troubleshooting"),
+      "Safe stop (`20`)"
+    );
+
+    expect(recovery).toContain("After a finalized `SAFE_STOP`");
+    expect(recovery).toContain("preserve the original result and evidence");
+    expect(recovery).toContain("fresh request UUID");
+    expect(recovery).not.toContain("rerun the same request UUID");
+    expect(safeStop).toContain("preserve the original result and evidence");
+    expect(safeStop).toContain("fresh request UUID");
+    expect(safeStop).not.toContain("same request UUID");
   });
 
   it("links operator guidance to detailed architecture and safety docs", async () => {

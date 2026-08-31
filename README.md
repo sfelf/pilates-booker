@@ -146,6 +146,8 @@ One UUID owns one journal/result pair. A same request UUID with a finalized resu
 
 Uncertainty is not proof of failure. Preserve the durable result and journal, inspect the durable result and Arketa, and only then deliberately choose a new request UUID. The app does not retry automatically; Arketa is authoritative for already-booked and already-waitlisted state. Manually remove a stale runtime lock only after you verify that no booking process is running.
 
+After a finalized `SAFE_STOP`, preserve the original result and evidence, correct the request, policy, authentication, or supported page-state cause, and use a fresh request UUID for any deliberate rerun.
+
 ## Authorize one live run
 
 Only after you have inspected a successful dry-run result, preserve the finalized dry-run UUID and evidence. Make these two required live-authorizing edits to the private request: assign a fresh request UUID, then set `dry_run` from `true` to `false`. This creates a new live journal/result pair; reusing the finalized dry-run UUID only replays its dry-run result. The next invocation can perform one external booking or waitlist mutation.
@@ -166,7 +168,7 @@ npm start -- --runtime $runtime --policy $policy $request
 
 - **Expired authentication:** reopen Arketa with the same dedicated profile, authenticate manually, close the browser, and rerun only after reviewing the request state.
 - **Existing runtime lock:** wait for the active command, or manually remove a stale lock only after you verify that no booking process is running.
-- **Safe stop (`20`):** correct the request, policy, authentication, or supported page state before a deliberate rerun; do not add speculative selector fallbacks.
+- **Safe stop (`20`):** preserve the original result and evidence, correct the request, policy, authentication, or supported page state, then use a fresh request UUID before a deliberate rerun; do not add speculative selector fallbacks.
 - **Technical failure (`30`):** use `Booking command failed.` as the fixed stderr marker and inspect the private runtime evidence without deleting the journal or result.
 - **Confirmation uncertainty (`40`):** preserve evidence, inspect the durable result and Arketa, and decide deliberately whether a new request UUID is appropriate; never automatically retry.
 - **No calendar link:** `google_calendar_url` is optional metadata, so rely on exact Arketa confirmation or authoritative existing-enrollment evidence instead.
