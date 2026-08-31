@@ -113,8 +113,9 @@ describe("README first-use contract", () => {
 
     const posixSetup = fencedBlock(runtime, "sh");
     expect(posixSetup).toContain("umask 077");
-    expect(posixSetup).toContain('mkdir -p -m 700 "$private_root"');
-    expect(posixSetup).not.toContain('mkdir -p "$private_root" "$runtime"');
+    expect(posixSetup).toContain('mkdir -p -m 700 "$private_root" "$runtime"');
+    expect(posixSetup).toContain('chmod 700 "$private_root" "$runtime"');
+    expect(runtime).not.toContain("app owns its secure creation");
     expect(fencedBlock(configuration, "sh")).toContain(
       'chmod 600 "$policy" "$request"'
     );
@@ -123,12 +124,13 @@ describe("README first-use contract", () => {
     expect(powerShellSetup).toContain(
       'Join-Path $env:LOCALAPPDATA "pilates-booker"'
     );
-    expect(powerShellSetup).not.toContain(
+    expect(powerShellSetup).toContain(
       "New-Item -ItemType Directory -Force $runtime"
     );
     expect(runtime).toContain("inherited ACLs");
+    expect(runtime).toContain("runtime");
     expect(runtime).toContain("policy and request files");
-    expect(runtime).toContain("runtime/profile");
+    expect(runtime).toContain("generated profile");
     expect(runtime).toContain("Windows account");
   });
 

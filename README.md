@@ -35,7 +35,7 @@ npm run build
 
 ## Keep runtime data private
 
-Create a private base directory outside the checkout. The runtime records journals and results; the profile holds browser authentication; the policy and request are your private configuration files. Do not precreate the runtime directory: the app owns its secure creation.
+Create a private base and runtime directory outside the checkout before browser-profile bootstrap. The runtime records journals and results; the profile holds browser authentication; the policy and request are your private configuration files.
 
 On POSIX shells, choose an absolute path outside the repository:
 
@@ -46,7 +46,8 @@ runtime="$private_root/runtime"
 profile="$runtime/Profile"
 policy="$private_root/booking-policy.json"
 request="$private_root/booking-request.json"
-mkdir -p -m 700 "$private_root"
+mkdir -p -m 700 "$private_root" "$runtime"
+chmod 700 "$private_root" "$runtime"
 ```
 
 In PowerShell, use a per-user base with `Join-Path`:
@@ -58,9 +59,10 @@ $profile = Join-Path $runtime "Profile"
 $policy = Join-Path $privateRoot "booking-policy.json"
 $request = Join-Path $privateRoot "booking-request.json"
 New-Item -ItemType Directory -Force $privateRoot | Out-Null
+New-Item -ItemType Directory -Force $runtime | Out-Null
 ```
 
-On Windows, confirm that inherited ACLs restrict the private base, copied policy and request files, and generated runtime/profile to your Windows account. Never commit or share these paths or their contents. Do not keep this runtime directory inside the repository.
+On Windows, confirm that inherited ACLs restrict the private base, runtime, copied policy and request files, and generated profile to your Windows account. Never commit or share these paths or their contents. Do not keep this runtime directory inside the repository.
 
 ## Authenticate a dedicated Arketa profile
 
