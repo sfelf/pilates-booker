@@ -18,6 +18,7 @@ import {
   type ProfileLock
 } from "./lock.js";
 import { validateResultForRequest } from "./result-validator.js";
+import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
 import { resolveRuntimePaths } from "./runtime-paths.js";
 import { RuntimeCoordinator } from "./runtime-coordinator.js";
 import type { ResultReadStatus } from "./runtime-coordinator.js";
@@ -32,6 +33,9 @@ export type ExecutionContext = Readonly<{
 
 export type CliExecutor = (context: ExecutionContext) => Promise<BookingResult>;
 
+export const CLI_FAILURE_DIAGNOSTIC = "Booking command failed." as const;
+export type CliDiagnostic = typeof CLI_FAILURE_DIAGNOSTIC;
+
 export type CliDependencies = Readonly<{
   baseDir?: string;
   cwd?: string;
@@ -41,7 +45,18 @@ export type CliDependencies = Readonly<{
   execute?: CliExecutor;
   bookingBrowser?: BookingBrowser;
   acquireLock?(path: string): Promise<ProfileLock>;
+  emitResult?: ResultEmitter;
+  reportDiagnostic?(diagnostic: CliDiagnostic): void;
 }>;
+
+function reportCliFailure(dependencies: CliDependencies): 30 {
+  try {
+    dependencies.reportDiagnostic?.(CLI_FAILURE_DIAGNOSTIC);
+  } catch {
+    // A diagnostic transport failure cannot expose the underlying error.
+  }
+  return 30;
+}
 
 async function readResult(
   path: string,
@@ -118,7 +133,7 @@ export async function runCli(
     argv[1] === "" ||
     argv[2] === ""
   ) {
-    return 30;
+    return reportCliFailure(dependencies);
   }
   let policyPath: string;
   try {
@@ -126,7 +141,7 @@ export async function runCli(
       ? argv[1]!
       : resolve(dependencies.cwd ?? process.cwd(), argv[1]!);
   } catch {
-    return 30;
+    return reportCliFailure(dependencies);
   }
   const loadPolicy = dependencies.loadPolicy ?? loadPolicyFile;
   let policy: BookingPolicy;
@@ -136,17 +151,17 @@ export async function runCli(
     const raw = await dependencies.loadRequest(argv[2]!);
     request = dependencies.validateRequest(raw, policy);
   } catch {
-    return 30;
+    return reportCliFailure(dependencies);
   }
   let paths;
   try {
     paths = resolveRuntimePaths(dependencies.baseDir, request.request_id);
   } catch {
-    return 30;
+    return reportCliFailure(dependencies);
   }
   const acquireLock = dependencies.acquireLock ?? acquireProfileLock;
   const lock = await acquireLock(paths.lockFile).catch(() => undefined);
-  if (lock === undefined) return 30;
+  if (lock === undefined) return reportCliFailure(dependencies);
 
   const coordinator = new RuntimeCoordinator(request, {
     readJournal: () => readJournal(paths.journalFile),
@@ -174,5 +189,13 @@ export async function runCli(
     lockRelease = undefined;
   }
   void lockRelease;
+  if (finalized.bytes === undefined) {
+    return reportCliFailure(dependencies);
+  }
+  try {
+    await (dependencies.emitResult ?? writeResultToStdout)(finalized.bytes);
+  } catch {
+    return reportCliFailure(dependencies);
+  }
   return finalized.result.exit_code;
 }

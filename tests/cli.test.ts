@@ -8,7 +8,13 @@ import type {
   BookingPage,
   BookingPageState
 } from "../src/booking-page.js";
-import { publishResult, runCli, type CliDependencies } from "../src/cli.js";
+import {
+  CLI_FAILURE_DIAGNOSTIC,
+  publishResult,
+  runCli,
+  type CliDependencies,
+  type CliDiagnostic
+} from "../src/cli.js";
 import type {
   BookingPolicy,
   BookingRequest,
@@ -92,7 +98,9 @@ const dependencies = (
   loadPolicy: vi.fn(async () => policy),
   loadRequest: vi.fn(async () => request),
   validateRequest: vi.fn(() => request),
-  execute: vi.fn(execute)
+  execute: vi.fn(execute),
+  emitResult: vi.fn(async () => undefined),
+  reportDiagnostic: vi.fn()
 });
 
 const selectedResult = (exitCode: 0 | 20 | 30 | 40): BookingResult => {
@@ -364,7 +372,9 @@ describe("runCli", () => {
       loadPolicy: async () => policy,
       loadRequest: async () => workflowRequest,
       validateRequest: () => workflowRequest,
-      bookingBrowser
+      bookingBrowser,
+      emitResult: vi.fn(async () => undefined),
+      reportDiagnostic: vi.fn()
     };
 
     await expect(runCli(cliArgs, deps)).resolves.toBe(0);
@@ -869,7 +879,7 @@ describe("runCli", () => {
     [
       "SUBMITTING",
       "CONFIRMATION_UNCERTAIN",
-      40,
+      30,
       "Booking confirmation is uncertain."
     ]
   ] as const)(
@@ -968,7 +978,7 @@ describe("runCli", () => {
     await writeFile(resultPath, priorBytes, "utf8");
     const deps = dependencies(base, vi.fn());
 
-    await expect(runCli(cliArgs, deps)).resolves.toBe(40);
+    await expect(runCli(cliArgs, deps)).resolves.toBe(30);
     expect(await readFile(resultPath, "utf8")).toBe(priorBytes);
     expect(deps.execute).not.toHaveBeenCalled();
   });
@@ -995,7 +1005,7 @@ describe("runCli", () => {
     await writeFile(resultPath, priorBytes, "utf8");
     const deps = dependencies(base, vi.fn());
 
-    await expect(runCli(cliArgs, deps)).resolves.toBe(40);
+    await expect(runCli(cliArgs, deps)).resolves.toBe(30);
     expect(await readFile(resultPath, "utf8")).toBe(priorBytes);
     expect(deps.execute).not.toHaveBeenCalled();
   });
@@ -1061,7 +1071,7 @@ describe("runCli", () => {
     );
   });
 
-  test("returns uncertainty when recovered result I/O fails after submission", async () => {
+  test("returns transport failure when recovered result I/O fails after submission", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     await mkdir(join(base, "journals"));
     await mkdir(join(base, "results", evidenceName), { recursive: true });
@@ -1076,11 +1086,11 @@ describe("runCli", () => {
     );
 
     await expect(runCli(cliArgs, dependencies(base, vi.fn()))).resolves.toBe(
-      40
+      30
     );
   });
 
-  test("returns uncertainty without rereading the journal when result publication fails after submission", async () => {
+  test("returns transport failure without rereading the journal when result publication fails after submission", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     const deps = dependencies(base, async ({ advance }) => {
       await advance("VALIDATED");
@@ -1095,7 +1105,7 @@ describe("runCli", () => {
       throw new Error("synthetic post-submit failure");
     });
 
-    await expect(runCli(cliArgs, deps)).resolves.toBe(40);
+    await expect(runCli(cliArgs, deps)).resolves.toBe(30);
   });
 
   test.each([
@@ -1152,4 +1162,147 @@ describe("runCli", () => {
       ).not.toContain(privateMessage);
     }
   );
+
+  test.each([0, 20, 30, 40] as const)(
+    "emits finalized exit %i bytes once after releasing the lock",
+    async (exitCode) => {
+      const base = await mkdtemp(join(tmpdir(), "arketa-cli-output-"));
+      const events: string[] = [];
+      const emitted: string[] = [];
+      const diagnostics: CliDiagnostic[] = [];
+      const deps: CliDependencies = {
+        ...dependencies(base, executeForExitCode(exitCode)),
+        acquireLock: async () =>
+          lockWithRelease(async () => {
+            events.push("release");
+            return { released: true };
+          }),
+        emitResult: async (bytes) => {
+          events.push("emit");
+          emitted.push(bytes);
+        },
+        reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
+      };
+
+      expect(await runCli(cliArgs, deps)).toBe(exitCode);
+      const durable = await readFile(
+        join(base, "results", evidenceName),
+        "utf8"
+      );
+      expect(emitted).toEqual([durable]);
+      expect(events).toEqual(["release", "emit"]);
+      expect(diagnostics).toEqual([]);
+    }
+  );
+
+  test("reports early invalid input once without emitting stdout", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-output-"));
+    const emitted: string[] = [];
+    const diagnostics: CliDiagnostic[] = [];
+    const deps: CliDependencies = {
+      ...dependencies(base, vi.fn()),
+      emitResult: async (bytes) => {
+        emitted.push(bytes);
+      },
+      reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
+    };
+
+    expect(await runCli([], deps)).toBe(30);
+    expect(emitted).toEqual([]);
+    expect(diagnostics).toEqual([CLI_FAILURE_DIAGNOSTIC]);
+  });
+
+  test("reports reconciliation failure once without emitting stdout", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-output-"));
+    await mkdir(join(base, "results"));
+    const priorBytes = `${JSON.stringify(selectedResult(0))}\n`;
+    await writeFile(join(base, "results", evidenceName), priorBytes, "utf8");
+    const emitted: string[] = [];
+    const diagnostics: CliDiagnostic[] = [];
+    const deps: CliDependencies = {
+      ...dependencies(base, vi.fn()),
+      emitResult: async (bytes) => {
+        emitted.push(bytes);
+      },
+      reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
+    };
+
+    expect(await runCli(cliArgs, deps)).toBe(30);
+    expect(emitted).toEqual([]);
+    expect(diagnostics).toEqual([CLI_FAILURE_DIAGNOSTIC]);
+    expect(await readFile(join(base, "results", evidenceName), "utf8")).toBe(
+      priorBytes
+    );
+    expect(deps.execute).not.toHaveBeenCalled();
+  });
+
+  test("reports finalization failure once without emitting stdout", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-output-"));
+    const emitted: string[] = [];
+    const diagnostics: CliDiagnostic[] = [];
+    const deps: CliDependencies = {
+      ...dependencies(base, async ({ advance }) => {
+        await advance("VALIDATED");
+        await mkdir(join(base, "results", evidenceName), { recursive: true });
+        return result("SAFE_STOP");
+      }),
+      emitResult: async (bytes) => {
+        emitted.push(bytes);
+      },
+      reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
+    };
+
+    expect(await runCli(cliArgs, deps)).toBe(30);
+    expect(emitted).toEqual([]);
+    expect(diagnostics).toEqual([CLI_FAILURE_DIAGNOSTIC]);
+  });
+
+  test("preserves finalized evidence when stdout emission fails", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-output-"));
+    const diagnostics: CliDiagnostic[] = [];
+    const deps: CliDependencies = {
+      ...dependencies(base, executeForExitCode(0)),
+      emitResult: async () => {
+        throw new Error("synthetic private stdout failure");
+      },
+      reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic)
+    };
+
+    expect(await runCli(cliArgs, deps)).toBe(30);
+    expect(await readFile(join(base, "results", evidenceName), "utf8")).toBe(
+      `${JSON.stringify(selectedResult(0))}\n`
+    );
+    expect(diagnostics).toEqual([CLI_FAILURE_DIAGNOSTIC]);
+  });
+
+  test("emits exact coherent replay bytes without opening the browser", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-output-"));
+    await mkdir(join(base, "journals"));
+    await mkdir(join(base, "results"));
+    await writeFile(
+      join(base, "journals", evidenceName),
+      JSON.stringify({
+        schema_version: 1,
+        request_id: requestId,
+        state: "CONFIRMED"
+      }),
+      "utf8"
+    );
+    const replayBytes = ` { "details": "Booking confirmed.", "safety_checks": ${JSON.stringify(selectedResult(0).safety_checks)}, "packages_before": ${JSON.stringify(packagesBefore)}, "package_selected": "Synthetic Priority Package", "observed_class": ${JSON.stringify(observedClass)}, "confirmation_verified": true, "action_submitted": true, "exit_code": 0, "outcome": "BOOKED", "request_id": "${requestId}", "schema_version": 1 }\n`;
+    await writeFile(join(base, "results", evidenceName), replayBytes, "utf8");
+    const bookingBrowser = vi.fn();
+    const emitted: string[] = [];
+    const deps = {
+      ...dependencies(base, vi.fn()),
+      bookingBrowser,
+      emitResult: async (bytes: string) => {
+        emitted.push(bytes);
+      }
+    };
+    delete deps.execute;
+
+    expect(await runCli(cliArgs, deps)).toBe(0);
+    expect(emitted).toEqual([replayBytes]);
+    expect(bookingBrowser).not.toHaveBeenCalled();
+  });
 });
