@@ -47,7 +47,7 @@ Fresh publication checks the result against the validated request and loaded pol
 
 Recovery does not reinterpret a prior transaction through later request or policy contents. It validates the stored UUID, schema, package coherence, calendar endpoint shape, fixed details, and journal/outcome relationship. Because the original request is not persisted, recovery cannot re-bind stored calendar metadata to the original checkout class. A coherent finalized result is replayed exactly; malformed, foreign, or contradictory evidence is left untouched and fails with no stdout result.
 
-An incomplete journal before `SUBMITTING` becomes a known pre-submission failure. An incomplete journal at `SUBMITTING` or later becomes `CONFIRMATION_UNCERTAIN`. Recovery never opens the browser and never clicks again for the same UUID.
+An incomplete journal before `SUBMITTING` becomes a known pre-submission failure. An incomplete journal at `SUBMITTING` or later becomes `CONFIRMATION_UNCERTAIN`. This includes a `CONFIRMED` journal whose result finalization was interrupted after matching confirmation was observed. Recovery never opens the browser and never clicks again for the same UUID.
 
 ## Diagnostic boundary
 
