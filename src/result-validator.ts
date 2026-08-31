@@ -159,7 +159,13 @@ function hasPermittedAction(
   if (result.outcome === "WAITLISTED") {
     return !request.dry_run && permitsAction(request, "waitlist");
   }
-  if (result.outcome !== "DRY_RUN") return true;
+  if (result.outcome !== "DRY_RUN") {
+    return (
+      !request.dry_run ||
+      result.outcome === "SAFE_STOP" ||
+      result.outcome === "TECHNICAL_FAILURE"
+    );
+  }
   if (!request.dry_run) return false;
   if (result.availability === "BOOKING_AVAILABLE") {
     return permitsAction(request, "book");

@@ -543,6 +543,8 @@ async function waitForExactConfirmation(
   }
 
   const deadline = performance.now() + timeoutMs;
+  const remainingMs = deadline - performance.now();
+  if (remainingMs <= 0) return { kind: "UNKNOWN" };
   try {
     const handle = await page.waitForFunction(
       (): false | ConfirmationCounts => {
@@ -572,7 +574,7 @@ async function waitForExactConfirmation(
           : counts;
       },
       undefined,
-      { polling: 25, timeout: Math.max(0, deadline - performance.now()) }
+      { polling: 25, timeout: remainingMs }
     );
     const counts = (await handle.jsonValue()) as ConfirmationCounts;
     await handle.dispose();

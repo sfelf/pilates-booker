@@ -1,5 +1,5 @@
 import { chromium, type Browser, type Page } from "playwright";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   createBookingBrowser,
@@ -959,6 +959,27 @@ describe("BookingPage confirmation boundary", () => {
     });
     await page.close();
   });
+
+  it.each([0, -1])(
+    "returns unknown without polling when the confirmation timeout is %i ms",
+    async (confirmationTimeoutMs) => {
+      const page = await syntheticPage();
+      const booking = createBookingPage(page, expectedClass, {
+        confirmationTimeoutMs
+      });
+      await booking.read();
+      await booking.submit("book");
+      const waitForFunction = vi
+        .spyOn(page, "waitForFunction")
+        .mockRejectedValue(new Error("expired confirmation poll started"));
+
+      await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+        kind: "UNKNOWN"
+      });
+      expect(waitForFunction).not.toHaveBeenCalled();
+      await page.close();
+    }
+  );
 
   it("returns unknown when navigation interrupts confirmation polling", async () => {
     const page = await syntheticPage();

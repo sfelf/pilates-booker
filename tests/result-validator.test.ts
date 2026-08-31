@@ -73,6 +73,79 @@ const booked = {
   details: "Booking confirmed."
 } as const;
 
+const { google_calendar_url: ignoredCalendarUrl, ...bookedWithoutCalendar } =
+  booked;
+void ignoredCalendarUrl;
+const waitlisted = {
+  ...bookedWithoutCalendar,
+  outcome: "WAITLISTED",
+  details: "Waitlist confirmed."
+} as const;
+
+const existingSafetyChecks = {
+  exact_class_match: true,
+  approved_package_verified: false,
+  no_charge: false,
+  cancellation_policy_accepted: false
+} as const;
+
+const alreadyBooked = {
+  schema_version: 1,
+  request_id: request.request_id,
+  outcome: "ALREADY_BOOKED",
+  exit_code: 0,
+  action_submitted: false,
+  confirmation_verified: true,
+  observed_class: actionableDryRun.observed_class,
+  safety_checks: existingSafetyChecks,
+  details: "Existing booking confirmed."
+} as const;
+
+const alreadyWaitlisted = {
+  ...alreadyBooked,
+  outcome: "ALREADY_WAITLISTED",
+  details: "Existing waitlist confirmed."
+} as const;
+
+const safeStop = {
+  schema_version: 1,
+  request_id: request.request_id,
+  outcome: "SAFE_STOP",
+  exit_code: 20,
+  action_submitted: false,
+  confirmation_verified: false,
+  safety_checks: {
+    exact_class_match: false,
+    approved_package_verified: false,
+    no_charge: false,
+    cancellation_policy_accepted: false
+  },
+  details: "Booking stopped safely."
+} as const;
+
+const technicalFailure = {
+  ...safeStop,
+  outcome: "TECHNICAL_FAILURE",
+  exit_code: 30,
+  details: "Runtime operation failed."
+} as const;
+
+const confirmationUncertain = {
+  schema_version: 1,
+  request_id: request.request_id,
+  outcome: "CONFIRMATION_UNCERTAIN",
+  exit_code: 40,
+  action_submitted: true,
+  confirmation_verified: false,
+  safety_checks: {
+    exact_class_match: true,
+    approved_package_verified: true,
+    no_charge: true,
+    cancellation_policy_accepted: true
+  },
+  details: "Booking confirmation is uncertain."
+} as const;
+
 describe("validateResult actionable dry-run evidence", () => {
   it("accepts and preserves normalized positive configured-package evidence", () => {
     const before = JSON.stringify(actionableDryRun);
@@ -170,6 +243,24 @@ describe("validateResultForRequest", () => {
       })
     ).toBe(false);
   });
+
+  it.each([
+    ["BOOKED", booked, false],
+    ["WAITLISTED", waitlisted, false],
+    ["ALREADY_BOOKED", alreadyBooked, false],
+    ["ALREADY_WAITLISTED", alreadyWaitlisted, false],
+    ["DRY_RUN", actionableDryRun, true],
+    ["SAFE_STOP", safeStop, true],
+    ["TECHNICAL_FAILURE", technicalFailure, true],
+    ["CONFIRMATION_UNCERTAIN", confirmationUncertain, false]
+  ] as const)(
+    "validates %s against the dry-run request boundary",
+    (_outcome, result, expected) => {
+      expect(
+        validateResultForRequest(result, { ...request, dry_run: true })
+      ).toBe(expected);
+    }
+  );
 });
 
 describe("validateResultForRecovery", () => {
@@ -188,4 +279,15 @@ describe("validateResultForRecovery", () => {
       )
     ).toBe(false);
   });
+
+  it.each([
+    ["ALREADY_BOOKED", alreadyBooked],
+    ["ALREADY_WAITLISTED", alreadyWaitlisted],
+    ["CONFIRMATION_UNCERTAIN", confirmationUncertain]
+  ] as const)(
+    "accepts finalized %s evidence without a current request",
+    (_outcome, result) => {
+      expect(validateResultForRecovery(result, request.request_id)).toBe(true);
+    }
+  );
 });

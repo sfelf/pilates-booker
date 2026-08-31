@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { Writable } from "node:stream";
 
 import { describe, expect, test, vi } from "vitest";
 
@@ -8,7 +9,13 @@ type WriteCallback = (error?: Error | null) => void;
 
 const asWritable = (
   write: (bytes: string, callback: WriteCallback) => boolean
-): NodeJS.WritableStream => ({ write }) as unknown as NodeJS.WritableStream;
+): NodeJS.WritableStream => {
+  const stream = new EventEmitter() as EventEmitter & {
+    write(bytes: string, callback: WriteCallback): boolean;
+  };
+  stream.write = write;
+  return stream as unknown as NodeJS.WritableStream;
+};
 
 describe("createStreamOutputWrite", () => {
   test("resolves when the one stream write completes synchronously", async () => {
@@ -55,11 +62,86 @@ describe("createStreamOutputWrite", () => {
       callback(failure);
       return true;
     });
+    const stream = asWritable(write);
 
     await expect(
-      createStreamOutputWrite(asWritable(write))('{"outcome":"BOOKED"}\n')
+      createStreamOutputWrite(stream)('{"outcome":"BOOKED"}\n')
     ).rejects.toBe(failure);
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(write).toHaveBeenCalledTimes(1);
+    expect(stream.listenerCount("error")).toBe(0);
+  });
+
+  test("rejects an emitted write error once and removes its temporary listener", async () => {
+    const failure = new Error("synthetic stdout emitted failure");
+    const stream = new EventEmitter() as EventEmitter & {
+      write(bytes: string, callback: WriteCallback): boolean;
+    };
+    let callback: WriteCallback | undefined;
+    stream.write = vi.fn((_bytes: string, completed: WriteCallback) => {
+      callback = completed;
+      return true;
+    });
+    const rejected = vi.fn();
+
+    const emission = createStreamOutputWrite(
+      stream as unknown as NodeJS.WritableStream
+    )('{"outcome":"BOOKED"}\n').catch((error: unknown) => {
+      rejected(error);
+      throw error;
+    });
+
+    expect(stream.listenerCount("error")).toBe(1);
+    stream.emit("error", failure);
+    callback?.(new Error("later callback failure"));
+
+    await expect(emission).rejects.toBe(failure);
+    expect(rejected).toHaveBeenCalledTimes(1);
+    expect(stream.listenerCount("error")).toBe(0);
+  });
+
+  test("keeps its error listener through a writable callback error event", async () => {
+    const failure = new Error("synthetic writable failure");
+    const stream = new Writable({
+      write(_chunk, _encoding, callback) {
+        setImmediate(() => callback(failure));
+      }
+    });
+    let listenerCountDuringError = 0;
+    const observeError = (): void => {
+      listenerCountDuringError = stream.listenerCount("error");
+    };
+    stream.prependListener("error", observeError);
+
+    await expect(
+      createStreamOutputWrite(stream)('{"outcome":"BOOKED"}\n')
+    ).rejects.toBe(failure);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(listenerCountDuringError).toBe(2);
+    expect(stream.listenerCount("error")).toBe(1);
+    stream.removeListener("error", observeError);
+  });
+
+  test("removes its temporary error listener after a successful callback", async () => {
+    const stream = new EventEmitter() as EventEmitter & {
+      write(bytes: string, callback: WriteCallback): boolean;
+    };
+    let callback: WriteCallback | undefined;
+    stream.write = vi.fn((_bytes: string, completed: WriteCallback) => {
+      callback = completed;
+      return true;
+    });
+
+    const emission = createStreamOutputWrite(
+      stream as unknown as NodeJS.WritableStream
+    )('{"outcome":"BOOKED"}\n');
+
+    expect(stream.listenerCount("error")).toBe(1);
+    callback?.();
+
+    await expect(emission).resolves.toBe(undefined);
+    expect(stream.listenerCount("error")).toBe(0);
   });
 
   test("rejects when stream.write throws", async () => {
