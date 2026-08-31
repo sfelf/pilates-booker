@@ -37,18 +37,27 @@ function fencedBlock(section: string, language: string): string {
   return match?.[1] ?? "";
 }
 
-function troubleshootingEntry(section: string, label: string): string {
+function fencedBlocks(section: string, language: string): string[] {
+  return [
+    ...section.matchAll(
+      new RegExp("```" + language + "\\n([\\s\\S]*?)```", "g")
+    )
+  ].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+}
+
+function troubleshootingRow(section: string, symptom: string): string {
+  const escapedSymptom = symptom.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const entry = section
     .split("\n")
-    .find((line) => line.startsWith(`- **${label}:**`));
-  expect(entry, `missing troubleshooting entry: ${label}`).toBeDefined();
+    .find((line) => new RegExp(`^\\| ${escapedSymptom}\\s+\\|`).test(line));
+  expect(entry, `missing troubleshooting row: ${symptom}`).toBeDefined();
   return entry ?? "";
 }
 
 describe("README first-use contract", () => {
   it("starts with an operator mental model and dry-run warning", async () => {
     const readme = await readRepositoryFile("README.md");
-    const opening = readme.slice(0, headingOffset(readme, "Safety first"));
+    const opening = readme.slice(0, headingOffset(readme, "Before you begin"));
 
     expect(opening).toContain(
       "command-line tool for previewing or submitting one Arketa booking or waitlist request"
@@ -60,6 +69,8 @@ describe("README first-use contract", () => {
     expect(opening).toContain(
       "live run can make one external booking or waitlist attempt"
     );
+    expect(opening).toContain("without another prompt");
+    expect(readme).not.toContain("## Safety first");
   });
 
   it("keeps local Markdown links valid", async () => {
@@ -79,12 +90,11 @@ describe("README first-use contract", () => {
   it("orders dry-run onboarding before live authorization", async () => {
     const readme = await readRepositoryFile("README.md");
     expectInOrder(readme, [
-      "Safety first",
-      "Prerequisites",
+      "Before you begin",
       "Install Pilates Booker",
-      "Keep private files private",
+      "Create the private runtime directory",
       "Sign in to Arketa",
-      "Create private request and policy files",
+      "Create your private configuration",
       "Run a dry run",
       "Read the result",
       "Recover safely",
@@ -92,50 +102,89 @@ describe("README first-use contract", () => {
     ]);
   });
 
-  it("provides private setup, authentication, copies, and invocations for each platform", async () => {
+  it("provides first-use setup, authentication, copies, and invocations for each platform", async () => {
     const readme = await readRepositoryFile("README.md");
+    const beforeYouBegin = readmeSection(readme, "Before you begin");
     const install = readmeSection(readme, "Install Pilates Booker");
-    const runtime = readmeSection(readme, "Keep private files private");
+    const runtime = readmeSection(
+      readme,
+      "Create the private runtime directory"
+    );
     const authentication = readmeSection(readme, "Sign in to Arketa");
     const configuration = readmeSection(
       readme,
-      "Create private request and policy files"
+      "Create your private configuration"
     );
     const dryRun = readmeSection(readme, "Run a dry run");
     const liveRun = readmeSection(readme, "Make one live attempt");
 
     for (const platform of ["sh", "powershell"]) {
-      expect(fencedBlock(install, platform)).toContain("npm ci");
-      expect(fencedBlock(install, platform)).toContain(
-        "npx playwright install chromium"
-      );
-      expect(fencedBlock(authentication, platform)).toContain(
-        "npx playwright open --user-data-dir"
-      );
-      expect(fencedBlock(configuration, platform)).toContain(
-        "config/booking-policy.example.json"
-      );
-      expect(fencedBlock(configuration, platform)).toContain(
-        "config/booking-request.example.json"
-      );
-      expect(fencedBlock(dryRun, platform)).toContain("npm start -- --runtime");
-      expect(fencedBlock(liveRun, platform)).toContain(
-        "npm start -- --runtime"
-      );
+      expect(fencedBlock(beforeYouBegin, platform)).toContain("node --version");
+      expect(fencedBlock(beforeYouBegin, platform)).toContain("npm --version");
+      expect(fencedBlock(beforeYouBegin, platform)).toContain("git --version");
+      expect(fencedBlock(configuration, platform)).toContain("randomUUID()");
     }
 
-    const posixSetup = fencedBlock(runtime, "sh");
+    expect(beforeYouBegin).toContain("A macOS, Linux, or Windows computer.");
+    expect(beforeYouBegin).toContain("Node.js `>=22.12.0`");
+    expect(beforeYouBegin).toContain("outside Git");
+    expect(beforeYouBegin).toContain("screenshots");
+    expect(beforeYouBegin).toContain("cookies");
+
+    const posixInstall = fencedBlock(install, "sh");
+    expect(posixInstall).toContain("$HOME/Tools/pilates-booker");
+    expect(posixInstall).toContain(
+      "git clone https://github.com/sfelf/pilates-booker.git"
+    );
+    expect(posixInstall).toContain("npm ci");
+    expect(posixInstall).toContain("npx playwright install chromium");
+    expect(posixInstall).toContain("npm run build");
+    const powerShellInstall = fencedBlock(install, "powershell");
+    expect(powerShellInstall).toContain("C:\\Tools\\pilates-booker");
+    expect(powerShellInstall).toContain(
+      "git clone https://github.com/sfelf/pilates-booker.git"
+    );
+    expect(powerShellInstall).toContain("npm ci");
+    expect(powerShellInstall).toContain("npx playwright install chromium");
+    expect(powerShellInstall).toContain("npm run build");
+    expect(install).toContain("locked dependencies");
+    expect(install).toContain("dist/main.js");
+
+    expect(runtime).toMatch(/\| Platform\s+\| Runtime directory\s+\|/);
+    expect(runtime).toMatch(
+      /\| macOS\s+\| `\$HOME\/Library\/Application Support\/Pilates Booker`\s+\|/
+    );
+    expect(runtime).toMatch(
+      /\| Linux\s+\| `\$\{XDG_STATE_HOME:-\$HOME\/\.local\/state\}\/pilates-booker`\s+\|/
+    );
+    expect(runtime).toMatch(
+      /\| Windows\s+\| `\$env:LOCALAPPDATA\\Pilates Booker`\s+\|/
+    );
+    expect(runtime).toContain("reuse it for every invocation");
+    const posixSetup = fencedBlocks(runtime, "sh").join("\n");
     expect(posixSetup).toContain("umask 077");
-    expect(posixSetup).toContain('mkdir -p -m 700 "$private_root" "$runtime"');
-    expect(posixSetup).toContain('chmod 700 "$private_root" "$runtime"');
+    expect(posixSetup).toContain(
+      'install -d -m 700 "$HOME/Library/Application Support/Pilates Booker"'
+    );
+    expect(runtime).toContain(
+      'install -d -m 700 "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker"'
+    );
+    expect(runtime).toContain("| `Profile/`");
+    expect(runtime).toContain("| `run.lock`");
+    expect(runtime).toContain("| `journals/<request-id>.json`");
+    expect(runtime).toContain("| `results/<request-id>.json`");
+    expect(runtime).toContain("replay and recovery");
     expect(runtime).not.toContain("app owns its secure creation");
     expect(fencedBlock(configuration, "sh")).toContain(
-      'chmod 600 "$policy" "$request"'
+      'install -m 600 config/booking-policy.example.json "$HOME/Private/Pilates Booker/booking-policy.json"'
+    );
+    expect(fencedBlock(configuration, "sh")).toContain(
+      'install -m 600 config/booking-request.example.json "$HOME/Private/Pilates Booker/booking-request.json"'
     );
 
     const powerShellSetup = fencedBlock(runtime, "powershell");
     expect(powerShellSetup).toContain(
-      'Join-Path $env:LOCALAPPDATA "pilates-booker"'
+      '$runtime = Join-Path $env:LOCALAPPDATA "Pilates Booker"'
     );
     expect(powerShellSetup).toContain(
       "New-Item -ItemType Directory -Force $runtime"
@@ -145,13 +194,36 @@ describe("README first-use contract", () => {
     expect(runtime).toContain("policy and request files");
     expect(runtime).toContain("generated profile");
     expect(runtime).toContain("Windows account");
+    expect(fencedBlock(configuration, "powershell")).toContain(
+      'Copy-Item config\\booking-policy.example.json "$config\\booking-policy.json"'
+    );
+    expect(fencedBlock(configuration, "powershell")).toContain(
+      'Copy-Item config\\booking-request.example.json "$config\\booking-request.json"'
+    );
+
+    expect(authentication).toContain(
+      'npx playwright open --user-data-dir "$HOME/Library/Application Support/Pilates Booker/Profile"'
+    );
+    expect(authentication).toContain(
+      'npx playwright open --user-data-dir "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker/Profile"'
+    );
+    expect(authentication).toContain(
+      'npx playwright open --user-data-dir "$runtime\\Profile"'
+    );
+
+    expect(dryRun).toContain('node "$HOME/Tools/pilates-booker/dist/main.js"');
+    expect(dryRun).toContain("node C:\\Tools\\pilates-booker\\dist\\main.js");
+    expect(dryRun).not.toContain("npm start -- --runtime");
+    expect(liveRun).toContain('node "$HOME/Tools/pilates-booker/dist/main.js"');
+    expect(liveRun).toContain("node C:\\Tools\\pilates-booker\\dist\\main.js");
+    expect(liveRun).not.toContain("npm start -- --runtime");
   });
 
   it("uses only the tracked synthetic examples for configuration", async () => {
     const readme = await readRepositoryFile("README.md");
     const configuration = readmeSection(
       readme,
-      "Create private request and policy files"
+      "Create your private configuration"
     );
     expect(configuration).toContain(
       "[synthetic request example](config/booking-request.example.json)"
@@ -225,7 +297,7 @@ describe("README first-use contract", () => {
 
   it("documents private-data and operator recovery boundaries", async () => {
     const readme = await readRepositoryFile("README.md");
-    const safety = readmeSection(readme, "Safety first");
+    const beforeYouBegin = readmeSection(readme, "Before you begin");
     const recovery = readmeSection(readme, "Recover safely");
     for (const phrase of [
       "outside Git",
@@ -235,7 +307,7 @@ describe("README first-use contract", () => {
       "traces",
       "cookies"
     ]) {
-      expect(safety).toContain(phrase);
+      expect(beforeYouBegin).toContain(phrase);
     }
     expect(recovery).toContain("verify that no booking process is running");
     expect(recovery).toContain("same request UUID");
@@ -262,12 +334,13 @@ describe("README first-use contract", () => {
   it("applies the centralized rerun rule to troubleshooting", async () => {
     const readme = await readRepositoryFile("README.md");
     const troubleshooting = readmeSection(readme, "Troubleshooting");
-    const expiredAuthentication = troubleshootingEntry(
+    expect(troubleshooting).toMatch(/\| Symptom\s+\| Action\s+\|/);
+    const expiredAuthentication = troubleshootingRow(
       troubleshooting,
       "Expired authentication"
     );
-    const safeStop = troubleshootingEntry(troubleshooting, "Safe stop (`20`)");
-    const technicalFailure = troubleshootingEntry(
+    const safeStop = troubleshootingRow(troubleshooting, "Safe stop (`20`)");
+    const technicalFailure = troubleshootingRow(
       troubleshooting,
       "Technical failure (`30`)"
     );
@@ -301,7 +374,7 @@ describe("README first-use contract", () => {
   it("documents technical-failure retries and manual stale-lock removal", async () => {
     const readme = await readRepositoryFile("README.md");
     const recovery = readmeSection(readme, "Recover safely");
-    const technicalFailure = troubleshootingEntry(
+    const technicalFailure = troubleshootingRow(
       readmeSection(readme, "Troubleshooting"),
       "Technical failure (`30`)"
     );
