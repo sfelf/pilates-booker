@@ -32,7 +32,7 @@ The application does not discover classes, schedule itself, manage login, or rep
 9. The workflow performs one final logical authorization read. It reads live facts sequentially and assumes the supported page remains stable throughout that read and until the click. If every required fact matches, the coordinator records readiness and submission state immediately before the exact permitted action is clicked once.
 10. After the click, only the matching authoritative Arketa confirmation is inspected. Optional Google Calendar metadata may hydrate within the same confirmation deadline.
 11. The coordinator validates and atomically finalizes compact result JSON. The command writes those exact stored bytes, including the trailing newline, once to stdout.
-12. The browser and lock are released on controlled outcomes. Diagnostics, when needed, use fixed text on stderr.
+12. The browser is closed and lock release is attempted on controlled outcomes. A failed or incomplete lock release can leave a stale lock that the user must remove only after verifying no booking process is running. Diagnostics, when needed, use fixed text on stderr.
 
 ## State model
 

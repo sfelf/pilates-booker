@@ -39,7 +39,7 @@ The coordinator records `SUBMITTING` immediately before one bounded click on the
 
 After the click, the workflow checks only the matching exact Arketa confirmation. It does not recheck the checkout URL, reservation target, injuries, package, cancellation, or other form state after submission. Those fields authorize the click; they are not post-click proof.
 
-An already-booked or already-waitlisted page is authoritative and produces an existing-enrollment outcome without a click. This also makes deliberate recovery outside the application safe from duplicate enrollment: Arketa, rather than local speculation, reconciles the repeat.
+An already-booked or already-waitlisted page is authoritative and produces an existing-enrollment outcome without a booking or waitlist submission click. The read may still expand `View Details` to obtain confirmation evidence. This also makes deliberate recovery outside the application safe from duplicate enrollment: Arketa, rather than local speculation, reconciles the repeat.
 
 ## Result and recovery boundary
 
