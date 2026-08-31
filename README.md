@@ -39,7 +39,7 @@ npm --version
 
 Choose a private location for the repository. These examples use `$HOME/Tools/pilates-booker` on macOS or Linux and `C:\Tools\pilates-booker` on Windows.
 
-### macOS or Linux
+### macOS
 
 ```sh
 mkdir -p "$HOME/Tools"
@@ -47,6 +47,17 @@ git clone https://github.com/sfelf/pilates-booker.git "$HOME/Tools/pilates-booke
 cd "$HOME/Tools/pilates-booker"
 npm ci
 npx playwright install chromium
+npm run build
+```
+
+### Linux
+
+```sh
+mkdir -p "$HOME/Tools"
+git clone https://github.com/sfelf/pilates-booker.git "$HOME/Tools/pilates-booker"
+cd "$HOME/Tools/pilates-booker"
+npm ci
+npx playwright install --with-deps chromium
 npm run build
 ```
 
@@ -221,7 +232,7 @@ Stdout is the sole machine-readable finalized result channel. A fresh finalizati
 | `30` | Command/technical failure                                                           | Read stdout first; use the technical-failure path below                                                                 |
 | `40` | Submission or later processing may have occurred without a finalized success result | Reconcile with Arketa and the durable result; never automatically retry                                                 |
 
-A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/selectability evidence, and `package_selected` identifies the selected package. The field package_selected can be `null` in a coherent safe-stop result when trustworthy positive-balance inventory exists but no package matches the policy allowlist. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or other optional metadata.
+A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/selectability evidence, and `package_selected` identifies the selected package. The field package_selected can be `null` in a coherent safe-stop result when no trustworthy positive-balance package exists, or when trustworthy positive-balance inventory exists but no package matches the policy allowlist. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or other optional metadata.
 
 ## Recover safely
 
@@ -235,11 +246,21 @@ When no finalized result was emitted, use the fixed stderr marker `Booking comma
 
 A stale lock is `<runtime>/run.lock`. Only after you verify that no booking process is running, remove it manually:
 
+### macOS
+
 ```sh
-# macOS; on Linux use: runtime="${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker"
 runtime="$HOME/Library/Application Support/Pilates Booker"
 rm "$runtime/run.lock"
 ```
+
+### Linux
+
+```sh
+runtime="${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker"
+rm "$runtime/run.lock"
+```
+
+### Windows PowerShell
 
 ```powershell
 $runtime = Join-Path $env:LOCALAPPDATA "Pilates Booker"

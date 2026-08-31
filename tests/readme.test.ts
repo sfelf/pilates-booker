@@ -175,14 +175,20 @@ describe("README first-use contract", () => {
     expect(beforeYouBegin).toContain("screenshots");
     expect(beforeYouBegin).toContain("cookies");
 
-    const posixInstall = fencedBlock(install, "sh");
-    expect(posixInstall).toContain("$HOME/Tools/pilates-booker");
-    expect(posixInstall).toContain(
+    const [macInstall = "", linuxInstall = ""] = fencedBlocks(install, "sh");
+    expect(macInstall).toContain("$HOME/Tools/pilates-booker");
+    expect(macInstall).toContain(
       "git clone https://github.com/sfelf/pilates-booker.git"
     );
-    expect(posixInstall).toContain("npm ci");
-    expect(posixInstall).toContain("npx playwright install chromium");
-    expect(posixInstall).toContain("npm run build");
+    expect(macInstall).toContain("npm ci");
+    expect(macInstall).toContain("npx playwright install chromium");
+    expect(macInstall).toContain("npm run build");
+    expect(linuxInstall).toContain("$HOME/Tools/pilates-booker");
+    expect(linuxInstall).toContain("npm ci");
+    expect(linuxInstall).toContain(
+      "npx playwright install --with-deps chromium"
+    );
+    expect(linuxInstall).toContain("npm run build");
     const powerShellInstall = fencedBlock(install, "powershell");
     expect(powerShellInstall).toContain("C:\\Tools\\pilates-booker");
     expect(powerShellInstall).toContain(
@@ -337,6 +343,7 @@ describe("README first-use contract", () => {
     expect(result).toContain("coherent safe-stop result");
     expect(result).toContain("trustworthy positive-balance inventory");
     expect(result).toContain("policy allowlist");
+    expect(result).toContain("no trustworthy positive-balance package exists");
   });
 
   it("documents private-data and operator recovery boundaries", async () => {
@@ -426,13 +433,17 @@ describe("README first-use contract", () => {
     expect(recovery).toContain("finalized `TECHNICAL_FAILURE`");
     expect(recovery).toContain("<runtime>/run.lock");
     expect(recovery).toContain("verify that no booking process is running");
-    const shellRecovery = fencedBlock(recovery, "sh");
+    const [macRecovery = "", linuxRecovery = ""] = fencedBlocks(recovery, "sh");
     const powershellRecovery = fencedBlock(recovery, "powershell");
 
-    expect(shellRecovery).toContain(
+    expect(macRecovery).toContain(
       'runtime="$HOME/Library/Application Support/Pilates Booker"'
     );
-    expect(shellRecovery).toContain('rm "$runtime/run.lock"');
+    expect(macRecovery).toContain('rm "$runtime/run.lock"');
+    expect(linuxRecovery).toContain(
+      'runtime="${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker"'
+    );
+    expect(linuxRecovery).toContain('rm "$runtime/run.lock"');
     expect(powershellRecovery).toContain(
       '$runtime = Join-Path $env:LOCALAPPDATA "Pilates Booker"'
     );
