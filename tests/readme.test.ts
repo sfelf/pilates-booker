@@ -160,6 +160,7 @@ describe("README first-use contract", () => {
       "[synthetic policy example](config/booking-policy.example.json)"
     );
     expect(configuration).toContain('"dry_run": true');
+    expect(configuration).toContain("fresh lowercase canonical request UUID");
     expect(configuration).toContain("America/*");
     expect(configuration).toContain("correct year");
   });
@@ -241,21 +242,47 @@ describe("README first-use contract", () => {
     expect(recovery).toContain("new request UUID");
   });
 
-  it("requires fresh UUID recovery after a finalized safe stop", async () => {
+  it("centralizes deliberate reruns around finalized results", async () => {
     const readme = await readRepositoryFile("README.md");
     const recovery = readmeSection(readme, "Recover safely");
-    const safeStop = troubleshootingEntry(
-      readmeSection(readme, "Troubleshooting"),
-      "Safe stop (`20`)"
+
+    expect(recovery).toContain("If a finalized result exists");
+    expect(recovery).toContain("preserve and inspect it");
+    expect(recovery).toContain("correct the cause");
+    expect(recovery).toContain("fresh lowercase canonical request UUID");
+    expect(recovery).toContain("deliberately rerun");
+    expect(recovery).toContain("If no finalized result exists");
+    expect(recovery).toContain(
+      "retain or reuse the request UUID only when appropriate"
+    );
+    expect(recovery).toContain("correcting the command failure");
+    expect(recovery).not.toContain("rerun the same request UUID");
+  });
+
+  it("applies the centralized rerun rule to troubleshooting", async () => {
+    const readme = await readRepositoryFile("README.md");
+    const troubleshooting = readmeSection(readme, "Troubleshooting");
+    const expiredAuthentication = troubleshootingEntry(
+      troubleshooting,
+      "Expired authentication"
+    );
+    const safeStop = troubleshootingEntry(troubleshooting, "Safe stop (`20`)");
+    const technicalFailure = troubleshootingEntry(
+      troubleshooting,
+      "Technical failure (`30`)"
     );
 
-    expect(recovery).toContain("After a finalized `SAFE_STOP`");
-    expect(recovery).toContain("preserve the original result and evidence");
-    expect(recovery).toContain("fresh request UUID");
-    expect(recovery).not.toContain("rerun the same request UUID");
-    expect(safeStop).toContain("preserve the original result and evidence");
-    expect(safeStop).toContain("fresh request UUID");
-    expect(safeStop).not.toContain("same request UUID");
+    expect(expiredAuthentication).toContain(
+      "finalized `SAFE_STOP` or `TECHNICAL_FAILURE`"
+    );
+    expect(expiredAuthentication).toContain("preserve the finalized evidence");
+    expect(expiredAuthentication).toContain(
+      "fresh lowercase canonical request UUID"
+    );
+    expect(expiredAuthentication).toContain("only if no result was finalized");
+    for (const entry of [safeStop, technicalFailure]) {
+      expect(entry).toContain("rerun rule in `Recover safely`");
+    }
   });
 
   it("keeps the exit-20 table action aligned with safe-stop recovery", async () => {
@@ -280,16 +307,13 @@ describe("README first-use contract", () => {
     );
 
     expect(recovery).toContain("finalized `TECHNICAL_FAILURE`");
-    expect(recovery).toContain("correct the technical cause");
-    expect(recovery).toContain("fresh request UUID");
     expect(recovery).toContain("<runtime>/run.lock");
     expect(recovery).toContain("verify that no booking process is running");
     expect(fencedBlock(recovery, "sh")).toContain('rm "$runtime/run.lock"');
     expect(fencedBlock(recovery, "powershell")).toContain(
       'Remove-Item -LiteralPath (Join-Path $runtime "run.lock")'
     );
-    expect(technicalFailure).toContain("finalized result");
-    expect(technicalFailure).toContain("fresh request UUID");
+    expect(technicalFailure).toContain("rerun rule in `Recover safely`");
     expect(technicalFailure).toContain("no finalized result");
     expect(technicalFailure).toContain("Booking command failed.");
   });

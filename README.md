@@ -105,7 +105,7 @@ Copy-Item config/booking-request.example.json $request
 
 Edit the private copies, never the examples:
 
-- Give `request_id` a fresh UUID. That UUID owns the runtime journal and result for this one transaction.
+- Give `request_id` a fresh lowercase canonical request UUID. That UUID owns the runtime journal and result for this one transaction.
 - Set `booking_url` to the checkout you intend to validate. You are responsible for selecting the checkout link for the correct year: the supported checkout displays weekday, month, and day but not a year.
 - Set `expected_class.name`, `expected_class.date`, and `expected_class.start_time` to the class you expect. Use an IANA timezone in the `America/*` namespace for `expected_class.timezone`.
 - Keep `reserve_for: "myself"`, and list only the permitted `book` and/or `waitlist` actions in `permitted_actions`.
@@ -150,9 +150,9 @@ Treat a UUID as one transaction: it owns one journal/result pair. A same request
 
 Uncertainty is not proof of failure. Preserve the durable result and journal, inspect both the durable result and Arketa, then deliberately choose a new request UUID if needed. The app does not retry automatically; Arketa is authoritative for already-booked and already-waitlisted state.
 
-After a finalized `SAFE_STOP`, preserve the original result and evidence, correct the request, policy, authentication, or supported page-state cause, and use a fresh request UUID for any deliberate rerun.
+Use one deliberate rerun rule when a corrected cause warrants another attempt. If a finalized result exists, preserve and inspect it, correct the cause, assign a fresh lowercase canonical request UUID, then deliberately rerun. This applies after finalized `SAFE_STOP` or finalized `TECHNICAL_FAILURE`. If no finalized result exists, after correcting the command failure, retain or reuse the request UUID only when appropriate before deciding whether to deliberately run again. Do not assume a stored UUID result exists.
 
-After a finalized `TECHNICAL_FAILURE`, preserve the original result and evidence, correct the technical cause, assign a fresh request UUID, then deliberately retry. If no finalized result was emitted, use the fixed stderr marker `Booking command failed.` and private runtime evidence instead; do not assume a stored UUID result exists.
+When no finalized result was emitted, use the fixed stderr marker `Booking command failed.` and private runtime evidence instead. The marker does not prove a stored result exists.
 
 A stale lock is `<runtime>/run.lock`. Only after you verify that no booking process is running, remove it manually:
 
@@ -189,10 +189,10 @@ npm start -- --runtime $runtime --policy $policy $request
 
 ## Troubleshooting
 
-- **Expired authentication:** reopen Arketa with the same dedicated profile, authenticate manually, close the browser, and rerun only after reviewing the request state.
+- **Expired authentication:** reopen Arketa with the same dedicated profile, authenticate manually, and close the browser. After a finalized `SAFE_STOP` or `TECHNICAL_FAILURE`, preserve the finalized evidence and apply the rerun rule in `Recover safely` with a fresh lowercase canonical request UUID. Retain the existing UUID only if no result was finalized and it is appropriate after correcting the command failure.
 - **Existing runtime lock:** wait for the active command, or manually remove a stale lock only after you verify that no booking process is running.
-- **Safe stop (`20`):** preserve the original result and evidence, correct the request, policy, authentication, or supported page state, then use a fresh request UUID before a deliberate rerun; do not add speculative selector fallbacks.
-- **Technical failure (`30`):** if stdout has a finalized result, preserve it, correct the technical cause, assign a fresh request UUID, then deliberately retry. If no finalized result was emitted, use `Booking command failed.` as the fixed stderr marker and inspect private runtime evidence without deleting anything or assuming a stored UUID result.
+- **Safe stop (`20`):** correct the request, policy, authentication, or supported page state, then apply the rerun rule in `Recover safely`; do not add speculative selector fallbacks.
+- **Technical failure (`30`):** if stdout has a finalized result, preserve its evidence and apply the rerun rule in `Recover safely`. If no finalized result was emitted, use `Booking command failed.` as the fixed stderr marker and inspect private runtime evidence without deleting anything.
 - **Confirmation uncertainty (`40`):** preserve evidence, inspect the durable result and Arketa, and decide deliberately whether a new request UUID is appropriate; never automatically retry.
 - **No calendar link:** `google_calendar_url` is optional metadata, so rely on exact Arketa confirmation or authoritative existing-enrollment evidence instead.
 - **Changed or unsupported checkout:** stop safely; do not work around CAPTCHA, guess selectors, or proceed until the checkout is supported again.
