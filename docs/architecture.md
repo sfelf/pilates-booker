@@ -62,16 +62,16 @@ Invalid combinations fail at the boundary that owns the relevant evidence:
 
 ## Outcome model
 
-| Outcome                  | Meaning                                                                                                                                                          | Exit |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---: |
-| `BOOKED`                 | This invocation submitted once and observed exact booking confirmation                                                                                           |    0 |
-| `WAITLISTED`             | This invocation submitted once and observed exact waitlist confirmation                                                                                          |    0 |
-| `ALREADY_BOOKED`         | Arketa authoritatively showed existing booking; no submission occurred                                                                                           |    0 |
-| `ALREADY_WAITLISTED`     | Arketa authoritatively showed existing waitlist enrollment; no submission occurred                                                                               |    0 |
-| `DRY_RUN`                | Non-submitting inspection completed with canonical availability and evidence                                                                                     |    0 |
-| `SAFE_STOP`              | A deliberate pre-submission safety condition prevented a click                                                                                                   |   20 |
-| `TECHNICAL_FAILURE`      | A known failure occurred before submission could have happened                                                                                                   |   30 |
-| `CONFIRMATION_UNCERTAIN` | Post-submission recovery lacks a finalized success result: matching confirmation may be absent, or publication may have stopped after confirmation was journaled |   40 |
+| Outcome                  | Meaning                                                                                                                                                     | Exit |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---: |
+| `BOOKED`                 | The UUID transaction includes one booking submission attempt and observed exact booking confirmation; replay adds no action                                 |    0 |
+| `WAITLISTED`             | The UUID transaction includes one waitlist submission attempt and observed exact waitlist confirmation; replay adds no action                               |    0 |
+| `ALREADY_BOOKED`         | Arketa authoritatively showed existing booking; no submission occurred                                                                                      |    0 |
+| `ALREADY_WAITLISTED`     | Arketa authoritatively showed existing waitlist enrollment; no submission occurred                                                                          |    0 |
+| `DRY_RUN`                | Non-submitting inspection completed with canonical availability and evidence                                                                                |    0 |
+| `SAFE_STOP`              | A deliberate pre-submission safety condition prevented a click                                                                                              |   20 |
+| `TECHNICAL_FAILURE`      | A known failure occurred before submission could have happened                                                                                              |   30 |
+| `CONFIRMATION_UNCERTAIN` | Post-submission processing or recovery lacks a finalized success result: confirmation may be absent, or publication may have stopped after it was journaled |   40 |
 
 `CONFIRMATION_UNCERTAIN` is terminal for automatic processing of that UUID. The application never retries automatically. A person or external orchestrator may deliberately issue another request; Arketa remains authoritative and prevents duplicate enrollment.
 

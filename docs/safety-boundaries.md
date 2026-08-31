@@ -43,7 +43,7 @@ An already-booked or already-waitlisted page is authoritative and produces an ex
 
 ## Result and recovery boundary
 
-Fresh publication checks the result against the validated request and loaded policy. This prevents an injected internal executor from self-authorizing an action or package that the invocation did not permit.
+Fresh publication checks the result against the validated request and loaded policy, including permitted actions and canonical policy-bound package names. The executor is a trusted internal component: publication does not independently rerun its ordered package-selection algorithm, so the workflow remains responsible for selecting the first eligible package in policy order.
 
 Recovery does not reinterpret a prior transaction through later request or policy contents. It validates the stored UUID, schema, package coherence, calendar endpoint shape, fixed details, and journal/outcome relationship. Because the original request is not persisted, recovery cannot re-bind stored calendar metadata to the original checkout class. A coherent finalized result is replayed exactly; malformed, foreign, or contradictory evidence is left untouched and fails with no stdout result.
 
