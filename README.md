@@ -176,6 +176,7 @@ npm run lint
 npm run typecheck
 npm run build
 npm test
+git diff --check
 ```
 
 Ubuntu CI is authoritative for executable Bash/POSIX permission behavior. The deterministic README test checks PowerShell blocks and ordering without claiming a live Windows booking.

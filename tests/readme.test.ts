@@ -125,6 +125,7 @@ describe("README first-use contract", () => {
     expect(readme).toContain("npm run typecheck");
     expect(readme).toContain("npm run build");
     expect(readme).toContain("npm test");
+    expect(readme).toContain("git diff --check");
   });
 
   it("does not contain known private planning or live-page values", async () => {
