@@ -1,7 +1,11 @@
 import { createRequire } from "node:module";
 
 import resultSchema from "../schemas/result.schema.json" with { type: "json" };
-import type { BookingRequest, BookingResult } from "./contracts.js";
+import type {
+  BookingPolicy,
+  BookingRequest,
+  BookingResult
+} from "./contracts.js";
 import { normalizePackageNameForComparison } from "./package-selection.js";
 import { validateCalendarUrl, validateCheckoutUrl } from "./url-policy.js";
 
@@ -73,7 +77,8 @@ export const validateResult = (value: unknown): value is BookingResult => {
 
 export function validateResultForRequest(
   result: unknown,
-  request: BookingRequest
+  request: BookingRequest,
+  policy: BookingPolicy
 ): result is BookingResult {
   if (!validateResult(result) || result.request_id !== request.request_id) {
     return false;
@@ -81,6 +86,7 @@ export function validateResultForRequest(
   if (!hasExpectedClassWhenVerified(result, request)) return false;
   if (!hasPermittedAction(result, request)) return false;
   if (!hasExactSelectedPackageEvidence(result)) return false;
+  if (!hasPolicyBoundPackageEvidence(result, policy)) return false;
 
   const calendarUrl = (result as { google_calendar_url?: unknown })
     .google_calendar_url;
@@ -89,6 +95,62 @@ export function validateResultForRequest(
     (typeof calendarUrl === "string" &&
       permitsCalendarUrl(result) &&
       validateCalendarUrlForCheckout(calendarUrl, request.booking_url))
+  );
+}
+
+function hasPolicyBoundPackageEvidence(
+  result: BookingResult,
+  policy: BookingPolicy
+): boolean {
+  const evidence = result as {
+    package_selected?: unknown;
+    packages_before?: unknown;
+  };
+  if (evidence.package_selected === undefined) return true;
+  if (!Array.isArray(evidence.packages_before)) return false;
+
+  const canonicalByNormalizedName = new Map<string, string>();
+  for (const canonicalName of policy.allowed_packages) {
+    const normalizedName = normalizePackageNameForComparison(canonicalName);
+    if (
+      normalizedName.length === 0 ||
+      canonicalByNormalizedName.has(normalizedName)
+    ) {
+      return false;
+    }
+    canonicalByNormalizedName.set(normalizedName, canonicalName);
+  }
+
+  for (const candidate of evidence.packages_before) {
+    if (
+      typeof candidate !== "object" ||
+      candidate === null ||
+      typeof (candidate as { name?: unknown }).name !== "string" ||
+      typeof (candidate as { approved?: unknown }).approved !== "boolean"
+    ) {
+      return false;
+    }
+    const { name, approved } = candidate as {
+      name: string;
+      approved: boolean;
+    };
+    const normalizedName = normalizePackageNameForComparison(name);
+    const canonicalName = canonicalByNormalizedName.get(normalizedName);
+    if (approved) {
+      if (canonicalName === undefined || name !== canonicalName) return false;
+    } else if (canonicalName !== undefined || name !== normalizedName) {
+      return false;
+    }
+  }
+
+  if (evidence.package_selected === null) return true;
+  if (typeof evidence.package_selected !== "string") return false;
+  const selectedCanonicalName = canonicalByNormalizedName.get(
+    normalizePackageNameForComparison(evidence.package_selected)
+  );
+  return (
+    selectedCanonicalName !== undefined &&
+    evidence.package_selected === selectedCanonicalName
   );
 }
 

@@ -106,13 +106,15 @@ export async function publishResult(
   path: string,
   result: BookingResult,
   request: BookingRequest,
+  policy: BookingPolicy,
   readFinalized: (path: string) => Promise<string> = (selectedPath) =>
     readFile(selectedPath, "utf8")
 ): Promise<string> {
   return publishValidatedResult(
     path,
     result,
-    (value): value is BookingResult => validateResultForRequest(value, request),
+    (value): value is BookingResult =>
+      validateResultForRequest(value, request, policy),
     readFinalized
   );
 }
@@ -203,7 +205,7 @@ export async function runCli(
     readResult: () => readResult(paths.resultFile, request.request_id),
     writeResult: (result, recoveryState) =>
       recoveryState === undefined
-        ? publishResult(paths.resultFile, result, request)
+        ? publishResult(paths.resultFile, result, request, policy)
         : publishRecoveredResult(
             paths.resultFile,
             result,

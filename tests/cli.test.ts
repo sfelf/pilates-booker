@@ -169,7 +169,7 @@ describe("publishResult", () => {
     const path = join(base, "result.json");
     const selected = selectedResult(0);
 
-    const bytes = await publishResult(path, selected, request);
+    const bytes = await publishResult(path, selected, request, policy);
 
     expect(bytes).toBe(`${JSON.stringify(selected)}\n`);
     expect(await readFile(path, "utf8")).toBe(bytes);
@@ -188,7 +188,7 @@ describe("publishResult", () => {
     } as BookingRequest;
 
     await expect(
-      publishResult(path, selectedResult(0), contradictoryRequest)
+      publishResult(path, selectedResult(0), contradictoryRequest, policy)
     ).rejects.toThrow("JSON validation failed");
     expect(await readFile(path, "utf8")).toBe(priorBytes);
   });
@@ -212,6 +212,7 @@ describe("publishResult", () => {
           path,
           selectedResult(0),
           request,
+          policy,
           async () => {
             reads += 1;
             return observedBytes;
@@ -758,7 +759,84 @@ describe("runCli", () => {
     });
 
     expect(await runCli(cliArgs, deps)).toBe(0);
+    expect(
+      JSON.parse(await readFile(join(base, "results", evidenceName), "utf8"))
+    ).toEqual(selectedResult(0));
   });
+
+  test.each([
+    ["BOOKED", false],
+    ["WAITLISTED", false],
+    ["actionable DRY_RUN", true]
+  ] as const)(
+    "rejects custom executor %s evidence that self-approves a package absent from policy",
+    async (outcome, dryRun) => {
+      const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+      const arbitraryPackage = "Synthetic Arbitrary Package";
+      const changedRequest: BookingRequest = { ...request, dry_run: dryRun };
+      const emitted: string[] = [];
+      const deps: CliDependencies = {
+        ...dependencies(base, async ({ advance }) => {
+          await advance("VALIDATED");
+          if (outcome !== "actionable DRY_RUN") {
+            await advance("READY_TO_SUBMIT");
+            await advance("SUBMITTING");
+            await advance("CONFIRMED");
+          }
+          const canonicalBooked = selectedResult(0);
+          if (canonicalBooked.outcome !== "BOOKED") {
+            throw new Error("invalid synthetic fixture");
+          }
+          const {
+            google_calendar_url: ignoredCalendarUrl,
+            ...canonicalEvidence
+          } = canonicalBooked;
+          void ignoredCalendarUrl;
+          const arbitraryEvidence = {
+            ...canonicalEvidence,
+            package_selected: arbitraryPackage,
+            packages_before: [
+              { name: arbitraryPackage, remaining: 2, approved: true }
+            ] as const
+          };
+          if (outcome === "WAITLISTED") {
+            return {
+              ...arbitraryEvidence,
+              outcome,
+              details: "Waitlist confirmed."
+            };
+          }
+          if (outcome === "actionable DRY_RUN") {
+            return {
+              ...arbitraryEvidence,
+              outcome: "DRY_RUN",
+              action_submitted: false,
+              confirmation_verified: false,
+              availability: "BOOKING_AVAILABLE",
+              safety_checks: {
+                ...arbitraryEvidence.safety_checks,
+                no_charge: false,
+                cancellation_policy_accepted: false
+              },
+              details: "Dry run completed."
+            };
+          }
+          return arbitraryEvidence;
+        }),
+        loadRequest: vi.fn(async () => changedRequest),
+        validateRequest: vi.fn(() => changedRequest),
+        emitResult: vi.fn(async (bytes: string) => {
+          emitted.push(bytes);
+        })
+      };
+
+      expect(await runCli(cliArgs, deps)).toBe(30);
+      expect(emitted).toEqual([]);
+      await expect(
+        access(join(base, "results", evidenceName))
+      ).rejects.toThrow();
+    }
+  );
 
   test("rejects an executor result that fails the canonical result schema", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));

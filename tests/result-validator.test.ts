@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BookingRequest } from "../src/contracts.js";
+import type { BookingPolicy, BookingRequest } from "../src/contracts.js";
 import {
   validateResult,
   validateResultForRecovery,
@@ -25,6 +25,12 @@ const request: BookingRequest = {
   dry_run: false
 };
 
+const policy: BookingPolicy = {
+  schema_version: 1,
+  policy_version: request.policy_version,
+  allowed_packages: ["Synthetic Priority Package"]
+};
+
 const actionableDryRun = {
   schema_version: 1,
   request_id: "00000000-0000-4000-8000-000000000001",
@@ -41,10 +47,10 @@ const actionableDryRun = {
     end_time: "11:30",
     timezone: "America/Los_Angeles"
   },
-  package_selected: "⭐ Synthetic Priority Package",
+  package_selected: "Synthetic Priority Package",
   packages_before: [
     { name: "Synthetic Backup Package", remaining: 4, approved: false },
-    { name: "Synthetic Priority Package ★", remaining: 2, approved: true }
+    { name: "Synthetic Priority Package", remaining: 2, approved: true }
   ],
   safety_checks: {
     exact_class_match: true,
@@ -162,7 +168,7 @@ const confirmationUncertain = {
 } as const;
 
 describe("validateResult actionable dry-run evidence", () => {
-  it("accepts and preserves normalized positive configured-package evidence", () => {
+  it("accepts and preserves canonical positive configured-package evidence", () => {
     const before = JSON.stringify(actionableDryRun);
 
     expect(validateResult(actionableDryRun)).toBe(true);
@@ -188,7 +194,7 @@ describe("validateResult actionable dry-run evidence", () => {
           ...actionableDryRun,
           packages_before: [
             {
-              name: "Synthetic Priority Package ★",
+              name: "Synthetic Priority Package",
               remaining,
               approved: true
             }
@@ -227,14 +233,15 @@ describe("validateResult actionable dry-run evidence", () => {
 
 describe("validateResultForRequest", () => {
   it("accepts canonical package evidence and a checkout-bound booked calendar URL", () => {
-    expect(validateResultForRequest(booked, request)).toBe(true);
+    expect(validateResultForRequest(booked, request, policy)).toBe(true);
   });
 
   it("rejects an otherwise valid result for another request", () => {
     expect(
       validateResultForRequest(
         { ...booked, request_id: "00000000-0000-4000-8000-000000000099" },
-        request
+        request,
+        policy
       )
     ).toBe(false);
   });
@@ -247,27 +254,126 @@ describe("validateResultForRequest", () => {
     };
 
     expect(validateResult(wrongHost)).toBe(true);
-    expect(validateResultForRequest(wrongHost, request)).toBe(false);
+    expect(validateResultForRequest(wrongHost, request, policy)).toBe(false);
   });
 
   it("requires the request to permit the submitted action", () => {
     expect(
-      validateResultForRequest(booked, {
-        ...request,
-        permitted_actions: ["waitlist"]
-      })
+      validateResultForRequest(
+        booked,
+        {
+          ...request,
+          permitted_actions: ["waitlist"]
+        },
+        policy
+      )
     ).toBe(false);
   });
 
   it("accepts a null selection when every package balance is unapproved", () => {
     expect(
-      validateResultForRequest(safeStopWithUnapprovedInventory, request)
+      validateResultForRequest(safeStopWithUnapprovedInventory, request, policy)
     ).toBe(true);
   });
 
   it("rejects a null selection with an approved positive package balance", () => {
     expect(
-      validateResultForRequest(safeStopWithApprovedInventory, request)
+      validateResultForRequest(safeStopWithApprovedInventory, request, policy)
+    ).toBe(false);
+  });
+
+  it.each([
+    ["BOOKED", booked, request],
+    ["WAITLISTED", waitlisted, request],
+    ["actionable DRY_RUN", actionableDryRun, { ...request, dry_run: true }]
+  ] as const)(
+    "rejects self-approved arbitrary package evidence for %s",
+    (_outcome, canonicalResult, selectedRequest) => {
+      const arbitraryPackage = "Synthetic Arbitrary Package";
+
+      expect(
+        validateResultForRequest(
+          {
+            ...canonicalResult,
+            package_selected: arbitraryPackage,
+            packages_before: [
+              { name: arbitraryPackage, remaining: 2, approved: true }
+            ]
+          },
+          selectedRequest,
+          policy
+        )
+      ).toBe(false);
+    }
+  );
+
+  it("rejects a policy package falsely marked unapproved", () => {
+    expect(
+      validateResultForRequest(
+        {
+          ...safeStopWithUnapprovedInventory,
+          packages_before: [
+            {
+              name: "Synthetic Priority Package",
+              remaining: 2,
+              approved: false
+            }
+          ]
+        },
+        request,
+        policy
+      )
+    ).toBe(false);
+  });
+
+  it("rejects a noncanonical selected policy package name", () => {
+    expect(
+      validateResultForRequest(
+        {
+          ...booked,
+          package_selected: "⭐ Synthetic Priority Package"
+        },
+        request,
+        policy
+      )
+    ).toBe(false);
+  });
+
+  it("rejects a noncanonical approved policy package name", () => {
+    expect(
+      validateResultForRequest(
+        {
+          ...booked,
+          packages_before: [
+            {
+              name: "⭐ Synthetic Priority Package",
+              remaining: 2,
+              approved: true
+            }
+          ]
+        },
+        request,
+        policy
+      )
+    ).toBe(false);
+  });
+
+  it("rejects a nonnormalized unapproved package name", () => {
+    expect(
+      validateResultForRequest(
+        {
+          ...safeStopWithUnapprovedInventory,
+          packages_before: [
+            {
+              name: "⭐ Synthetic Other Package ★",
+              remaining: 2,
+              approved: false
+            }
+          ]
+        },
+        request,
+        policy
+      )
     ).toBe(false);
   });
 
@@ -284,7 +390,7 @@ describe("validateResultForRequest", () => {
     "validates %s against the dry-run request boundary",
     (_outcome, result, expected) => {
       expect(
-        validateResultForRequest(result, { ...request, dry_run: true })
+        validateResultForRequest(result, { ...request, dry_run: true }, policy)
       ).toBe(expected);
     }
   );
@@ -311,6 +417,38 @@ describe("validateResultForRecovery", () => {
         request.request_id
       )
     ).toBe(false);
+  });
+
+  it("preserves self-consistent package evidence without a current policy", () => {
+    const arbitraryPackage = "Synthetic Former Policy Package";
+
+    expect(
+      validateResultForRecovery(
+        {
+          ...booked,
+          package_selected: arbitraryPackage,
+          packages_before: [
+            { name: arbitraryPackage, remaining: 2, approved: true }
+          ]
+        },
+        request.request_id
+      )
+    ).toBe(true);
+    expect(
+      validateResultForRecovery(
+        {
+          ...safeStopWithUnapprovedInventory,
+          packages_before: [
+            {
+              name: "Synthetic Priority Package",
+              remaining: 2,
+              approved: false
+            }
+          ]
+        },
+        request.request_id
+      )
+    ).toBe(true);
   });
 
   it.each([
