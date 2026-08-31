@@ -72,4 +72,15 @@ describe("README first-use contract", () => {
     expect(readme).toContain("America/*");
     expect(readme).toContain("correct year");
   });
+
+  it("states the supported live checkout stability and confirmation boundary", async () => {
+    const readme = await readRepositoryFile("README.md");
+    expect(readme).toContain(
+      "Arketa must remain stable throughout the sequential authorization read and until the single submission click"
+    );
+    expect(readme).toContain("matching exact Arketa confirmation");
+    expect(readme).toContain(
+      "does not recheck form fields or the URL afterward"
+    );
+  });
 });
