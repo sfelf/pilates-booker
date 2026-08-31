@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -112,6 +113,171 @@ async function expectFinalizedCommandOutput(
   }
   return result;
 }
+
+type SubprocessResult = Readonly<{
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+}>;
+
+function runProcess(
+  command: string,
+  arguments_: readonly string[]
+): Promise<SubprocessResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, arguments_, {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (exitCode) => {
+      resolve({ exitCode, stdout, stderr });
+    });
+  });
+}
+
+function runNodeProcess(
+  arguments_: readonly string[]
+): Promise<SubprocessResult> {
+  return runProcess(process.execPath, arguments_);
+}
+
+async function writeCompiledCommandHarness(path: string): Promise<void> {
+  const commandUrl = new URL("../dist/command.js", import.meta.url).href;
+  await writeFile(
+    path,
+    `import { appendFile } from "node:fs/promises";
+import { runCommand } from ${JSON.stringify(commandUrl)};
+
+const [scenario, runtimeDir, executionLog] = process.argv.slice(2);
+if (scenario === "failure") {
+  process.exitCode = await runCommand([]);
+} else {
+  const requestId = "00000000-0000-4000-8000-000000000805";
+  const request = {
+    schema_version: 1,
+    request_id: requestId,
+    booking_url: "https://app.arketa.co/iframe/example/calendar/checkout/FAKE_CHECKOUT_ID",
+    expected_class: {
+      name: "Synthetic subprocess class",
+      date: "2030-01-02",
+      start_time: "09:30",
+      timezone: "America/Los_Angeles"
+    },
+    reserve_for: "myself",
+    permitted_actions: ["book", "waitlist"],
+    policy_version: "2030-01-01",
+    allow_monetary_charge: false,
+    dry_run: true
+  };
+  const policy = {
+    schema_version: 1,
+    policy_version: "2030-01-01",
+    allowed_packages: ["Synthetic Approved Package"]
+  };
+  const result = {
+    schema_version: 1,
+    request_id: requestId,
+    outcome: "DRY_RUN",
+    exit_code: 0,
+    action_submitted: false,
+    confirmation_verified: false,
+    availability: "BOOKING_AVAILABLE",
+    observed_class: {
+      name: "Synthetic subprocess class",
+      instructor: "Synthetic Instructor",
+      date: "2030-01-02",
+      start_time: "09:30",
+      end_time: "10:20",
+      timezone: "America/Los_Angeles"
+    },
+    package_selected: "Synthetic Approved Package",
+    packages_before: [
+      { name: "Synthetic Approved Package", remaining: 1, approved: true }
+    ],
+    safety_checks: {
+      exact_class_match: true,
+      approved_package_verified: true,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: "Dry run completed."
+  };
+  process.exitCode = await runCommand(
+    ["--runtime", runtimeDir, "--policy", "synthetic-policy.json", "synthetic-request.json"],
+    {
+      loadPolicy: async () => policy,
+      loadRequest: async () => request,
+      validateRequest: (value) => value,
+      execute: async ({ advance }) => {
+        await appendFile(executionLog, "executed\\n", "utf8");
+        await advance("VALIDATED");
+        return result;
+      }
+    }
+  );
+}
+`,
+    "utf8"
+  );
+}
+
+describe("compiled command stream boundary", () => {
+  test("writes finalized synthetic result bytes to stdout and isolates fixed failures on stderr", async () => {
+    const build = await runProcess("npm", [
+      "exec",
+      "--no",
+      "--",
+      "tsc",
+      "-p",
+      "tsconfig.build.json"
+    ]);
+    expect(build).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+
+    const privateRuntime = await mkdtemp(
+      join(tmpdir(), "pilates-subprocess-runtime-")
+    );
+    const externalHarness = await mkdtemp(
+      join(tmpdir(), "pilates-subprocess-harness-")
+    );
+    const harnessPath = join(externalHarness, "synthetic-command.mjs");
+    const executionLog = join(externalHarness, "executions.log");
+    const requestId = "00000000-0000-4000-8000-000000000805";
+    await writeCompiledCommandHarness(harnessPath);
+
+    const successArguments = [
+      harnessPath,
+      "success",
+      privateRuntime,
+      executionLog
+    ];
+    const first = await runNodeProcess(successArguments);
+    const resultPath = join(privateRuntime, "results", `${requestId}.json`);
+    const durable = await readFile(resultPath, "utf8");
+    expect(first).toEqual({ exitCode: 0, stdout: durable, stderr: "" });
+
+    const recovered = await runNodeProcess(successArguments);
+    expect(recovered).toEqual({ exitCode: 0, stdout: durable, stderr: "" });
+    await expect(readFile(executionLog, "utf8")).resolves.toBe("executed\n");
+
+    const failure = await runNodeProcess([harnessPath, "failure"]);
+    expect(failure).toEqual({
+      exitCode: 30,
+      stdout: "",
+      stderr: "Booking command failed.\n"
+    });
+  });
+});
 
 describe("direct-command synthetic checkout", () => {
   test("keeps dry runs non-mutating across two UUIDs and recovers a repeated UUID", async () => {
