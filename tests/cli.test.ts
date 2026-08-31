@@ -637,6 +637,63 @@ describe("runCli", () => {
     }
   );
 
+  test.each(["SUBMITTING", "CONFIRMED"] as const)(
+    "finalizes existing %s journal uncertainty without reinterpreting a changed same-UUID request",
+    async (state) => {
+      const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+      await mkdir(join(base, "journals"));
+      await writeFile(
+        join(base, "journals", evidenceName),
+        JSON.stringify({
+          schema_version: 1,
+          request_id: requestId,
+          state
+        }),
+        "utf8"
+      );
+      const changedRequest: BookingRequest = { ...request, dry_run: true };
+      const bookingBrowser = vi.fn();
+      const emitted: string[] = [];
+      const deps = {
+        ...dependencies(base, vi.fn()),
+        loadRequest: vi.fn(async () => changedRequest),
+        validateRequest: vi.fn(() => changedRequest),
+        bookingBrowser,
+        emitResult: vi.fn(async (bytes: string) => {
+          emitted.push(bytes);
+        })
+      };
+      delete deps.execute;
+
+      expect(await runCli(cliArgs, deps)).toBe(40);
+      const resultBytes = await readFile(
+        join(base, "results", evidenceName),
+        "utf8"
+      );
+      expect(resultBytes).toBe(`${JSON.stringify(selectedResult(40))}\n`);
+      expect(emitted).toEqual([resultBytes]);
+      expect(bookingBrowser).not.toHaveBeenCalled();
+    }
+  );
+
+  test("keeps fresh uncertainty publication request-aware for a dry-run request", async () => {
+    const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
+    const changedRequest: BookingRequest = { ...request, dry_run: true };
+    const emitted: string[] = [];
+    const deps: CliDependencies = {
+      ...dependencies(base, executeForExitCode(40)),
+      loadRequest: vi.fn(async () => changedRequest),
+      validateRequest: vi.fn(() => changedRequest),
+      emitResult: vi.fn(async (bytes: string) => {
+        emitted.push(bytes);
+      })
+    };
+
+    expect(await runCli(cliArgs, deps)).toBe(30);
+    expect(emitted).toEqual([]);
+    await expect(access(join(base, "results", evidenceName))).rejects.toThrow();
+  });
+
   test("rejects a successful result unless the journal is confirmed", async () => {
     const base = await mkdtemp(join(tmpdir(), "arketa-cli-"));
     const deps = dependencies(base, async ({ advance }) => {

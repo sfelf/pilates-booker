@@ -23,7 +23,10 @@ import {
 } from "./result-validator.js";
 import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
 import { resolveRuntimePaths } from "./runtime-paths.js";
-import { RuntimeCoordinator } from "./runtime-coordinator.js";
+import {
+  resultMatchesDurableState,
+  RuntimeCoordinator
+} from "./runtime-coordinator.js";
 import type { ResultReadStatus } from "./runtime-coordinator.js";
 import { loadPolicy as loadPolicyFile } from "./policy.js";
 
@@ -106,9 +109,37 @@ export async function publishResult(
   readFinalized: (path: string) => Promise<string> = (selectedPath) =>
     readFile(selectedPath, "utf8")
 ): Promise<string> {
-  await writeJsonAtomic(path, result, (value) =>
-    validateResultForRequest(value, request)
+  return publishValidatedResult(
+    path,
+    result,
+    (value): value is BookingResult => validateResultForRequest(value, request),
+    readFinalized
   );
+}
+
+async function publishRecoveredResult(
+  path: string,
+  result: BookingResult,
+  requestId: string,
+  state: JournalState
+): Promise<string> {
+  return publishValidatedResult(
+    path,
+    result,
+    (value): value is BookingResult =>
+      validateResultForRecovery(value, requestId) &&
+      resultMatchesDurableState(value, state, requestId)
+  );
+}
+
+async function publishValidatedResult(
+  path: string,
+  result: BookingResult,
+  validate: (value: unknown) => value is BookingResult,
+  readFinalized: (path: string) => Promise<string> = (selectedPath) =>
+    readFile(selectedPath, "utf8")
+): Promise<string> {
+  await writeJsonAtomic(path, result, validate);
   const bytes = await readFinalized(path);
   let value: unknown;
   try {
@@ -118,7 +149,7 @@ export async function publishResult(
   }
   if (
     bytes !== `${JSON.stringify(value)}\n` ||
-    !validateResultForRequest(value, request) ||
+    !validate(value) ||
     !isDeepStrictEqual(value, result)
   ) {
     throw new Error("finalized result is invalid");
@@ -170,7 +201,15 @@ export async function runCli(
     readJournal: () => readJournal(paths.journalFile),
     writeJournal: (record) => advanceJournal(paths.journalFile, record),
     readResult: () => readResult(paths.resultFile, request.request_id),
-    writeResult: (result) => publishResult(paths.resultFile, result, request)
+    writeResult: (result, recoveryState) =>
+      recoveryState === undefined
+        ? publishResult(paths.resultFile, result, request)
+        : publishRecoveredResult(
+            paths.resultFile,
+            result,
+            request.request_id,
+            recoveryState
+          )
   });
   const execute: CliExecutor =
     dependencies.execute ??

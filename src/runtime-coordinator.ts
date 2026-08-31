@@ -11,7 +11,10 @@ export type RuntimeOperations = Readonly<{
   readJournal(): Promise<JournalRecord | undefined>;
   writeJournal(record: JournalRecord): Promise<void>;
   readResult(): Promise<ResultReadStatus>;
-  writeResult(result: BookingResult): Promise<string>;
+  writeResult(
+    result: BookingResult,
+    recoveryState?: JournalState
+  ): Promise<string>;
 }>;
 
 export type ResultReadStatus =
@@ -24,6 +27,7 @@ export type CoordinatorDecision = Readonly<{
   result: BookingResult;
   publish: boolean;
   bytes?: string;
+  recoveryState?: JournalState;
 }>;
 
 export type FinalizedDecision = Readonly<{
@@ -102,7 +106,8 @@ export class RuntimeCoordinator {
     if (resultStatus.status === "missing") {
       return {
         result: classifyFailure(this.requestId, journal.state),
-        publish: true
+        publish: true,
+        recoveryState: journal.state
       };
     }
 
@@ -187,7 +192,10 @@ export class RuntimeCoordinator {
         : { result, bytes: decision.bytes };
     }
     try {
-      const bytes = await this.operations.writeResult(result);
+      const bytes = await this.operations.writeResult(
+        result,
+        decision.recoveryState
+      );
       return { result, bytes };
     } catch {
       return { result };
