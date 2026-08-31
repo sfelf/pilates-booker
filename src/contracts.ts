@@ -84,22 +84,35 @@ export type SafetyChecks = Readonly<{
 type BookingResultFields = Readonly<{
   schema_version: 1;
   request_id: string;
-  observed_class?: ObservedClass;
-  package_used?: string | null;
-  packages_before?: readonly PackageBalance[];
-  google_calendar_url?: string;
   safety_checks: SafetyChecks;
   details: string;
 }>;
 
-type ConfirmedSubmissionBookingResult = Readonly<
+type SelectedPackageEvidence = Readonly<{
+  package_selected: string;
+  packages_before: NonEmptyPackageBalances;
+}>;
+
+type OptionalSelectedPackageEvidence =
+  | Readonly<{
+      package_selected: string | null;
+      packages_before: readonly PackageBalance[];
+    }>
+  | Readonly<{ package_selected?: never; packages_before?: never }>;
+
+type WithoutPackageEvidence = Readonly<{
+  package_selected?: never;
+  packages_before?: never;
+}>;
+
+type ConfirmedBookedResult = Readonly<
   BookingResultFields & {
-    outcome: "BOOKED" | "WAITLISTED";
+    outcome: "BOOKED";
     exit_code: 0;
     action_submitted: true;
-    submission_attempts: 1;
     confirmation_verified: true;
-    retryable: false;
+    observed_class: ObservedClass;
+    google_calendar_url?: string;
     safety_checks: Readonly<{
       exact_class_match: true;
       approved_package_verified: true;
@@ -109,14 +122,32 @@ type ConfirmedSubmissionBookingResult = Readonly<
   }
 >;
 
-type ExistingEnrollmentBookingResult = Readonly<
+type ConfirmedWaitlistedResult = Readonly<
+  BookingResultFields &
+    SelectedPackageEvidence & {
+      outcome: "WAITLISTED";
+      exit_code: 0;
+      action_submitted: true;
+      confirmation_verified: true;
+      observed_class: ObservedClass;
+      google_calendar_url?: never;
+      safety_checks: Readonly<{
+        exact_class_match: true;
+        approved_package_verified: true;
+        no_charge: true;
+        cancellation_policy_accepted: true;
+      }>;
+    }
+>;
+
+type ExistingBookedResult = Readonly<
   BookingResultFields & {
-    outcome: "ALREADY_BOOKED" | "ALREADY_WAITLISTED";
+    outcome: "ALREADY_BOOKED";
     exit_code: 0;
     action_submitted: false;
-    submission_attempts: 0;
     confirmation_verified: true;
-    retryable: false;
+    observed_class: ObservedClass;
+    google_calendar_url?: string;
     safety_checks: SafetyChecks &
       Readonly<{
         exact_class_match: true;
@@ -125,94 +156,124 @@ type ExistingEnrollmentBookingResult = Readonly<
   }
 >;
 
+type ExistingWaitlistedResult = Readonly<
+  BookingResultFields &
+    WithoutPackageEvidence & {
+      outcome: "ALREADY_WAITLISTED";
+      exit_code: 0;
+      action_submitted: false;
+      confirmation_verified: true;
+      observed_class: ObservedClass;
+      google_calendar_url?: never;
+      safety_checks: SafetyChecks &
+        Readonly<{
+          exact_class_match: true;
+          cancellation_policy_accepted: false;
+        }>;
+    }
+>;
+
 type ActionableDryRunBookingResult = Readonly<
-  BookingResultFields & {
-    outcome: "DRY_RUN";
-    exit_code: 0;
-    action_submitted: false;
-    submission_attempts: 0;
-    confirmation_verified: false;
-    retryable: false;
-    availability: "BOOKING_AVAILABLE" | "WAITLIST_AVAILABLE";
-    observed_class: ObservedClass;
-    package_used: string;
-    packages_before: NonEmptyPackageBalances;
-    google_calendar_url?: never;
-    safety_checks: Readonly<{
-      exact_class_match: true;
-      approved_package_verified: true;
-      no_charge: false;
-      cancellation_policy_accepted: false;
-    }>;
-  }
+  BookingResultFields &
+    SelectedPackageEvidence & {
+      outcome: "DRY_RUN";
+      exit_code: 0;
+      action_submitted: false;
+      confirmation_verified: false;
+      availability: "BOOKING_AVAILABLE" | "WAITLIST_AVAILABLE";
+      observed_class: ObservedClass;
+      google_calendar_url?: never;
+      safety_checks: Readonly<{
+        exact_class_match: true;
+        approved_package_verified: true;
+        no_charge: false;
+        cancellation_policy_accepted: false;
+      }>;
+    }
 >;
 
 type ExistingBookedDryRunBookingResult = Readonly<
-  BookingResultFields & {
-    outcome: "DRY_RUN";
-    exit_code: 0;
-    action_submitted: false;
-    submission_attempts: 0;
-    confirmation_verified: true;
-    retryable: false;
-    availability: "ALREADY_BOOKED";
-    observed_class: ObservedClass;
-    package_used?: never;
-    packages_before?: never;
-    safety_checks: SafetyChecks & Readonly<{ exact_class_match: true }>;
-  }
+  BookingResultFields &
+    WithoutPackageEvidence & {
+      outcome: "DRY_RUN";
+      exit_code: 0;
+      action_submitted: false;
+      confirmation_verified: true;
+      availability: "ALREADY_BOOKED";
+      observed_class: ObservedClass;
+      google_calendar_url?: string;
+      safety_checks: SafetyChecks & Readonly<{ exact_class_match: true }>;
+    }
 >;
 
 type ExistingWaitlistedDryRunBookingResult = Readonly<
-  BookingResultFields & {
-    outcome: "DRY_RUN";
-    exit_code: 0;
-    action_submitted: false;
-    submission_attempts: 0;
-    confirmation_verified: true;
-    retryable: false;
-    availability: "ALREADY_WAITLISTED";
-    observed_class: ObservedClass;
-    package_used?: never;
-    packages_before?: never;
-    google_calendar_url?: never;
-    safety_checks: SafetyChecks & Readonly<{ exact_class_match: true }>;
-  }
+  BookingResultFields &
+    WithoutPackageEvidence & {
+      outcome: "DRY_RUN";
+      exit_code: 0;
+      action_submitted: false;
+      confirmation_verified: true;
+      availability: "ALREADY_WAITLISTED";
+      observed_class: ObservedClass;
+      google_calendar_url?: never;
+      safety_checks: SafetyChecks & Readonly<{ exact_class_match: true }>;
+    }
 >;
 
-type PreSubmissionBookingResult<
-  TOutcome extends "SAFE_STOP" | "TECHNICAL_FAILURE",
-  TExitCode extends 20 | 30
-> = Readonly<
-  BookingResultFields & {
-    outcome: TOutcome;
-    exit_code: TExitCode;
-    action_submitted: false;
-    submission_attempts: 0;
-    confirmation_verified: false;
-    retryable: boolean;
-  }
+type SafeStopBookingResult = Readonly<
+  BookingResultFields &
+    OptionalSelectedPackageEvidence & {
+      outcome: "SAFE_STOP";
+      exit_code: 20;
+      action_submitted: false;
+      confirmation_verified: false;
+      observed_class?: ObservedClass;
+      google_calendar_url?: never;
+    }
+>;
+
+type TechnicalFailureBookingResult = Readonly<
+  BookingResultFields &
+    WithoutPackageEvidence & {
+      outcome: "TECHNICAL_FAILURE";
+      exit_code: 30;
+      action_submitted: false;
+      confirmation_verified: false;
+      observed_class?: never;
+      availability?: never;
+      google_calendar_url?: never;
+    }
 >;
 
 type ConfirmationUncertainBookingResult = Readonly<
-  BookingResultFields & {
-    outcome: "CONFIRMATION_UNCERTAIN";
-    exit_code: 40;
-    action_submitted: true;
-    submission_attempts: 1;
-    confirmation_verified: false;
-    retryable: false;
-  }
+  BookingResultFields &
+    WithoutPackageEvidence & {
+      outcome: "CONFIRMATION_UNCERTAIN";
+      exit_code: 40;
+      action_submitted: true;
+      confirmation_verified: false;
+      observed_class?: never;
+      availability?: never;
+      google_calendar_url?: never;
+      safety_checks: Readonly<{
+        exact_class_match: true;
+        approved_package_verified: true;
+        no_charge: true;
+        cancellation_policy_accepted: true;
+      }>;
+    }
 >;
 
 export type BookingResult =
-  | ConfirmedSubmissionBookingResult
-  | ExistingEnrollmentBookingResult
+  | (ConfirmedBookedResult & SelectedPackageEvidence)
+  | ConfirmedWaitlistedResult
+  | (ExistingBookedResult & WithoutPackageEvidence)
+  | ExistingWaitlistedResult
   | ActionableDryRunBookingResult
   | ExistingBookedDryRunBookingResult
   | ExistingWaitlistedDryRunBookingResult
-  | PreSubmissionBookingResult<"SAFE_STOP", 20>
-  | PreSubmissionBookingResult<"TECHNICAL_FAILURE", 30>
+  | SafeStopBookingResult
+  | TechnicalFailureBookingResult
   | ConfirmationUncertainBookingResult;
 
 export type JournalRecord = Readonly<{

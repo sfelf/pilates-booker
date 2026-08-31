@@ -11,23 +11,28 @@ export type RuntimeOperations = Readonly<{
   readJournal(): Promise<JournalRecord | undefined>;
   writeJournal(record: JournalRecord): Promise<void>;
   readResult(): Promise<ResultReadStatus>;
-  writeResult(result: BookingResult): Promise<void>;
+  writeResult(
+    result: BookingResult,
+    recoveryState?: JournalState
+  ): Promise<string>;
 }>;
 
 export type ResultReadStatus =
   | Readonly<{ status: "missing" }>
-  | Readonly<{ status: "valid"; result: BookingResult }>
+  | Readonly<{ status: "valid"; result: BookingResult; bytes: string }>
   | Readonly<{ status: "invalid"; inspectionRequestId?: string }>
   | Readonly<{ status: "failure" }>;
 
 export type CoordinatorDecision = Readonly<{
   result: BookingResult;
   publish: boolean;
+  bytes?: string;
+  recoveryState?: JournalState;
 }>;
 
 export type FinalizedDecision = Readonly<{
   result: BookingResult;
-  published: boolean;
+  bytes?: string;
 }>;
 
 export type RuntimeExecutionContext = Readonly<{
@@ -101,7 +106,8 @@ export class RuntimeCoordinator {
     if (resultStatus.status === "missing") {
       return {
         result: classifyFailure(this.requestId, journal.state),
-        publish: true
+        publish: true,
+        recoveryState: journal.state
       };
     }
 
@@ -113,10 +119,9 @@ export class RuntimeCoordinator {
     }
 
     if (resultStatus.status === "invalid") {
-      const inspectionRequestId = resultStatus.inspectionRequestId;
       return {
         result: classifyFailure(this.requestId, journal.state),
-        publish: inspectionRequestId === this.requestId
+        publish: false
       };
     }
 
@@ -127,17 +132,23 @@ export class RuntimeCoordinator {
       };
     }
 
-    const safeResult = withFixedDetails(resultStatus.result);
-    if (resultMatchesDurableState(safeResult, journal.state, this.requestId)) {
+    if (
+      resultMatchesDurableState(
+        resultStatus.result,
+        journal.state,
+        this.requestId
+      )
+    ) {
       return {
-        result: safeResult,
-        publish: safeResult !== resultStatus.result
+        result: resultStatus.result,
+        publish: false,
+        bytes: resultStatus.bytes
       };
     }
 
     return {
       result: classifyFailure(this.requestId, journal.state),
-      publish: true
+      publish: false
     };
   }
 
@@ -175,12 +186,19 @@ export class RuntimeCoordinator {
 
   async finalize(decision: CoordinatorDecision): Promise<FinalizedDecision> {
     const result = withFixedDetails(decision.result);
-    if (!decision.publish) return { result, published: true };
+    if (!decision.publish) {
+      return decision.bytes === undefined
+        ? { result }
+        : { result, bytes: decision.bytes };
+    }
     try {
-      await this.operations.writeResult(result);
-      return { result, published: true };
+      const bytes = await this.operations.writeResult(
+        result,
+        decision.recoveryState
+      );
+      return { result, bytes };
     } catch {
-      return { result, published: false };
+      return { result };
     }
   }
 
@@ -267,8 +285,6 @@ function technicalFailureResult(requestId: string): BookingResult {
     exit_code: 30,
     action_submitted: false,
     confirmation_verified: false,
-    retryable: false,
-    submission_attempts: 0,
     safety_checks: safetyChecks,
     details: "Runtime operation failed."
   };
@@ -282,8 +298,6 @@ function confirmationUncertainResult(requestId: string): BookingResult {
     exit_code: 40,
     action_submitted: true,
     confirmation_verified: false,
-    retryable: false,
-    submission_attempts: 1,
     safety_checks: submittedSafetyChecks,
     details: "Booking confirmation is uncertain."
   };
@@ -317,7 +331,6 @@ export function resultMatchesDurableState(
 
   const noSubmission =
     !result.action_submitted &&
-    result.submission_attempts === 0 &&
     !result.safety_checks.cancellation_policy_accepted;
 
   switch (result.outcome) {
@@ -325,7 +338,6 @@ export function resultMatchesDurableState(
     case "WAITLISTED":
       return (
         result.action_submitted &&
-        result.submission_attempts === 1 &&
         result.confirmation_verified &&
         result.safety_checks.cancellation_policy_accepted &&
         result.safety_checks.exact_class_match &&
@@ -342,9 +354,7 @@ export function resultMatchesDurableState(
     case "DRY_RUN":
       return (
         !result.action_submitted &&
-        result.submission_attempts === 0 &&
         result.exit_code === 0 &&
-        !result.retryable &&
         result.safety_checks.exact_class_match &&
         (isActionableDryRun(result)
           ? !result.confirmation_verified &&
@@ -359,9 +369,7 @@ export function resultMatchesDurableState(
     case "CONFIRMATION_UNCERTAIN":
       return (
         result.action_submitted &&
-        result.submission_attempts === 1 &&
         !result.confirmation_verified &&
-        !result.retryable &&
         result.safety_checks.exact_class_match &&
         result.safety_checks.approved_package_verified &&
         result.safety_checks.no_charge &&

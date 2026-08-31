@@ -193,7 +193,7 @@ class InMemoryBookingPage implements BookingPage {
   constructor(
     private readonly states: readonly BookingPageState[],
     private readonly failingOperation?: FailingOperation,
-    private readonly confirmation: BookingConfirmation = "UNKNOWN"
+    private readonly confirmation: BookingConfirmation = { kind: "UNKNOWN" }
   ) {
     if (states.length === 0) throw new Error("test page requires state");
   }
@@ -284,7 +284,7 @@ class WorkflowRuntimeOperations implements RuntimeOperations {
     return { status: "missing" };
   }
 
-  async writeResult(result: BookingResult): Promise<void> {
+  async writeResult(result: BookingResult): Promise<string> {
     void result;
     throw new Error("not used by coordinator execution");
   }
@@ -403,12 +403,10 @@ describe("booking workflow dry-run decisions", () => {
         outcome: "DRY_RUN",
         exit_code: 0,
         action_submitted: false,
-        submission_attempts: 0,
         confirmation_verified: false,
-        retryable: false,
         availability,
         observed_class: observedClass,
-        package_used: "Synthetic Priority Pack",
+        package_selected: "Synthetic Priority Pack",
         packages_before: [
           {
             name: "Synthetic Backup Pack",
@@ -421,7 +419,7 @@ describe("booking workflow dry-run decisions", () => {
             approved: false
           },
           {
-            name: "✨ Synthetic Priority Pack ✨",
+            name: "Synthetic Priority Pack",
             remaining: 3,
             approved: true
           }
@@ -472,9 +470,7 @@ describe("booking workflow dry-run decisions", () => {
         outcome: "DRY_RUN",
         exit_code: 0,
         action_submitted: false,
-        submission_attempts: 0,
         confirmation_verified: true,
-        retryable: false,
         availability,
         observed_class: observedClass,
         safety_checks: {
@@ -573,9 +569,7 @@ describe("booking workflow dry-run decisions", () => {
       outcome: "SAFE_STOP",
       exit_code: 20,
       action_submitted: false,
-      submission_attempts: 0,
       confirmation_verified: false,
-      retryable: false,
       safety_checks: {
         exact_class_match: true,
         approved_package_verified: false,
@@ -617,9 +611,7 @@ describe("booking workflow existing-enrollment decisions", () => {
         outcome,
         exit_code: 0,
         action_submitted: false,
-        submission_attempts: 0,
         confirmation_verified: true,
-        retryable: false,
         observed_class: observedClass,
         safety_checks: {
           exact_class_match: true,
@@ -681,7 +673,10 @@ function authorizedFinalState(
 
 function expectSafeStop(
   preparation: BookingPreparation | BookingResult,
-  exactClassMatch: boolean
+  exactClassMatch: boolean,
+  packageEvidence: Partial<
+    Pick<BookingResult, "package_selected" | "packages_before">
+  > = {}
 ): void {
   expect("outcome" in preparation).toBe(true);
   expect(preparation).toEqual({
@@ -690,15 +685,14 @@ function expectSafeStop(
     outcome: "SAFE_STOP",
     exit_code: 20,
     action_submitted: false,
-    submission_attempts: 0,
     confirmation_verified: false,
-    retryable: false,
     safety_checks: {
       exact_class_match: exactClassMatch,
       approved_package_verified: false,
       no_charge: false,
       cancellation_policy_accepted: false
     },
+    ...packageEvidence,
     details: "Booking stopped safely."
   });
 }
@@ -741,7 +735,7 @@ describe("booking workflow final pre-submission authorization", () => {
             approved: false
           },
           {
-            name: "✨ Synthetic Priority Pack ✨",
+            name: "Synthetic Priority Pack",
             remaining: 3,
             approved: true
           }
@@ -901,11 +895,12 @@ describe("booking workflow initial safe stops", () => {
   });
 
   it.each([
-    ["sold out", bookingState({ action: "sold_out" }), baseRequest],
+    ["sold out", bookingState({ action: "sold_out" }), baseRequest, undefined],
     [
       "disallowed waitlist",
       bookingState({ action: "waitlist" }),
-      { ...baseRequest, permitted_actions: ["book"] as const }
+      { ...baseRequest, permitted_actions: ["book"] as const },
+      undefined
     ],
     [
       "zero approved balance",
@@ -915,7 +910,8 @@ describe("booking workflow initial safe stops", () => {
           { ...priorityPackage, remaining: 0 }
         ]
       }),
-      baseRequest
+      baseRequest,
+      { package_selected: null, packages_before: [] }
     ],
     [
       "missing approved package",
@@ -931,7 +927,13 @@ describe("booking workflow initial safe stops", () => {
           }
         ]
       }),
-      baseRequest
+      baseRequest,
+      {
+        package_selected: null,
+        packages_before: [
+          { name: "Synthetic Other Pack", remaining: 4, approved: false }
+        ]
+      }
     ],
     [
       "duplicate normalized package",
@@ -943,16 +945,66 @@ describe("booking workflow initial safe stops", () => {
           { ...priorityPackage, row: 3, name: "Synthetic Priority Pack" }
         ]
       }),
-      baseRequest
+      baseRequest,
+      undefined
     ]
-  ] as const)("stops safely for %s", async (_case, initial, request) => {
-    const page = new InMemoryBookingPage([initial]);
-    const { context } = executionContext(request);
+  ] as const)(
+    "stops safely for %s",
+    async (_case, initial, request, packageEvidence) => {
+      const page = new InMemoryBookingPage([initial]);
+      const { context } = executionContext(request);
+
+      const preparation = await prepareBookingWorkflow(context, page);
+
+      expectSafeStop(preparation, true, packageEvidence);
+      expect(page.operations).toEqual(["read"]);
+      expectNoSubmission(page);
+    }
+  );
+
+  it("keeps trustworthy balances with a null selection when no approved package is available", async () => {
+    const page = new InMemoryBookingPage([
+      bookingState({
+        packages: [
+          {
+            row: 4,
+            name: "Synthetic Other Pack",
+            remaining: 4,
+            active: true,
+            product: false,
+            control: { visibleCount: 1, selected: false, enabled: true }
+          }
+        ]
+      })
+    ]);
+    const { context } = executionContext();
+
+    const preparation = await prepareBookingWorkflow(context, page);
+
+    expectSafeStop(preparation, true, {
+      package_selected: null,
+      packages_before: [
+        { name: "Synthetic Other Pack", remaining: 4, approved: false }
+      ]
+    });
+    expectNoSubmission(page);
+  });
+
+  it("omits package evidence when the inventory is untrustworthy", async () => {
+    const page = new InMemoryBookingPage([
+      bookingState({
+        packages: [
+          backupPackage,
+          priorityPackage,
+          { ...priorityPackage, row: 3, name: "Synthetic Priority Pack" }
+        ]
+      })
+    ]);
+    const { context } = executionContext();
 
     const preparation = await prepareBookingWorkflow(context, page);
 
     expectSafeStop(preparation, true);
-    expect(page.operations).toEqual(["read"]);
     expectNoSubmission(page);
   });
 
@@ -1154,8 +1206,7 @@ describe("booking workflow confirmed submission", () => {
     expect(result).toBe(callbackResult);
     expect(result).toMatchObject({
       outcome: "DRY_RUN",
-      action_submitted: false,
-      submission_attempts: 0
+      action_submitted: false
     });
     expect(browserInputs).toEqual([
       context.profileDir,
@@ -1174,7 +1225,13 @@ describe("booking workflow confirmed submission", () => {
       const page = new InMemoryBookingPage(
         [bookingState({ action }), authorizedFinalState({ action })],
         undefined,
-        outcome
+        outcome === "BOOKED"
+          ? {
+              kind: "BOOKED",
+              googleCalendarUrl:
+                "https://app.arketa.co/api/calendar/google?classId=workflow"
+            }
+          : { kind: "WAITLISTED" }
       );
       const { context, advances } = executionContext();
 
@@ -1189,11 +1246,9 @@ describe("booking workflow confirmed submission", () => {
         outcome,
         exit_code: 0,
         action_submitted: true,
-        submission_attempts: 1,
         confirmation_verified: true,
-        retryable: false,
         observed_class: observedClass,
-        package_used: "Synthetic Priority Pack",
+        package_selected: "Synthetic Priority Pack",
         packages_before: [
           {
             name: "Synthetic Backup Pack",
@@ -1206,7 +1261,7 @@ describe("booking workflow confirmed submission", () => {
             approved: false
           },
           {
-            name: "✨ Synthetic Priority Pack ✨",
+            name: "Synthetic Priority Pack",
             remaining: 3,
             approved: true
           }
@@ -1217,6 +1272,12 @@ describe("booking workflow confirmed submission", () => {
           no_charge: true,
           cancellation_policy_accepted: true
         },
+        ...(outcome === "BOOKED"
+          ? {
+              google_calendar_url:
+                "https://app.arketa.co/api/calendar/google?classId=workflow"
+            }
+          : {}),
         details
       });
       expect(page.operations.slice(-3)).toEqual([
@@ -1256,7 +1317,7 @@ describe("booking workflow post-submit uncertainty", () => {
     [
       "timeout/unknown confirmation",
       undefined,
-      "UNKNOWN",
+      { kind: "UNKNOWN" },
       false,
       "SUBMITTING",
       1
@@ -1264,7 +1325,7 @@ describe("booking workflow post-submit uncertainty", () => {
     [
       "wrong waitlist confirmation after book",
       undefined,
-      "WAITLISTED",
+      { kind: "WAITLISTED" },
       false,
       "SUBMITTING",
       1
@@ -1272,14 +1333,35 @@ describe("booking workflow post-submit uncertainty", () => {
     [
       "conflicting confirmation evidence",
       undefined,
-      "UNKNOWN",
+      { kind: "UNKNOWN" },
       false,
       "SUBMITTING",
       1
     ],
-    ["submission page throw", "submit", "UNKNOWN", false, "SUBMITTING", 0],
-    ["confirmation page throw", "confirm", "BOOKED", false, "SUBMITTING", 1],
-    ["browser close failure", undefined, "BOOKED", true, "CONFIRMED", 1]
+    [
+      "submission page throw",
+      "submit",
+      { kind: "UNKNOWN" },
+      false,
+      "SUBMITTING",
+      0
+    ],
+    [
+      "confirmation page throw",
+      "confirm",
+      { kind: "BOOKED" },
+      false,
+      "SUBMITTING",
+      1
+    ],
+    [
+      "browser close failure",
+      undefined,
+      { kind: "BOOKED" },
+      true,
+      "CONFIRMED",
+      1
+    ]
   ] as const)(
     "classifies %s from durable state without a second click",
     async (
@@ -1308,9 +1390,7 @@ describe("booking workflow post-submit uncertainty", () => {
           outcome: "CONFIRMATION_UNCERTAIN",
           exit_code: 40,
           action_submitted: true,
-          submission_attempts: 1,
           confirmation_verified: false,
-          retryable: false,
           safety_checks: {
             exact_class_match: true,
             approved_package_verified: true,
@@ -1348,7 +1428,7 @@ describe("booking workflow post-submit uncertainty", () => {
         authorizedFinalState({ observed_class: incompleteObservedClass })
       ],
       undefined,
-      "BOOKED"
+      { kind: "BOOKED" }
     );
 
     const run = await runWorkflowThroughCoordinator(page);
@@ -1358,9 +1438,7 @@ describe("booking workflow post-submit uncertainty", () => {
         outcome: "CONFIRMATION_UNCERTAIN",
         exit_code: 40,
         action_submitted: true,
-        submission_attempts: 1,
-        confirmation_verified: false,
-        retryable: false
+        confirmation_verified: false
       }
     });
     expect(run.executorError).toBeInstanceOf(BookingWorkflowError);

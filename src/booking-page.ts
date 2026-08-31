@@ -49,7 +49,10 @@ export type BookingPageState = Readonly<{
   }>;
 }>;
 
-export type BookingConfirmation = "BOOKED" | "WAITLISTED" | "UNKNOWN";
+export type BookingConfirmation =
+  | Readonly<{ kind: "BOOKED"; googleCalendarUrl?: string }>
+  | Readonly<{ kind: "WAITLISTED" }>
+  | Readonly<{ kind: "UNKNOWN" }>;
 
 export type BookingPage = Readonly<{
   read(): Promise<BookingPageState>;
@@ -67,7 +70,10 @@ export type BookingBrowser = <T>(
   use: (page: BookingPage) => Promise<T>
 ) => Promise<T>;
 
-type BookingPageOptions = Readonly<{ confirmationTimeoutMs?: number }>;
+export type BookingPageOptions = Readonly<{
+  confirmationTimeoutMs?: number;
+  classId?: string;
+}>;
 
 type BookingBrowserOptions = Readonly<{
   readinessTimeoutMs?: number;
@@ -169,7 +175,8 @@ export function createBookingPage(
         page,
         action,
         confirmationTimeoutMs,
-        lastReadConfirmation
+        lastReadConfirmation,
+        options.classId
       )
   };
 }
@@ -198,7 +205,8 @@ async function openBookingBrowser<T>(
   launcher: PersistentBrowserLauncher | undefined,
   readinessTimeoutMs: number
 ): Promise<T> {
-  const validatedUrl = validateCheckoutUrl(checkoutUrl).href;
+  const validatedCheckoutUrl = validateCheckoutUrl(checkoutUrl);
+  const validatedUrl = validatedCheckoutUrl.href;
   const inContext = async (context: BrowserContextLike): Promise<T> => {
     const page = context.pages()[0] ?? (await context.newPage());
     try {
@@ -214,7 +222,14 @@ async function openBookingBrowser<T>(
     } catch {
       throw new BookingBrowserReadinessError();
     }
-    return use(createBookingPage(page, expectedClass));
+    const classId = validatedCheckoutUrl.pathname.split("/")[5];
+    return use(
+      createBookingPage(
+        page,
+        expectedClass,
+        classId === undefined ? {} : { classId }
+      )
+    );
   };
 
   return launcher === undefined
@@ -516,16 +531,20 @@ async function waitForExactConfirmation(
   page: Page,
   action: PermittedAction,
   timeoutMs: number,
-  preSubmission: BookingPageState["confirmation"] | undefined
+  preSubmission: BookingPageState["confirmation"] | undefined,
+  classId: string | undefined
 ): Promise<BookingConfirmation> {
   if (
     preSubmission === undefined ||
     preSubmission.bookedVisibleCount !== 0 ||
     preSubmission.waitlistedVisibleCount !== 0
   ) {
-    return "UNKNOWN";
+    return { kind: "UNKNOWN" };
   }
 
+  const deadline = performance.now() + timeoutMs;
+  const remainingMs = deadline - performance.now();
+  if (remainingMs <= 0) return { kind: "UNKNOWN" };
   try {
     const handle = await page.waitForFunction(
       (): false | ConfirmationCounts => {
@@ -555,22 +574,74 @@ async function waitForExactConfirmation(
           : counts;
       },
       undefined,
-      { polling: 25, timeout: timeoutMs }
+      { polling: 25, timeout: remainingMs }
     );
     const counts = (await handle.jsonValue()) as ConfirmationCounts;
     await handle.dispose();
     if (counts.bookedVisibleCount + counts.waitlistedVisibleCount !== 1) {
-      return "UNKNOWN";
+      return { kind: "UNKNOWN" };
     }
     if (action === "book" && counts.bookedVisibleCount === 1) {
-      return "BOOKED";
+      const googleCalendarUrl = await waitForGoogleCalendarUrl(
+        page,
+        classId,
+        deadline
+      );
+      return googleCalendarUrl === undefined
+        ? { kind: "BOOKED" }
+        : { kind: "BOOKED", googleCalendarUrl };
     }
     if (action === "waitlist" && counts.waitlistedVisibleCount === 1) {
-      return "WAITLISTED";
+      return { kind: "WAITLISTED" };
     }
-    return "UNKNOWN";
+    return { kind: "UNKNOWN" };
   } catch {
-    return "UNKNOWN";
+    return { kind: "UNKNOWN" };
+  }
+}
+
+async function waitForGoogleCalendarUrl(
+  page: Page,
+  classId: string | undefined,
+  deadline: number
+): Promise<string | undefined> {
+  if (classId === undefined) return undefined;
+  const remainingMs = deadline - performance.now();
+  if (remainingMs <= 0) return undefined;
+  const expectedUrl = `https://app.arketa.co/api/calendar/google?classId=${classId}`;
+  try {
+    const handle = await page.waitForFunction(
+      (expected): string | false => {
+        const isVisible = (element: Element): element is HTMLElement => {
+          if (!(element instanceof HTMLElement) || element.hidden) {
+            return false;
+          }
+          const style = getComputedStyle(element);
+          if (style.display === "none" || style.visibility === "hidden") {
+            return false;
+          }
+          const box = element.getBoundingClientRect();
+          return box.width > 0 && box.height > 0;
+        };
+        const links = Array.from(document.querySelectorAll("a")).filter(
+          (link) =>
+            isVisible(link) &&
+            (link.textContent ?? "").replace(/\s+/gu, " ").trim() === "Google"
+        );
+        return links.length === 1 && links[0]?.getAttribute("href") === expected
+          ? expected
+          : false;
+      },
+      expectedUrl,
+      { polling: 25, timeout: remainingMs }
+    );
+    const googleCalendarUrl = await handle.jsonValue();
+    await handle.dispose();
+    return typeof googleCalendarUrl === "string"
+      ? googleCalendarUrl
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 

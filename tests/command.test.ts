@@ -1,9 +1,10 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
+  COMMAND_FAILURE_DIAGNOSTIC,
   parseCommandArguments,
   runCommand,
   type CommandDependencies
@@ -103,8 +104,6 @@ describe("runCommand", () => {
       exit_code: 20,
       action_submitted: false,
       confirmation_verified: false,
-      retryable: false,
-      submission_attempts: 0,
       safety_checks: {
         exact_class_match: false,
         approved_package_verified: false,
@@ -113,6 +112,8 @@ describe("runCommand", () => {
       },
       details: "Booking stopped safely."
     };
+    const emitted: string[] = [];
+    const reportDiagnostic = vi.fn();
     const dependencies: CommandDependencies = {
       cwd: runtimeDir,
       loadPolicy: async () => policy,
@@ -121,7 +122,11 @@ describe("runCommand", () => {
       execute: async ({ advance }) => {
         await advance("VALIDATED");
         return result;
-      }
+      },
+      emitResult: async (bytes) => {
+        emitted.push(bytes);
+      },
+      reportDiagnostic
     };
 
     await expect(
@@ -130,10 +135,32 @@ describe("runCommand", () => {
         dependencies
       )
     ).resolves.toBe(20);
-    await expect(
-      readFile(join(runtimeDir, "results", `${requestId}.json`), "utf8").then(
-        JSON.parse
-      )
-    ).resolves.toMatchObject({ request_id: requestId, outcome: "SAFE_STOP" });
+    const durable = await readFile(
+      join(runtimeDir, "results", `${requestId}.json`),
+      "utf8"
+    );
+    expect(JSON.parse(durable)).toMatchObject({
+      request_id: requestId,
+      outcome: "SAFE_STOP"
+    });
+    expect(emitted).toEqual([durable]);
+    expect(reportDiagnostic).not.toHaveBeenCalled();
+  });
+
+  test("reports one fixed printable stderr line for invalid command arguments", async () => {
+    const emitResult = vi.fn(async () => undefined);
+    const reportDiagnostic = vi.fn();
+    const dependencies: CommandDependencies = {
+      loadRequest: vi.fn(),
+      validateRequest: vi.fn(),
+      emitResult,
+      reportDiagnostic
+    };
+
+    await expect(runCommand([], dependencies)).resolves.toBe(30);
+    expect(emitResult).not.toHaveBeenCalled();
+    expect(reportDiagnostic).toHaveBeenCalledTimes(1);
+    expect(reportDiagnostic).toHaveBeenCalledWith(COMMAND_FAILURE_DIAGNOSTIC);
+    expect(COMMAND_FAILURE_DIAGNOSTIC).toMatch(/^[ -~]+$/u);
   });
 });

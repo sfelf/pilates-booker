@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import type {
   BookingPolicy,
@@ -16,9 +17,16 @@ import {
   type LockReleaseResult,
   type ProfileLock
 } from "./lock.js";
-import { validateResult } from "./result-validator.js";
+import {
+  validateResultForRecovery,
+  validateResultForRequest
+} from "./result-validator.js";
+import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
 import { resolveRuntimePaths } from "./runtime-paths.js";
-import { RuntimeCoordinator } from "./runtime-coordinator.js";
+import {
+  resultMatchesDurableState,
+  RuntimeCoordinator
+} from "./runtime-coordinator.js";
 import type { ResultReadStatus } from "./runtime-coordinator.js";
 import { loadPolicy as loadPolicyFile } from "./policy.js";
 
@@ -31,6 +39,9 @@ export type ExecutionContext = Readonly<{
 
 export type CliExecutor = (context: ExecutionContext) => Promise<BookingResult>;
 
+export const CLI_FAILURE_DIAGNOSTIC = "Booking command failed." as const;
+export type CliDiagnostic = typeof CLI_FAILURE_DIAGNOSTIC;
+
 export type CliDependencies = Readonly<{
   baseDir?: string;
   cwd?: string;
@@ -40,9 +51,23 @@ export type CliDependencies = Readonly<{
   execute?: CliExecutor;
   bookingBrowser?: BookingBrowser;
   acquireLock?(path: string): Promise<ProfileLock>;
+  emitResult?: ResultEmitter;
+  reportDiagnostic?(diagnostic: CliDiagnostic): void;
 }>;
 
-async function readResult(path: string): Promise<ResultReadStatus> {
+function reportCliFailure(dependencies: CliDependencies): 30 {
+  try {
+    dependencies.reportDiagnostic?.(CLI_FAILURE_DIAGNOSTIC);
+  } catch {
+    // A diagnostic transport failure cannot expose the underlying error.
+  }
+  return 30;
+}
+
+async function readResult(
+  path: string,
+  requestId: string
+): Promise<ResultReadStatus> {
   let raw;
   try {
     raw = await readFile(path, "utf8");
@@ -60,11 +85,13 @@ async function readResult(path: string): Promise<ResultReadStatus> {
     return { status: "invalid" };
   }
 
-  if (validateResult(value)) return { status: "valid", result: value };
-  const requestId = inspectionRequestId(value);
-  return requestId === undefined
+  if (validateResultForRecovery(value, requestId)) {
+    return { status: "valid", result: value, bytes: raw };
+  }
+  const inspectedRequestId = inspectionRequestId(value);
+  return inspectedRequestId === undefined
     ? { status: "invalid" }
-    : { status: "invalid", inspectionRequestId: requestId };
+    : { status: "invalid", inspectionRequestId: inspectedRequestId };
 }
 
 function inspectionRequestId(value: unknown): string | undefined {
@@ -75,11 +102,61 @@ function inspectionRequestId(value: unknown): string | undefined {
   return typeof requestId === "string" ? requestId : undefined;
 }
 
-async function publishResult(
+export async function publishResult(
   path: string,
-  result: BookingResult
-): Promise<void> {
-  await writeJsonAtomic(path, result, validateResult);
+  result: BookingResult,
+  request: BookingRequest,
+  policy: BookingPolicy,
+  readFinalized: (path: string) => Promise<string> = (selectedPath) =>
+    readFile(selectedPath, "utf8")
+): Promise<string> {
+  return publishValidatedResult(
+    path,
+    result,
+    (value): value is BookingResult =>
+      validateResultForRequest(value, request, policy),
+    readFinalized
+  );
+}
+
+async function publishRecoveredResult(
+  path: string,
+  result: BookingResult,
+  requestId: string,
+  state: JournalState
+): Promise<string> {
+  return publishValidatedResult(
+    path,
+    result,
+    (value): value is BookingResult =>
+      validateResultForRecovery(value, requestId) &&
+      resultMatchesDurableState(value, state, requestId)
+  );
+}
+
+async function publishValidatedResult(
+  path: string,
+  result: BookingResult,
+  validate: (value: unknown) => value is BookingResult,
+  readFinalized: (path: string) => Promise<string> = (selectedPath) =>
+    readFile(selectedPath, "utf8")
+): Promise<string> {
+  await writeJsonAtomic(path, result, validate);
+  const bytes = await readFinalized(path);
+  let value: unknown;
+  try {
+    value = JSON.parse(bytes);
+  } catch {
+    throw new Error("finalized result is invalid");
+  }
+  if (
+    bytes !== `${JSON.stringify(value)}\n` ||
+    !validate(value) ||
+    !isDeepStrictEqual(value, result)
+  ) {
+    throw new Error("finalized result is invalid");
+  }
+  return bytes;
 }
 
 export async function runCli(
@@ -92,7 +169,7 @@ export async function runCli(
     argv[1] === "" ||
     argv[2] === ""
   ) {
-    return 30;
+    return reportCliFailure(dependencies);
   }
   let policyPath: string;
   try {
@@ -100,7 +177,7 @@ export async function runCli(
       ? argv[1]!
       : resolve(dependencies.cwd ?? process.cwd(), argv[1]!);
   } catch {
-    return 30;
+    return reportCliFailure(dependencies);
   }
   const loadPolicy = dependencies.loadPolicy ?? loadPolicyFile;
   let policy: BookingPolicy;
@@ -110,23 +187,31 @@ export async function runCli(
     const raw = await dependencies.loadRequest(argv[2]!);
     request = dependencies.validateRequest(raw, policy);
   } catch {
-    return 30;
+    return reportCliFailure(dependencies);
   }
   let paths;
   try {
     paths = resolveRuntimePaths(dependencies.baseDir, request.request_id);
   } catch {
-    return 30;
+    return reportCliFailure(dependencies);
   }
   const acquireLock = dependencies.acquireLock ?? acquireProfileLock;
   const lock = await acquireLock(paths.lockFile).catch(() => undefined);
-  if (lock === undefined) return 30;
+  if (lock === undefined) return reportCliFailure(dependencies);
 
   const coordinator = new RuntimeCoordinator(request, {
     readJournal: () => readJournal(paths.journalFile),
     writeJournal: (record) => advanceJournal(paths.journalFile, record),
-    readResult: () => readResult(paths.resultFile),
-    writeResult: (result) => publishResult(paths.resultFile, result)
+    readResult: () => readResult(paths.resultFile, request.request_id),
+    writeResult: (result, recoveryState) =>
+      recoveryState === undefined
+        ? publishResult(paths.resultFile, result, request, policy)
+        : publishRecoveredResult(
+            paths.resultFile,
+            result,
+            request.request_id,
+            recoveryState
+          )
   });
   const execute: CliExecutor =
     dependencies.execute ??
@@ -148,5 +233,13 @@ export async function runCli(
     lockRelease = undefined;
   }
   void lockRelease;
+  if (finalized.bytes === undefined) {
+    return reportCliFailure(dependencies);
+  }
+  try {
+    await (dependencies.emitResult ?? writeResultToStdout)(finalized.bytes);
+  } catch {
+    return reportCliFailure(dependencies);
+  }
   return finalized.result.exit_code;
 }

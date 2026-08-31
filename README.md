@@ -74,7 +74,15 @@ $request = "C:\private\booking-request.json"
 npm start -- --runtime $runtime --policy $policy $request
 ```
 
-Each canonical request UUID owns `<runtime>/journals/<uuid>.json` and `<runtime>/results/<uuid>.json`. Repeating a UUID returns its completed result without opening the browser; use a new UUID for a new requested transaction. The runtime lock prevents overlapping invocations against the same profile.
+Each canonical request UUID owns `<runtime>/journals/<uuid>.json` and `<runtime>/results/<uuid>.json`. Repeating a UUID returns the completed result without opening the browser; use a new UUID for a new requested transaction. The runtime lock prevents overlapping invocations against the same profile.
+
+## Result contract and recovery
+
+When the command has a finalized result, it writes the exact contents of `<runtime>/results/<uuid>.json` to stdout: one compact JSON object followed by one newline. Repeating the same UUID emits those exact stored bytes again, including field order and newline. Stdout is therefore the machine-readable result transport, while stderr is reserved for the fixed single-line diagnostic `Booking command failed.` when the command cannot produce a finalized result.
+
+The command exits `0` for a confirmed booking, waitlist, recognized existing enrollment, or dry run; `20` for a safe stop before submission; `30` for a command or technical failure; and `40` when a submission occurred but confirmation remains uncertain. The JSON result includes `package_selected` and `packages_before` only when package-selection evidence is applicable. A `google_calendar_url` is optional and appears only for `BOOKED`, `ALREADY_BOOKED`, or a `DRY_RUN` whose availability is `ALREADY_BOOKED`; when present, it is the strict matching Arketa calendar URL for the checkout class.
+
+Recovery is limited to returning an already finalized result for the same UUID. The command does not automatically retry a submission and does not claim stronger durability than the journal and result files. To request another booking attempt or a new transaction, create a new UUID and inspect the prior result before invoking it.
 
 [`config/booking-request.example.json`](config/booking-request.example.json) and [`config/booking-policy.example.json`](config/booking-policy.example.json) contain synthetic values only. A non-dry run can perform one booking or waitlist submission, so inspect the dry-run result before changing `dry_run` to `false`.
 
