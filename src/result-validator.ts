@@ -188,11 +188,19 @@ function hasExactSelectedPackageEvidence(result: BookingResult): boolean {
     package_selected?: unknown;
     packages_before?: unknown;
   };
-  if (
-    evidence.package_selected === undefined ||
-    evidence.package_selected === null
-  ) {
+  if (evidence.package_selected === undefined) {
     return true;
+  }
+  if (evidence.package_selected === null) {
+    return (
+      Array.isArray(evidence.packages_before) &&
+      evidence.packages_before.every(
+        (candidate) =>
+          typeof candidate === "object" &&
+          candidate !== null &&
+          (candidate as { approved?: unknown }).approved === false
+      )
+    );
   }
   if (
     typeof evidence.package_selected !== "string" ||

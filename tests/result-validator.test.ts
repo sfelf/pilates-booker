@@ -123,6 +123,21 @@ const safeStop = {
   details: "Booking stopped safely."
 } as const;
 
+const safeStopWithUnapprovedInventory = {
+  ...safeStop,
+  package_selected: null,
+  packages_before: [
+    { name: "Synthetic Unapproved Package", remaining: 2, approved: false }
+  ]
+} as const;
+
+const safeStopWithApprovedInventory = {
+  ...safeStopWithUnapprovedInventory,
+  packages_before: [
+    { name: "Synthetic Priority Package", remaining: 2, approved: true }
+  ]
+} as const;
+
 const technicalFailure = {
   ...safeStop,
   outcome: "TECHNICAL_FAILURE",
@@ -244,6 +259,18 @@ describe("validateResultForRequest", () => {
     ).toBe(false);
   });
 
+  it("accepts a null selection when every package balance is unapproved", () => {
+    expect(
+      validateResultForRequest(safeStopWithUnapprovedInventory, request)
+    ).toBe(true);
+  });
+
+  it("rejects a null selection with an approved positive package balance", () => {
+    expect(
+      validateResultForRequest(safeStopWithApprovedInventory, request)
+    ).toBe(false);
+  });
+
   it.each([
     ["BOOKED", booked, false],
     ["WAITLISTED", waitlisted, false],
@@ -266,6 +293,24 @@ describe("validateResultForRequest", () => {
 describe("validateResultForRecovery", () => {
   it("accepts structurally coherent finalized evidence without a mutable checkout binding", () => {
     expect(validateResultForRecovery(booked, request.request_id)).toBe(true);
+  });
+
+  it("accepts finalized null selection evidence when every package balance is unapproved", () => {
+    expect(
+      validateResultForRecovery(
+        safeStopWithUnapprovedInventory,
+        request.request_id
+      )
+    ).toBe(true);
+  });
+
+  it("rejects finalized null selection evidence with an approved positive package balance", () => {
+    expect(
+      validateResultForRecovery(
+        safeStopWithApprovedInventory,
+        request.request_id
+      )
+    ).toBe(false);
   });
 
   it.each([
