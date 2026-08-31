@@ -28,7 +28,7 @@ describe("README first-use contract", () => {
     const readme = await readRepositoryFile("README.md");
     const localTargets = [
       ...readme.matchAll(/\[[^\]]+\]\((?!https?:|#)([^)]+)\)/g)
-    ].map(([, target]) => target);
+    ].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
 
     expect(localTargets.length).toBeGreaterThan(0);
     for (const target of localTargets) {
@@ -82,5 +82,62 @@ describe("README first-use contract", () => {
     expect(readme).toContain(
       "does not recheck form fields or the URL afterward"
     );
+  });
+
+  it("documents the machine-readable result and recovery contract", async () => {
+    const readme = await readRepositoryFile("README.md");
+    for (const exitCode of ["`0`", "`20`", "`30`", "`40`"]) {
+      expect(readme).toContain(exitCode);
+    }
+    expect(readme).toContain("exact stored bytes");
+    expect(readme).toContain("Booking command failed.");
+    expect(readme).toContain("packages_before");
+    expect(readme).toContain("package_selected");
+    expect(readme).toContain("google_calendar_url");
+    expect(readme).toContain("optional metadata");
+    expect(readme).toContain("CONFIRMATION_UNCERTAIN");
+    expect(readme).toContain("does not retry automatically");
+  });
+
+  it("documents private-data and operator recovery boundaries", async () => {
+    const readme = await readRepositoryFile("README.md");
+    for (const phrase of [
+      "outside Git",
+      "authenticated browser profile",
+      "injury",
+      "screenshots",
+      "traces",
+      "cookies",
+      "verify that no booking process is running",
+      "same request UUID",
+      "new request UUID"
+    ]) {
+      expect(readme).toContain(phrase);
+    }
+  });
+
+  it("links operator guidance to detailed architecture and safety docs", async () => {
+    const readme = await readRepositoryFile("README.md");
+    expect(readme).toContain("[Architecture](docs/architecture.md)");
+    expect(readme).toContain("[Safety boundaries](docs/safety-boundaries.md)");
+    expect(readme).toContain("npm run format:check");
+    expect(readme).toContain("npm run lint");
+    expect(readme).toContain("npm run typecheck");
+    expect(readme).toContain("npm run build");
+    expect(readme).toContain("npm test");
+  });
+
+  it("does not contain known private planning or live-page values", async () => {
+    const readme = await readRepositoryFile("README.md");
+    for (const forbidden of [
+      "tnelson@sfelf.com",
+      "c0JdazGBINRcEMeP3pAu",
+      "bT1FeE37MjReCgAHFYxb",
+      "Move With Studio",
+      ".superpowers/",
+      "docs/superpowers/"
+    ]) {
+      expect(readme).not.toContain(forbidden);
+    }
   });
 });

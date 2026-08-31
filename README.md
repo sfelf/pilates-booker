@@ -6,7 +6,7 @@
 
 This program does not discover or schedule classes, automate login, solve CAPTCHA or MFA, retry automatically, or guarantee success after uncertainty. It validates the supplied checkout, stops safely when it cannot continue within its supported boundary, and may perform one external booking or waitlist submission only after you set a request to live mode. Arketa remains authoritative for enrollment state.
 
-Keep all private runtime artifacts outside this checkout and out of Git: authenticated browser state, booking URLs, attendee information, injury content, requests, policies, journals, results, screenshots, traces, and live page captures. The tracked configuration files are synthetic examples only.
+Keep all private runtime artifacts outside this checkout and outside Git: authenticated browser profile state, booking URLs, attendee information, injury content, requests, policies, journals, results, screenshots, traces, cookies, and live page captures. The tracked configuration files are synthetic examples only.
 
 ## Prerequisites
 
@@ -121,11 +121,22 @@ Wait for the command to finish, then inspect its result before authorizing any l
 
 ## Understand the result
 
-Read the completed dry-run result before deciding what to do next. The command emits its machine-readable result on stdout; do not treat a successful process exit as permission to make a live run without first checking that result against the checkout and request you intended.
+Read the completed dry-run result before deciding what to do next. Stdout is the sole machine-readable finalized result channel. A fresh finalization writes one compact JSON object plus a newline; a same-UUID replay emits the exact stored bytes, including existing whitespace, field order, and newline. When no finalized result can be emitted, stderr is the fixed printable line `Booking command failed.`
+
+| Exit | Meaning                                                                             | Operator action                                                                                    |
+| ---- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `0`  | Confirmed booking/waitlist, authoritative existing enrollment, or completed dry run | Read the JSON outcome; do not infer booking from optional metadata                                 |
+| `20` | Safe stop before submission                                                         | Correct the request, policy, authentication, or supported page state, then make a deliberate rerun |
+| `30` | Command/technical failure                                                           | Use the fixed stderr marker and inspect private runtime evidence                                   |
+| `40` | Submission or later processing may have occurred without a finalized success result | Reconcile with Arketa and the durable result; never automatically retry                            |
+
+A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/selectability evidence, and `package_selected` identifies the applicable selected package. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or any other optional metadata.
 
 ## Recover safely
 
-Do not retry automatically or assume an uncertain attempt failed. Preserve the private runtime evidence, inspect the completed result for the request UUID, and reconcile deliberately with Arketa before requesting any new transaction.
+One UUID owns one journal/result pair. A same request UUID with a finalized result returns that result without opening the browser. Recovery of an incomplete journal before submission finalizes a technical failure; recovery at `SUBMITTING` or later can finalize `CONFIRMATION_UNCERTAIN`.
+
+Uncertainty is not proof of failure. Preserve the durable result and journal, inspect the durable result and Arketa, and only then deliberately choose a new request UUID. The app does not retry automatically; Arketa is authoritative for already-booked and already-waitlisted state. Manually remove a stale runtime lock only after you verify that no booking process is running.
 
 ## Authorize one live run
 
@@ -145,9 +156,15 @@ npm start -- --runtime $runtime --policy $policy $request
 
 ## Troubleshooting
 
-- If authentication expires, reopen Arketa with the same dedicated profile, authenticate manually, close the browser, and rerun only after reviewing the request state.
-- If the checkout is unsupported or has changed, stop rather than adding speculative workarounds.
-- Keep private runtime artifacts out of tickets, commits, and public diagnostics.
+- **Expired authentication:** reopen Arketa with the same dedicated profile, authenticate manually, close the browser, and rerun only after reviewing the request state.
+- **Existing runtime lock:** wait for the active command, or manually remove a stale lock only after you verify that no booking process is running.
+- **Safe stop (`20`):** correct the request, policy, authentication, or supported page state before a deliberate rerun; do not add speculative selector fallbacks.
+- **Technical failure (`30`):** use `Booking command failed.` as the fixed stderr marker and inspect the private runtime evidence without deleting the journal or result.
+- **Confirmation uncertainty (`40`):** preserve evidence, inspect the durable result and Arketa, and decide deliberately whether a new request UUID is appropriate; never automatically retry.
+- **No calendar link:** `google_calendar_url` is optional metadata, so rely on exact Arketa confirmation or authoritative existing-enrollment evidence instead.
+- **Changed or unsupported checkout:** stop safely; do not work around CAPTCHA, guess selectors, or proceed until the checkout is supported again.
+
+Keep private runtime artifacts out of tickets, commits, and public diagnostics.
 
 ## Development validation
 
@@ -161,10 +178,11 @@ npm run build
 npm test
 ```
 
+Ubuntu CI is authoritative for executable Bash/POSIX permission behavior. The deterministic README test checks PowerShell blocks and ordering without claiming a live Windows booking.
+
 ## Architecture and safety reference
 
-- [Architecture](docs/architecture.md) describes components, data flow, state transitions, and the result model.
-- [Safety boundaries](docs/safety-boundaries.md) describes trusted inputs, booking authorization, guarantees, non-guarantees, and supported checkout assumptions.
+[Architecture](docs/architecture.md) describes components, data flow, state transitions, and the result model; [Safety boundaries](docs/safety-boundaries.md) defines trusted inputs, authorization, guarantees, non-guarantees, and supported checkout assumptions.
 
 ## License
 
