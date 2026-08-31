@@ -156,9 +156,14 @@ Create a private configuration folder outside the repository. These examples use
 ### macOS or Linux
 
 ```sh
-install -d -m 700 "$HOME/Private/Pilates Booker"
-install -m 600 config/booking-policy.example.json "$HOME/Private/Pilates Booker/booking-policy.json"
-install -m 600 config/booking-request.example.json "$HOME/Private/Pilates Booker/booking-request.json"
+config="$HOME/Private/Pilates Booker"
+install -d -m 700 "$config"
+if [ ! -e "$config/booking-policy.json" ]; then
+  install -m 600 config/booking-policy.example.json "$config/booking-policy.json"
+fi
+if [ ! -e "$config/booking-request.json" ]; then
+  install -m 600 config/booking-request.example.json "$config/booking-request.json"
+fi
 node -e "console.log(require('node:crypto').randomUUID())"
 ```
 
@@ -167,12 +172,16 @@ node -e "console.log(require('node:crypto').randomUUID())"
 ```powershell
 $config = Join-Path $env:LOCALAPPDATA "Pilates Booker Config"
 New-Item -ItemType Directory -Force $config | Out-Null
-Copy-Item config\booking-policy.example.json "$config\booking-policy.json"
-Copy-Item config\booking-request.example.json "$config\booking-request.json"
+if (-not (Test-Path -LiteralPath "$config\booking-policy.json")) {
+  Copy-Item config\booking-policy.example.json "$config\booking-policy.json"
+}
+if (-not (Test-Path -LiteralPath "$config\booking-request.json")) {
+  Copy-Item config\booking-request.example.json "$config\booking-request.json"
+}
 node -e "console.log(require('node:crypto').randomUUID())"
 ```
 
-The copied files come from the tracked [synthetic policy example](config/booking-policy.example.json) and [synthetic request example](config/booking-request.example.json). Edit the private copies in a text editor. Do not edit the tracked examples with real data.
+The commands create each private configuration file only when it does not already exist, so repeating the block preserves your edits. The copied files come from the tracked [synthetic policy example](config/booking-policy.example.json) and [synthetic request example](config/booking-request.example.json). Edit the private copies in a text editor. Do not edit the tracked examples with real data.
 
 Use the generated lowercase UUID as `request_id`, then apply these rules:
 
@@ -232,7 +241,7 @@ Stdout is the sole machine-readable finalized result channel. A fresh finalizati
 | `30` | Command/technical failure                                                           | Read stdout first; use the technical-failure path below                                                                 |
 | `40` | Submission or later processing may have occurred without a finalized success result | Reconcile with Arketa and the durable result; never automatically retry                                                 |
 
-A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/selectability evidence, and `package_selected` identifies the selected package. The field package_selected can be `null` in a coherent safe-stop result when no trustworthy positive-balance package exists, or when trustworthy positive-balance inventory exists but no package matches the policy allowlist. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or other optional metadata.
+A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/approval evidence, and `package_selected` identifies the selected package. The field package_selected can be `null` in a coherent safe-stop result when no trustworthy positive-balance package exists, or when trustworthy positive-balance inventory exists but no package matches the policy allowlist. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or other optional metadata.
 
 ## Recover safely
 
@@ -338,7 +347,7 @@ npm test
 git diff --check
 ```
 
-Ubuntu CI is authoritative for executable Bash/POSIX permission behavior. The deterministic README test checks PowerShell blocks and ordering without claiming a live Windows booking.
+CI runs these repository checks on Ubuntu. CI does not execute the documented setup blocks or verify resulting filesystem permissions. The deterministic README test checks the documented platform blocks and ordering without claiming a live booking on each platform.
 
 ## Architecture and safety reference
 

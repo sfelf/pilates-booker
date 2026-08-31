@@ -118,15 +118,16 @@ describe("README first-use contract", () => {
   });
 
   it("keeps local Markdown links valid", async () => {
-    const readme = await readRepositoryFile("README.md");
+    const readme = `${await readRepositoryFile("README.md")}\n[Architecture components](docs%2Farchitecture.md#components)\n`;
     const localTargets = [
       ...readme.matchAll(/\[[^\]]+\]\((?!https?:|#)([^)]+)\)/g)
     ].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
 
     expect(localTargets.length).toBeGreaterThan(0);
     for (const target of localTargets) {
+      const path = decodeURIComponent(target.split("#", 1)[0] ?? "");
       await expect(
-        access(resolve(repositoryRoot, target))
+        access(resolve(repositoryRoot, path))
       ).resolves.toBeUndefined();
     }
   });
@@ -225,11 +226,18 @@ describe("README first-use contract", () => {
     expect(runtime).toContain("| `results/<request-id>.json`");
     expect(runtime).toContain("replay and recovery");
     expect(runtime).not.toContain("app owns its secure creation");
-    expect(fencedBlock(configuration, "sh")).toContain(
-      'install -m 600 config/booking-policy.example.json "$HOME/Private/Pilates Booker/booking-policy.json"'
+    const shellConfiguration = fencedBlock(configuration, "sh");
+    expect(shellConfiguration).toContain(
+      'if [ ! -e "$config/booking-policy.json" ]'
     );
-    expect(fencedBlock(configuration, "sh")).toContain(
-      'install -m 600 config/booking-request.example.json "$HOME/Private/Pilates Booker/booking-request.json"'
+    expect(shellConfiguration).toContain(
+      'if [ ! -e "$config/booking-request.json" ]'
+    );
+    expect(shellConfiguration).toContain(
+      'install -m 600 config/booking-policy.example.json "$config/booking-policy.json"'
+    );
+    expect(shellConfiguration).toContain(
+      'install -m 600 config/booking-request.example.json "$config/booking-request.json"'
     );
 
     const powerShellSetup = fencedBlock(runtime, "powershell");
@@ -244,10 +252,17 @@ describe("README first-use contract", () => {
     expect(runtime).toContain("policy and request files");
     expect(runtime).toContain("generated profile");
     expect(runtime).toContain("Windows account");
-    expect(fencedBlock(configuration, "powershell")).toContain(
+    const powershellConfiguration = fencedBlock(configuration, "powershell");
+    expect(powershellConfiguration).toContain(
+      'if (-not (Test-Path -LiteralPath "$config\\booking-policy.json"))'
+    );
+    expect(powershellConfiguration).toContain(
       'Copy-Item config\\booking-policy.example.json "$config\\booking-policy.json"'
     );
-    expect(fencedBlock(configuration, "powershell")).toContain(
+    expect(powershellConfiguration).toContain(
+      'if (-not (Test-Path -LiteralPath "$config\\booking-request.json"))'
+    );
+    expect(powershellConfiguration).toContain(
       'Copy-Item config\\booking-request.example.json "$config\\booking-request.json"'
     );
 
@@ -326,6 +341,8 @@ describe("README first-use contract", () => {
     expect(result).toContain("Booking command failed.");
     expect(result).toContain("packages_before");
     expect(result).toContain("package_selected");
+    expect(result).toContain("positive-balance/approval evidence");
+    expect(result).not.toContain("positive-balance/selectability evidence");
     expect(result).toContain("google_calendar_url");
     expect(result).toContain("optional metadata");
     expect(recovery).toContain("CONFIRMATION_UNCERTAIN");
@@ -476,6 +493,12 @@ describe("README first-use contract", () => {
     ]) {
       expect(validation).toContain(command);
     }
+    expect(validation).toContain(
+      "CI does not execute the documented setup blocks or verify resulting filesystem permissions"
+    );
+    expect(validation).not.toContain(
+      "CI is authoritative for executable Bash/POSIX permission behavior"
+    );
   });
 
   it("detects synthetic private-shaped README content without storing real examples", () => {
