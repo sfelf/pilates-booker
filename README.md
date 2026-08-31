@@ -2,6 +2,11 @@
 
 `pilates-booker` provides a narrow, fail-closed Playwright transaction boundary for an external scheduler. The scheduler discovers a target checkout and handles reporting; this project independently validates the checkout and performs at most one authorized booking or waitlist submission.
 
+## Documentation
+
+- [Architecture](docs/architecture.md) describes the components, data flow, state transitions, results, and recovery model.
+- [Safety boundaries](docs/safety-boundaries.md) describes trusted inputs, external data handling, booking authorization, guarantees, non-guarantees, and supported checkout assumptions.
+
 ## Data handling
 
 Synthetic sample data is used in source code, tests, documentation, issues, pull requests, and CI output.
@@ -78,11 +83,11 @@ Each canonical request UUID owns `<runtime>/journals/<uuid>.json` and `<runtime>
 
 ## Result contract and recovery
 
-When the command has a finalized result, it writes the exact contents of `<runtime>/results/<uuid>.json` to stdout: one compact JSON object followed by one newline. Repeating the same UUID emits those exact stored bytes again, including field order and newline. Stdout is therefore the machine-readable result transport, while stderr is reserved for the fixed single-line diagnostic `Booking command failed.` when the command cannot produce a finalized result.
+Fresh finalization stores one compact JSON object followed by one newline, and the command writes those exact bytes to stdout. Repeating the same UUID emits the exact stored result bytes again, preserving their existing whitespace, field order, and newline representation. Stdout is therefore the machine-readable result transport, while stderr is reserved for the fixed single-line diagnostic `Booking command failed.` when the command cannot produce a finalized result.
 
-The command exits `0` for a confirmed booking, waitlist, recognized existing enrollment, or dry run; `20` for a safe stop before submission; `30` for a command or technical failure; and `40` when a submission occurred but confirmation remains uncertain. The JSON result includes `package_selected` and `packages_before` only when package-selection evidence is applicable. A `google_calendar_url` is optional and appears only for `BOOKED`, `ALREADY_BOOKED`, or a `DRY_RUN` whose availability is `ALREADY_BOOKED`; when present, it is the strict matching Arketa calendar URL for the checkout class.
+The command exits `0` for a confirmed booking, waitlist, recognized existing enrollment, or dry run; `20` for a safe stop before submission; `30` for a command or technical failure; and `40` when a submission occurred but confirmation remains uncertain. The JSON result includes `package_selected` and `packages_before` only when package-selection evidence is applicable. A `google_calendar_url` is optional and appears only for `BOOKED`, `ALREADY_BOOKED`, or a `DRY_RUN` whose availability is `ALREADY_BOOKED`. Fresh publication accepts only the strict matching Arketa calendar URL for the checkout class; recovery validates a stored calendar URL's strict Arketa endpoint shape but cannot re-bind it to an original checkout URL that is not persisted.
 
-Recovery is limited to returning an already finalized result for the same UUID. The command does not automatically retry a submission and does not claim stronger durability than the journal and result files. To request another booking attempt or a new transaction, create a new UUID and inspect the prior result before invoking it.
+Recovery returns a coherent finalized result for the same UUID without opening the browser. If only an incomplete journal exists, it finalizes a `TECHNICAL_FAILURE` for a pre-submission state or `CONFIRMATION_UNCERTAIN` for `SUBMITTING` or later, then emits that result without opening the browser. The command does not automatically retry a submission and does not claim stronger durability than the journal and result files. To request another booking attempt or a new transaction, create a new UUID and inspect the prior result before invoking it.
 
 [`config/booking-request.example.json`](config/booking-request.example.json) and [`config/booking-policy.example.json`](config/booking-policy.example.json) contain synthetic values only. A non-dry run can perform one booking or waitlist submission, so inspect the dry-run result before changing `dry_run` to `false`.
 
