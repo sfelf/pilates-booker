@@ -133,24 +133,36 @@ Wait for the command to finish. Read its result before authorizing any live acti
 
 ## Read the result
 
-Stdout is the sole machine-readable finalized result channel. A fresh finalization writes one compact JSON object plus a newline. A same-UUID replay emits the exact stored bytes, including existing whitespace, field order, and newline. When no finalized result can be emitted, stderr is the fixed printable line `Booking command failed.`
+Stdout is the sole machine-readable finalized result channel. A fresh finalization writes one compact JSON object plus a newline. A same-UUID replay emits the exact stored bytes, including existing whitespace, field order, and newline. A finalized `TECHNICAL_FAILURE` is JSON on stdout with exit `30`. The fixed stderr line `Booking command failed.` is used only when no finalized result can be emitted.
 
 | Exit | Meaning                                                                             | Operator action                                                                                    |
 | ---- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `0`  | Confirmed booking/waitlist, authoritative existing enrollment, or completed dry run | Read the JSON outcome; do not infer booking from optional metadata                                 |
 | `20` | Safe stop before submission                                                         | Correct the request, policy, authentication, or supported page state, then make a deliberate rerun |
-| `30` | Command/technical failure                                                           | Use the fixed stderr marker and inspect private runtime evidence                                   |
+| `30` | Command/technical failure                                                           | Read stdout first; use the technical-failure path below                                            |
 | `40` | Submission or later processing may have occurred without a finalized success result | Reconcile with Arketa and the durable result; never automatically retry                            |
 
-A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/selectability evidence, and `package_selected` identifies the selected package. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or other optional metadata.
+A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/selectability evidence, and `package_selected` identifies the selected package. The field package_selected can be `null` in a coherent safe-stop result when trustworthy positive-balance inventory exists but no package matches the policy allowlist. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or other optional metadata.
 
 ## Recover safely
 
 Treat a UUID as one transaction: it owns one journal/result pair. A same request UUID with a finalized result returns that result without opening the browser. An incomplete journal before submission becomes a technical failure; recovery at `SUBMITTING` or later can finalize `CONFIRMATION_UNCERTAIN`.
 
-Uncertainty is not proof of failure. Preserve the durable result and journal, inspect both the durable result and Arketa, then deliberately choose a new request UUID if needed. The app does not retry automatically; Arketa is authoritative for already-booked and already-waitlisted state. Manually remove a stale runtime lock only after you verify that no booking process is running.
+Uncertainty is not proof of failure. Preserve the durable result and journal, inspect both the durable result and Arketa, then deliberately choose a new request UUID if needed. The app does not retry automatically; Arketa is authoritative for already-booked and already-waitlisted state.
 
 After a finalized `SAFE_STOP`, preserve the original result and evidence, correct the request, policy, authentication, or supported page-state cause, and use a fresh request UUID for any deliberate rerun.
+
+After a finalized `TECHNICAL_FAILURE`, preserve the original result and evidence, correct the technical cause, assign a fresh request UUID, then deliberately retry. If no finalized result was emitted, use the fixed stderr marker `Booking command failed.` and private runtime evidence instead; do not assume a stored UUID result exists.
+
+A stale lock is `<runtime>/run.lock`. Only after you verify that no booking process is running, remove it manually:
+
+```sh
+rm "$runtime/run.lock"
+```
+
+```powershell
+Remove-Item -LiteralPath (Join-Path $runtime "run.lock")
+```
 
 ## Make one live attempt
 
@@ -180,7 +192,7 @@ npm start -- --runtime $runtime --policy $policy $request
 - **Expired authentication:** reopen Arketa with the same dedicated profile, authenticate manually, close the browser, and rerun only after reviewing the request state.
 - **Existing runtime lock:** wait for the active command, or manually remove a stale lock only after you verify that no booking process is running.
 - **Safe stop (`20`):** preserve the original result and evidence, correct the request, policy, authentication, or supported page state, then use a fresh request UUID before a deliberate rerun; do not add speculative selector fallbacks.
-- **Technical failure (`30`):** use `Booking command failed.` as the fixed stderr marker and inspect the private runtime evidence without deleting the journal or result.
+- **Technical failure (`30`):** if stdout has a finalized result, preserve it, correct the technical cause, assign a fresh request UUID, then deliberately retry. If no finalized result was emitted, use `Booking command failed.` as the fixed stderr marker and inspect private runtime evidence without deleting anything or assuming a stored UUID result.
 - **Confirmation uncertainty (`40`):** preserve evidence, inspect the durable result and Arketa, and decide deliberately whether a new request UUID is appropriate; never automatically retry.
 - **No calendar link:** `google_calendar_url` is optional metadata, so rely on exact Arketa confirmation or authoritative existing-enrollment evidence instead.
 - **Changed or unsupported checkout:** stop safely; do not work around CAPTCHA, guess selectors, or proceed until the checkout is supported again.

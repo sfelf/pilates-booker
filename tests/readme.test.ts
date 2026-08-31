@@ -209,6 +209,19 @@ describe("README first-use contract", () => {
     expect(recovery).toContain("does not retry automatically");
   });
 
+  it("distinguishes finalized technical failures and null package selection", async () => {
+    const readme = await readRepositoryFile("README.md");
+    const result = readmeSection(readme, "Read the result");
+
+    expect(result).toContain("finalized `TECHNICAL_FAILURE`");
+    expect(result).toContain("JSON on stdout");
+    expect(result).toContain("only when no finalized result can be emitted");
+    expect(result).toContain("package_selected can be `null`");
+    expect(result).toContain("coherent safe-stop result");
+    expect(result).toContain("trustworthy positive-balance inventory");
+    expect(result).toContain("policy allowlist");
+  });
+
   it("documents private-data and operator recovery boundaries", async () => {
     const readme = await readRepositoryFile("README.md");
     const safety = readmeSection(readme, "Safety first");
@@ -243,6 +256,29 @@ describe("README first-use contract", () => {
     expect(safeStop).toContain("preserve the original result and evidence");
     expect(safeStop).toContain("fresh request UUID");
     expect(safeStop).not.toContain("same request UUID");
+  });
+
+  it("documents technical-failure retries and manual stale-lock removal", async () => {
+    const readme = await readRepositoryFile("README.md");
+    const recovery = readmeSection(readme, "Recover safely");
+    const technicalFailure = troubleshootingEntry(
+      readmeSection(readme, "Troubleshooting"),
+      "Technical failure (`30`)"
+    );
+
+    expect(recovery).toContain("finalized `TECHNICAL_FAILURE`");
+    expect(recovery).toContain("correct the technical cause");
+    expect(recovery).toContain("fresh request UUID");
+    expect(recovery).toContain("<runtime>/run.lock");
+    expect(recovery).toContain("verify that no booking process is running");
+    expect(fencedBlock(recovery, "sh")).toContain('rm "$runtime/run.lock"');
+    expect(fencedBlock(recovery, "powershell")).toContain(
+      'Remove-Item -LiteralPath (Join-Path $runtime "run.lock")'
+    );
+    expect(technicalFailure).toContain("finalized result");
+    expect(technicalFailure).toContain("fresh request UUID");
+    expect(technicalFailure).toContain("no finalized result");
+    expect(technicalFailure).toContain("Booking command failed.");
   });
 
   it("links operator guidance to detailed architecture and safety docs", async () => {
