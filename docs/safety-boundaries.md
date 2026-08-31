@@ -4,22 +4,22 @@ Pilates Booker is designed for a private, single-user runtime with cooperating l
 
 ## Field and trust policy
 
-| Data                                                         | Source and trust                                                          | Runtime use                                                                                              | Result or diagnostic projection                                                                                                     |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Request UUID, expected class, actions, mode, and booking URL | Caller-supplied and untrusted until schema and semantic validation        | Selects the request-scoped files and constrains the permitted checkout action                            | Validated request fields may appear only where the result contract permits them; diagnostics use fixed markers                      |
-| Policy version and allowed package names                     | Explicit external file, trusted only after schema and semantic validation | Authorizes package names in deterministic policy order                                                   | Fresh package evidence is checked against canonical policy names; policy paths and raw contents are excluded from diagnostics       |
-| Checkout URL and navigation                                  | Caller and browser supplied, untrusted                                    | Must remain a strict supported Arketa checkout                                                           | Raw URLs and private class identifiers are excluded from diagnostics; only a validated calendar URL may appear in permitted results |
-| Class name, displayed date and time, instructor              | External page text, untrusted                                             | Class identity is compared after constrained inspection; instructor is informational                     | Accepted class evidence may be serialized; instructor is not an authorization fact                                                  |
-| Package names and balances                                   | External page content, untrusted                                          | Rows are classified, names normalized for exact matching, and balances checked as positive safe integers | Only trustworthy normalized package evidence is serialized; inspection-only decoded forms are never returned                        |
-| Attendee and injuries                                        | Private page/profile content, untrusted                                   | Requires `Myself`; preserves a non-empty injuries value or enters fixed `None`                           | Attendee identity and injury answers never enter results or diagnostics                                                             |
-| Cancellation and action controls                             | External DOM state, untrusted                                             | Must be uniquely bound, enabled, and coherent in the final authorization read                            | Only fixed safety booleans and outcome enums are serialized                                                                         |
-| Booking or waitlist confirmation                             | External DOM state, authoritative for enrollment                          | Exact matching confirmation determines success                                                           | Fixed result outcome only; unrelated page content is excluded                                                                       |
-| Journal and result JSON                                      | Private serialized runtime evidence, untrusted until validation           | Drives monotonic recovery and exact-byte replay                                                          | Valid canonical result bytes are emitted; malformed, foreign, or contradictory artifacts are preserved and rejected                 |
-| Internal exceptions and stream errors                        | Implementation/runtime data                                               | Selects a fixed failure path                                                                             | Raw messages, stacks, paths, URLs, page text, and identifiers are not printed                                                       |
+| Data                                                         | Source and trust                                                          | Runtime use                                                                                               | Result or diagnostic projection                                                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Request UUID, expected class, actions, mode, and booking URL | Caller-supplied and untrusted until schema and semantic validation        | Selects the request-scoped files and constrains the permitted checkout action                             | Validated request fields may appear only where the result contract permits them; diagnostics use fixed markers                      |
+| Policy version and allowed package names                     | Explicit external file, trusted only after schema and semantic validation | Authorizes package names in deterministic policy order                                                    | Fresh package evidence is checked against canonical policy names; policy paths and raw contents are excluded from diagnostics       |
+| Checkout URL and navigation                                  | Caller and browser supplied, untrusted                                    | Must remain a strict supported Arketa checkout                                                            | Raw URLs and private class identifiers are excluded from diagnostics; only a validated calendar URL may appear in permitted results |
+| Class name, displayed date and time, instructor              | External page text, untrusted                                             | Class identity is compared after constrained inspection; instructor is informational                      | Accepted class evidence may be serialized; instructor is not an authorization fact                                                  |
+| Package names and balances                                   | External page content, untrusted                                          | Rows are classified, names normalized for exact matching, and balances checked as positive safe integers  | Only trustworthy normalized package evidence is serialized; inspection-only decoded forms are never returned                        |
+| Attendee and injuries                                        | Private page/profile content, untrusted                                   | Requires `Myself`; preserves a non-empty injuries value or enters fixed `None`                            | Attendee identity and injury answers never enter results or diagnostics                                                             |
+| Cancellation and action controls                             | External DOM state, untrusted                                             | Must be uniquely bound and enabled in the final logical authorization read under the page-stability model | Only fixed safety booleans and outcome enums are serialized                                                                         |
+| Booking or waitlist confirmation                             | External DOM state, authoritative for enrollment                          | Exact matching confirmation determines success                                                            | Fixed result outcome only; unrelated page content is excluded                                                                       |
+| Journal and result JSON                                      | Private serialized runtime evidence, untrusted until validation           | Drives monotonic recovery and exact-byte replay                                                           | Valid result bytes are emitted exactly as stored; malformed, foreign, or contradictory artifacts are preserved and rejected         |
+| Internal exceptions and stream errors                        | Implementation/runtime data                                               | Selects a fixed failure path                                                                              | Raw messages, stacks, paths, URLs, page text, and identifiers are not printed                                                       |
 
 ## Booking authorization
 
-A live submission is authorized only when one coherent pre-submission read establishes all of the following:
+A live submission is authorized only when one logical pre-submission read establishes all of the following. The implementation obtains these live facts sequentially and relies on the supported page remaining stable throughout the read:
 
 - the observed class matches the validated request's name, displayed month and day, start time, and supported `America/*` timezone interpretation;
 - the exact permitted booking or waitlist action is uniquely bound and enabled;
@@ -31,7 +31,7 @@ A live submission is authorized only when one coherent pre-submission read estab
 
 The positive balance is the complete project-level `no_charge` evidence. The application does not inspect payment text, credit-card controls, purchase steps, or other monetary surfaces.
 
-If a required fact is missing, disabled, duplicated, ambiguous, or contradictory, the workflow does not click. After the coherent read, the workflow assumes the supported checkout remains stable until its immediate single click. It does not add a second speculative page reread.
+If a required fact is missing, disabled, duplicated, ambiguous, or contradictory, the workflow does not click. The page-stability operating model continues from the start of the logical read until the immediate single click. The workflow does not add a second speculative page reread.
 
 ## Submission and confirmation boundary
 
@@ -61,8 +61,8 @@ The supported implementation guarantees:
 
 - strict request, policy, journal, and result schemas with unknown-property rejection;
 - explicit policy input and a dedicated private browser profile;
-- read-only dry run with zero checkout mutation;
-- one coherent pre-submission authorization read;
+- non-submitting dry run with zero booking-field and form mutation; existing-enrollment inspection may expand `View Details`;
+- one logical pre-submission authorization read under the stable-page operating model;
 - at most one booking or waitlist click per invocation;
 - no automatic retry after uncertainty;
 - exact matching authoritative confirmation for submitted success;
@@ -82,7 +82,7 @@ v0.1.0 does not provide:
 - support for timezone namespaces outside `America/*`;
 - independent verification of the class year, which the calling process supplies through the chosen link;
 - payment-interface inspection or monetary authorization beyond an approved package's positive balance;
-- protection from concurrent manual interaction, browser-extension mutation, or spontaneous page mutation between the final read and click;
+- protection from concurrent manual interaction, browser-extension mutation, spontaneous page mutation during the sequential final read or before the click, or later navigation after the initial URL check;
 - automatic retry, automatic stale-lock removal, or automatic recovery clicks;
 - hostile same-account filesystem-race protection;
 - `fsync`, directory synchronization, power-loss-proof persistence, or database transaction guarantees;
@@ -97,7 +97,7 @@ These are scope boundaries, not undocumented implementation gaps. A future chang
 | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Treat Arketa as authoritative for enrollment                         | The service prevents duplicate booking and waitlist enrollment                | Local state does not attempt to become a transaction database                                  |
 | Never retry automatically                                            | A missing confirmation cannot prove that the click failed                     | A person or orchestrator must deliberately reconcile uncertainty                               |
-| Use one coherent final read, then click                              | This binds all required authorization facts without speculative revalidation  | Concurrent page mutation after that read is outside the operating model                        |
+| Use one logical final read, then click                               | This binds all required authorization facts without speculative revalidation  | Page mutation during the sequential read or before the click is outside the operating model    |
 | Use positive approved package balance as complete no-charge evidence | It matches the supported checkout and avoids payment-surface coupling         | The application does not independently inspect monetary controls                               |
 | Verify only exact confirmation after submission                      | Confirmation proves enrollment; form fields only authorize the click          | Reservation, package, cancellation, and URL are not rechecked afterward                        |
 | Let optional calendar metadata share the confirmation deadline       | The link is useful metadata but not success evidence                          | A process exit during link hydration can recover as uncertainty even after the marker appeared |

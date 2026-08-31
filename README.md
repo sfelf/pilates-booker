@@ -17,7 +17,7 @@ Browser profiles, authenticated state, booking policies, runtime requests and re
 
 Dry runs inspect the supported checkout without changing it. In a non-dry run, the workflow selects `Myself`, preserves a non-empty injuries response or fills an empty one with `None`, selects the first configured positive-balance package in policy order, accepts the cancellation policy, and clicks the permitted booking or waitlist action exactly once. After that click, it verifies only the matching exact Arketa confirmation: `You are Booked!` for a booking or `You're on the waitlist` for a waitlist submission. It does not recheck the URL or any checkout field after submission.
 
-The workflow performs one coherent authorization read after applying those checkout fields, then assumes the supported Arketa checkout remains stable until its single submission click. Concurrent user interaction, browser-extension mutation, and spontaneous checkout mutation during that short interval are outside the v0.1.0 operating model.
+The workflow performs one logical authorization read after applying those checkout fields. That read obtains live facts sequentially and assumes the supported Arketa checkout remains stable throughout the read and until its single submission click. Concurrent user interaction, browser-extension mutation, and spontaneous checkout mutation during that interval are outside the v0.1.0 operating model.
 
 The calling process is responsible for supplying the checkout link for the correct class year. Because the supported Arketa checkout displays the weekday, month, and day without a year, the workflow verifies those displayed components and the class time against the request; it does not derive a year from hidden page state.
 

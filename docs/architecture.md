@@ -6,18 +6,18 @@ The application does not discover classes, schedule itself, manage login, or rep
 
 ## Components
 
-| Component                     | Responsibility                                                                                                             | Does not own                                                           |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Command entry point           | Parses `--runtime`, `--policy`, and the request path; maps the final outcome to an exit code                               | Request semantics, browser decisions, or recovery rules                |
-| Request and policy validation | Enforces versioned schemas, semantic restrictions, URL rules, timezone support, and explicit authorization                 | Page-derived facts                                                     |
-| Runtime paths and lock        | Derives private paths and prevents overlapping use of the shared browser profile                                           | Automatic stale-lock removal                                           |
-| Runtime coordinator           | Owns monotonic journal transitions, recovery classification, result finalization, and exact-byte replay                    | Browser selectors or package policy                                    |
-| Browser session               | Opens and closes one persistent Chromium context using the dedicated profile                                               | Login, MFA, CAPTCHA, screenshots, traces, or storage export            |
-| Checkout reader               | Produces one coherent observation of the supported main-frame, light-DOM checkout                                          | Booking authorization decisions                                        |
-| Package selection             | Matches normalized page package names against policy order and selects the first approved positive balance                 | Payment-page interpretation                                            |
-| Booking workflow              | Applies authorized fields, performs the final coherent read, submits at most once, and interprets confirmation             | Persistence mechanics or stdout transport                              |
-| Result validation             | Rejects outcome, request, policy, journal, package, and calendar-link contradictions at publication or recovery boundaries | Reinterpreting a completed transaction using a later request or policy |
-| Result output                 | Writes the exact finalized bytes once to stdout and reports only fixed diagnostics on failure                              | Retrying a transaction or regenerating a finalized result              |
+| Component                     | Responsibility                                                                                                              | Does not own                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Command entry point           | Parses `--runtime`, `--policy`, and the request path; maps the final outcome to an exit code                                | Request semantics, browser decisions, or recovery rules                |
+| Request and policy validation | Enforces versioned schemas, semantic restrictions, URL rules, timezone support, and explicit authorization                  | Page-derived facts                                                     |
+| Runtime paths and lock        | Derives private paths and prevents overlapping use of the shared browser profile                                            | Automatic stale-lock removal                                           |
+| Runtime coordinator           | Owns monotonic journal transitions, recovery classification, result finalization, and exact-byte replay                     | Browser selectors or package policy                                    |
+| Browser session               | Opens and closes one persistent Chromium context using the dedicated profile                                                | Login, MFA, CAPTCHA, screenshots, traces, or storage export            |
+| Checkout reader               | Produces one logical observation of the supported main-frame, light-DOM checkout under the page-stability operating model   | Booking authorization decisions                                        |
+| Package selection             | Matches normalized page package names against policy order and selects the first approved positive balance                  | Payment-page interpretation                                            |
+| Booking workflow              | Applies authorized fields, performs the final logical authorization read, submits at most once, and interprets confirmation | Persistence mechanics or stdout transport                              |
+| Result validation             | Rejects outcome, request, policy, journal, package, and calendar-link contradictions at publication or recovery boundaries  | Reinterpreting a completed transaction using a later request or policy |
+| Result output                 | Writes the exact finalized bytes once to stdout and reports only fixed diagnostics on failure                               | Retrying a transaction or regenerating a finalized result              |
 
 ## End-to-end data flow
 
@@ -26,10 +26,10 @@ The application does not discover classes, schedule itself, manage login, or rep
 3. The runtime boundary acquires the shared lock and examines request-scoped journal and result files.
 4. A coherent finalized result for the same UUID is replayed byte-for-byte without opening the browser. An incomplete journal is classified from its persisted state without reinterpreting it through changed request or policy contents.
 5. A new transaction advances from `INITIALIZED` to `VALIDATED` and invokes the booking workflow.
-6. The browser opens the dedicated persistent profile and reads the supported checkout. Off-host navigation, ambiguous controls, unsupported structure, authentication loss, or contradictory observations stop safely.
-7. A dry run returns trustworthy observations without mutating the checkout.
+6. The browser opens the dedicated persistent profile, completes initial navigation, verifies that navigation ended at the requested supported checkout, and reads the page. Ambiguous controls, unsupported structure, authentication loss, or contradictory observations stop safely. Later navigation is outside the stable-page operating model; the workflow does not repeatedly recheck the URL.
+7. A dry run returns trustworthy observations without changing booking fields or submitting. Reading existing enrollment may expand `View Details` to reveal authoritative confirmation evidence.
 8. A live run detects existing enrollment or prepares the checkout: `Myself`, a non-empty injuries response, the selected approved package, and accepted cancellation.
-9. The workflow performs one coherent final authorization read. If every required fact matches, the coordinator records readiness and submission state immediately before the exact permitted action is clicked once.
+9. The workflow performs one final logical authorization read. It reads live facts sequentially and assumes the supported page remains stable throughout that read and until the click. If every required fact matches, the coordinator records readiness and submission state immediately before the exact permitted action is clicked once.
 10. After the click, only the matching authoritative Arketa confirmation is inspected. Optional Google Calendar metadata may hydrate within the same confirmation deadline.
 11. The coordinator validates and atomically finalizes compact result JSON. The command writes those exact stored bytes, including the trailing newline, once to stdout.
 12. The browser and lock are released on controlled outcomes. Diagnostics, when needed, use fixed text on stderr.
@@ -42,7 +42,7 @@ The journal is monotonic:
 INITIALIZED -> VALIDATED -> READY_TO_SUBMIT -> SUBMITTING -> CONFIRMED
 ```
 
-Transitions cannot skip forward, move backward, or repeat a submission attempt. `READY_TO_SUBMIT` means the final coherent authorization read passed. `SUBMITTING` is recorded immediately before the single bounded click attempt. `CONFIRMED` means the matching authoritative Arketa confirmation was returned to the workflow.
+Transitions cannot skip forward, move backward, or repeat a submission attempt. `READY_TO_SUBMIT` means the final logical authorization read passed under the page-stability operating model. `SUBMITTING` is recorded immediately before the single bounded click attempt. `CONFIRMED` means the matching authoritative Arketa confirmation was returned to the workflow.
 
 The journal is local recovery evidence, not a distributed transaction log. A process exit after `SUBMITTING` can leave the external enrollment successful while the journal lacks `CONFIRMED`; recovery therefore reports uncertainty rather than guessing or clicking again.
 
@@ -68,7 +68,7 @@ Invalid combinations fail at the boundary that owns the relevant evidence:
 | `WAITLISTED`             | This invocation submitted once and observed exact waitlist confirmation            |    0 |
 | `ALREADY_BOOKED`         | Arketa authoritatively showed existing booking; no submission occurred             |    0 |
 | `ALREADY_WAITLISTED`     | Arketa authoritatively showed existing waitlist enrollment; no submission occurred |    0 |
-| `DRY_RUN`                | Read-only inspection completed with canonical availability and evidence            |    0 |
+| `DRY_RUN`                | Non-submitting inspection completed with canonical availability and evidence       |    0 |
 | `SAFE_STOP`              | A deliberate pre-submission safety condition prevented a click                     |   20 |
 | `TECHNICAL_FAILURE`      | A known failure occurred before submission could have happened                     |   30 |
 | `CONFIRMATION_UNCERTAIN` | One click may have succeeded, but matching confirmation was not established        |   40 |
