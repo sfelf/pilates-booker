@@ -135,12 +135,12 @@ Wait for the command to finish. Read its result before authorizing any live acti
 
 Stdout is the sole machine-readable finalized result channel. A fresh finalization writes one compact JSON object plus a newline. A same-UUID replay emits the exact stored bytes, including existing whitespace, field order, and newline. A finalized `TECHNICAL_FAILURE` is JSON on stdout with exit `30`. The fixed stderr line `Booking command failed.` is used only when no finalized result can be emitted.
 
-| Exit | Meaning                                                                             | Operator action                                                                                    |
-| ---- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `0`  | Confirmed booking/waitlist, authoritative existing enrollment, or completed dry run | Read the JSON outcome; do not infer booking from optional metadata                                 |
-| `20` | Safe stop before submission                                                         | Correct the request, policy, authentication, or supported page state, then make a deliberate rerun |
-| `30` | Command/technical failure                                                           | Read stdout first; use the technical-failure path below                                            |
-| `40` | Submission or later processing may have occurred without a finalized success result | Reconcile with Arketa and the durable result; never automatically retry                            |
+| Exit | Meaning                                                                             | Operator action                                                                                                         |
+| ---- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `0`  | Confirmed booking/waitlist, authoritative existing enrollment, or completed dry run | Read the JSON outcome; do not infer booking from optional metadata                                                      |
+| `20` | Safe stop before submission                                                         | Preserve and inspect the finalized result; correct the cause, assign a fresh request UUID, then make a deliberate rerun |
+| `30` | Command/technical failure                                                           | Read stdout first; use the technical-failure path below                                                                 |
+| `40` | Submission or later processing may have occurred without a finalized success result | Reconcile with Arketa and the durable result; never automatically retry                                                 |
 
 A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/selectability evidence, and `package_selected` identifies the selected package. The field package_selected can be `null` in a coherent safe-stop result when trustworthy positive-balance inventory exists but no package matches the policy allowlist. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or other optional metadata.
 

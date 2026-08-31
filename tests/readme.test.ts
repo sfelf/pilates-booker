@@ -258,6 +258,19 @@ describe("README first-use contract", () => {
     expect(safeStop).not.toContain("same request UUID");
   });
 
+  it("keeps the exit-20 table action aligned with safe-stop recovery", async () => {
+    const readme = await readRepositoryFile("README.md");
+    const result = readmeSection(readme, "Read the result");
+    const exitTwenty = result
+      .split("\n")
+      .find((line) => line.startsWith("| `20`"));
+
+    expect(exitTwenty, "missing exit-20 result row").toBeDefined();
+    expect(exitTwenty).toContain("Preserve and inspect the finalized result");
+    expect(exitTwenty).toContain("assign a fresh request UUID");
+    expect(exitTwenty).toContain("deliberate rerun");
+  });
+
   it("documents technical-failure retries and manual stale-lock removal", async () => {
     const readme = await readRepositoryFile("README.md");
     const recovery = readmeSection(readme, "Recover safely");
