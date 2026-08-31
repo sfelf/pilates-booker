@@ -76,7 +76,7 @@ function findPrivateShapedValues(markdown: string): PrivacyFinding[] {
     ],
     [
       "live Arketa checkout URL or identifier",
-      /https:\/\/app\.arketa\.co\/[A-Za-z0-9/?&=._~:%#-]+|\b(?=[A-Za-z0-9]{20,}\b)(?=[A-Za-z0-9]*\d)[A-Za-z0-9]+\b/
+      /https:\/\/app\.arketa\.co\/[A-Za-z0-9/?&=._~:%#-]+|(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]{20,}(?:$|[^A-Za-z0-9_-]))(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+(?:$|[^A-Za-z0-9_-])/
     ],
     ["private planning path", planningPathPattern]
   ];
@@ -393,6 +393,9 @@ describe("README first-use contract", () => {
     expect(recovery).toContain("deliberately rerun");
     expect(recovery).toContain("If no finalized result exists");
     expect(recovery).toContain(
+      "inspect the available journal evidence and Arketa before deciding whether to rerun"
+    );
+    expect(recovery).toContain(
       "retain or reuse the request UUID only when appropriate"
     );
     expect(recovery).toContain("correcting the command failure");
@@ -496,6 +499,8 @@ describe("README first-use contract", () => {
     expect(validation).toContain(
       "CI does not execute the documented setup blocks or verify resulting filesystem permissions"
     );
+    expect(validation).toContain("`git diff --check` is a local check");
+    expect(validation).not.toContain("CI runs these repository checks");
     expect(validation).not.toContain(
       "CI is authoritative for executable Bash/POSIX permission behavior"
     );
@@ -506,6 +511,7 @@ describe("README first-use contract", () => {
     const syntheticCheckout =
       "https://app.arketa.co/" + "checkout/synthetic-private.invalid";
     const syntheticIdentifier = "SyntheticCheckout" + "Identifier000";
+    const syntheticSeparatedIdentifier = "synthetic_id-" + "value12345";
     const syntheticPlanningPath = ".super" + "powers/private-plan.md";
     const synthetic = [
       syntheticEmail,
@@ -520,6 +526,9 @@ describe("README first-use contract", () => {
         "live Arketa checkout URL or identifier",
         "private planning path"
       ])
+    );
+    expect(privacyFindingKinds(syntheticSeparatedIdentifier)).toEqual(
+      new Set<PrivacyFindingKind>(["live Arketa checkout URL or identifier"])
     );
   });
 

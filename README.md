@@ -249,7 +249,7 @@ Treat a UUID as one transaction: it owns one journal/result pair. A same request
 
 Uncertainty is not proof of failure. Preserve the durable result and journal, inspect both the durable result and Arketa, then deliberately choose a new request UUID if needed. The app does not retry automatically; Arketa is authoritative for already-booked and already-waitlisted state.
 
-Use one deliberate rerun rule when a corrected cause warrants another attempt. If a finalized result exists, preserve and inspect it, correct the cause, assign a fresh lowercase canonical request UUID, then deliberately rerun. This applies after finalized `SAFE_STOP` or finalized `TECHNICAL_FAILURE`. If no finalized result exists, after correcting the command failure, retain or reuse the request UUID only when appropriate before deciding whether to deliberately run again. Do not assume a stored UUID result exists.
+Use one deliberate rerun rule when a corrected cause warrants another attempt. If a finalized result exists, preserve and inspect it, correct the cause, assign a fresh lowercase canonical request UUID, then deliberately rerun. This applies after finalized `SAFE_STOP` or finalized `TECHNICAL_FAILURE`. If no finalized result exists, after correcting the command failure, inspect the available journal evidence and Arketa before deciding whether to rerun; retain or reuse the request UUID only when appropriate. Do not assume a stored UUID result exists. This is an operator reconciliation step, not an additional runtime authorization barrier; Arketa remains authoritative for an existing booking or waitlist enrollment.
 
 When no finalized result was emitted, use the fixed stderr marker `Booking command failed.` and private runtime evidence instead. The marker does not prove a stored result exists.
 
@@ -347,7 +347,7 @@ npm test
 git diff --check
 ```
 
-CI runs these repository checks on Ubuntu. CI does not execute the documented setup blocks or verify resulting filesystem permissions. The deterministic README test checks the documented platform blocks and ordering without claiming a live booking on each platform.
+CI runs the formatting, lint, typecheck, build, and test commands above on Ubuntu; `git diff --check` is a local check. CI does not execute the documented setup blocks or verify resulting filesystem permissions. The deterministic README test checks the documented platform blocks and ordering without claiming a live booking on each platform.
 
 ## Architecture and safety reference
 
