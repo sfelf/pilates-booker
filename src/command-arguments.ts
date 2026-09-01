@@ -1,5 +1,6 @@
 import { isAbsolute, win32 } from "node:path";
 
+import { normalizePackageNameForComparison } from "./package-selection.js";
 import { validateCheckoutUrl } from "./url-policy.js";
 import type { BookingInput } from "./v2-contracts.js";
 import {
@@ -19,6 +20,7 @@ export function parseCommandArguments(
 ): CommandArguments | undefined {
   let bookingUrl: string | undefined;
   const allowedPackages: string[] = [];
+  const normalizedPackages = new Set<string>();
   let bookOnly = false;
   let dryRun = false;
   let runtimeDir: string | undefined;
@@ -62,8 +64,12 @@ export function parseCommandArguments(
       if (bookingUrl !== undefined) return undefined;
       bookingUrl = value;
     } else if (option === "--allow-package") {
-      if (allowedPackages.includes(value)) return undefined;
+      const normalized = normalizePackageNameForComparison(value);
+      if (normalized === "" || normalizedPackages.has(normalized)) {
+        return undefined;
+      }
       allowedPackages.push(value);
+      normalizedPackages.add(normalized);
     } else {
       if (
         runtimeDir !== undefined ||

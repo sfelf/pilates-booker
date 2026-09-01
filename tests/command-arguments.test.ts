@@ -104,6 +104,10 @@ describe("parseCommandArguments", () => {
     ["missing package", ["--booking-url", checkoutUrl]],
     ["empty package", ["--booking-url", checkoutUrl, "--allow-package", ""]],
     [
+      "normalized-empty package",
+      ["--booking-url", checkoutUrl, "--allow-package", " ⭐ "]
+    ],
+    [
       "duplicate package",
       [
         "--booking-url",
@@ -112,6 +116,17 @@ describe("parseCommandArguments", () => {
         "Synthetic Pack",
         "--allow-package",
         "Synthetic Pack"
+      ]
+    ],
+    [
+      "normalized duplicate package",
+      [
+        "--booking-url",
+        checkoutUrl,
+        "--allow-package",
+        "Synthetic Pack",
+        "--allow-package",
+        " ⭐ Synthetic   Pack ⭐ "
       ]
     ],
     [

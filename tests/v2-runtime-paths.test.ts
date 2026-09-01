@@ -27,6 +27,24 @@ describe("v0.2.0 runtime paths", () => {
       "/home/synthetic/.local/state/pilates-booker"
     ],
     [
+      "Linux empty XDG fallback",
+      {
+        platform: "linux",
+        home: "/home/synthetic",
+        xdgStateHome: ""
+      },
+      "/home/synthetic/.local/state/pilates-booker"
+    ],
+    [
+      "Linux relative XDG fallback",
+      {
+        platform: "linux",
+        home: "/home/synthetic",
+        xdgStateHome: "relative/state"
+      },
+      "/home/synthetic/.local/state/pilates-booker"
+    ],
+    [
       "Windows",
       {
         platform: "win32",

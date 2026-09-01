@@ -27,7 +27,8 @@ export function resolveDefaultRuntime(
     );
   } else if (
     environment.platform === "linux" &&
-    environment.xdgStateHome !== undefined
+    environment.xdgStateHome !== undefined &&
+    posix.isAbsolute(environment.xdgStateHome)
   ) {
     selected = posix.join(environment.xdgStateHome, "pilates-booker");
   } else if (
