@@ -1,5 +1,7 @@
 # pilates-booker
 
+[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Release: v0.1.0 planned](https://img.shields.io/badge/release-v0.1.0%20planned-lightgrey)](https://github.com/sfelf/pilates-booker/milestone/1) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js >=22.12.0](https://img.shields.io/badge/Node.js-%3E%3D22.12.0-339933?logo=nodedotjs&logoColor=white)](package.json) [![Language: TypeScript](https://img.shields.io/static/v1?label=language&message=TypeScript&color=3178C6&logo=typescript&logoColor=white)](tsconfig.json)
+
 `pilates-booker` is a command-line tool for previewing or submitting one Arketa booking or waitlist request. It checks the supplied checkout, request, and policy before it can make an attempt.
 
 Start with a dry run: it inspects the checkout without submitting. Read that result before continuing. A live run can make one external booking or waitlist attempt without another prompt.

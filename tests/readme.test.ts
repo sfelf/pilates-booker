@@ -99,6 +99,31 @@ function privacyFindingKinds(markdown: string): Set<PrivacyFindingKind> {
 }
 
 describe("README first-use contract", () => {
+  it("shows accurate v0.1.0 repository badges directly below the title", async () => {
+    const readme = await readRepositoryFile("README.md");
+    const openingLines = readme.split("\n").slice(0, 10);
+    const badgeRow = openingLines.find((line) => line.startsWith("[!["));
+
+    expect(badgeRow, "missing badge row near README title").toBeDefined();
+    expect(openingLines.indexOf(badgeRow ?? "")).toBe(2);
+    expect(badgeRow).toContain(
+      "[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml)"
+    );
+    expect(badgeRow).toContain(
+      "[![Release: v0.1.0 planned](https://img.shields.io/badge/release-v0.1.0%20planned-lightgrey)](https://github.com/sfelf/pilates-booker/milestone/1)"
+    );
+    expect(badgeRow).toContain(
+      "[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)"
+    );
+    expect(badgeRow).toContain(
+      "[![Node.js >=22.12.0](https://img.shields.io/badge/Node.js-%3E%3D22.12.0-339933?logo=nodedotjs&logoColor=white)](package.json)"
+    );
+    expect(badgeRow).toContain(
+      "[![Language: TypeScript](https://img.shields.io/static/v1?label=language&message=TypeScript&color=3178C6&logo=typescript&logoColor=white)](tsconfig.json)"
+    );
+    expect(badgeRow).not.toMatch(/npm|codecov/i);
+  });
+
   it("starts with an operator mental model and dry-run warning", async () => {
     const readme = await readRepositoryFile("README.md");
     const opening = readme.slice(0, headingOffset(readme, "Before you begin"));
