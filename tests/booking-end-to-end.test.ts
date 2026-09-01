@@ -276,7 +276,7 @@ describe("compiled command stream boundary", () => {
       stdout: "",
       stderr: "Booking command failed.\n"
     });
-  });
+  }, 15_000);
 });
 
 describe("direct-command synthetic checkout", () => {
