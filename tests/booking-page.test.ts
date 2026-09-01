@@ -1096,22 +1096,19 @@ describe("BookingPage confirmation boundary", () => {
     });
     await booking.read();
     await booking.submit("book");
-    const reveal = (async () => {
-      await revealConfirmation(page, "confirmation-booked");
-      await page.locator("body").evaluate((body, links) => {
-        for (const href of links) {
-          const link = document.createElement("a");
-          link.href = href;
-          link.textContent = "Google";
-          body.append(link);
-        }
-      }, hrefs);
-    })();
+    await revealConfirmation(page, "confirmation-booked");
+    await page.locator("body").evaluate((body, links) => {
+      for (const href of links) {
+        const link = document.createElement("a");
+        link.href = href;
+        link.textContent = "Google";
+        body.append(link);
+      }
+    }, hrefs);
 
     await expect(booking.waitForConfirmation("book")).resolves.toEqual({
       kind: "BOOKED"
     });
-    await reveal;
     await page.close();
   });
 
