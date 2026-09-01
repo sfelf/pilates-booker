@@ -1,5 +1,5 @@
 import type {
-  BookingPolicy,
+  PackagePolicy,
   NonEmptyPackageBalances,
   PackageBalance
 } from "./contracts.js";
@@ -41,7 +41,7 @@ export function normalizePackageNameForComparison(value: string): string {
 }
 
 export function decidePackage(
-  policy: BookingPolicy,
+  policy: PackagePolicy,
   options: readonly PackageOption[]
 ): PackageDecision | undefined {
   const configuredByNormalizedName = new Map<string, string>();
@@ -125,7 +125,7 @@ export function decidePackage(
 }
 
 export function choosePackage(
-  policy: BookingPolicy,
+  policy: PackagePolicy,
   options: readonly PackageOption[]
 ): PackageSelection | undefined {
   return decidePackage(policy, options)?.selection ?? undefined;

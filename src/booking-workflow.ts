@@ -4,9 +4,10 @@ import {
   type BookingPage,
   type BookingPageState
 } from "./booking-page.js";
-import type { ExecutionContext } from "./cli.js";
 import type {
+  BookingInput,
   BookingResult,
+  ExecutionStage,
   ObservedClass,
   PermittedAction
 } from "./contracts.js";
@@ -16,7 +17,13 @@ import {
   type PackageDecision,
   type PackageSelection
 } from "./package-selection.js";
-import { validateResult } from "./result-validator.js";
+
+export type ExecutionContext = Readonly<{
+  input: BookingInput;
+  profileDir: string;
+  advance(stage: ExecutionStage): Promise<void>;
+  log(event: string, data?: Readonly<Record<string, unknown>>): Promise<void>;
+}>;
 
 export type AuthorizedBooking = Readonly<{
   status: "authorized";
@@ -24,7 +31,6 @@ export type AuthorizedBooking = Readonly<{
   observed_class: ObservedClass;
   selection: PackageSelection;
   safety_checks: Readonly<{
-    exact_class_match: true;
     approved_package_verified: true;
     no_charge: true;
     cancellation_policy_accepted: true;
@@ -59,7 +65,6 @@ const DETAILS = {
 } as const;
 
 const incompleteSafetyChecks = {
-  exact_class_match: false,
   approved_package_verified: false,
   no_charge: false,
   cancellation_policy_accepted: false
@@ -67,12 +72,12 @@ const incompleteSafetyChecks = {
 
 export async function executeBookingWorkflow(
   context: ExecutionContext,
-  browser: BookingBrowser = createBookingBrowser(context.request.expected_class)
+  browser: BookingBrowser = createBookingBrowser()
 ): Promise<BookingResult> {
   try {
     return await browser(
       context.profileDir,
-      context.request.booking_url,
+      context.input.booking_url,
       async (page) => {
         const preparation = await prepareBookingWorkflow(context, page);
         if ("outcome" in preparation) return preparation;
@@ -93,11 +98,7 @@ export async function executeBookingWorkflow(
         }
         await context.advance("CONFIRMED");
 
-        return confirmedResult(
-          context.request.request_id,
-          preparation,
-          confirmation
-        );
+        return confirmedResult(preparation, confirmation);
       }
     );
   } catch {
@@ -115,21 +116,16 @@ export async function prepareBookingWorkflow(
   try {
     initial = await page.read();
   } catch {
-    return safeStop(context.request.request_id, false);
-  }
-
-  const exactClassMatch = isExactClassMatch(context, initial);
-  if (!exactClassMatch) {
-    return safeStop(context.request.request_id, false);
+    return safeStop();
   }
 
   if (initial.observation.action === "already_booked") {
-    return context.request.dry_run
+    return context.input.dry_run
       ? existingDryRun(context, initial, "ALREADY_BOOKED")
       : existingEnrollment(context, initial, "ALREADY_BOOKED");
   }
   if (initial.observation.action === "already_waitlisted") {
-    return context.request.dry_run
+    return context.input.dry_run
       ? existingDryRun(context, initial, "ALREADY_WAITLISTED")
       : existingEnrollment(context, initial, "ALREADY_WAITLISTED");
   }
@@ -137,31 +133,34 @@ export async function prepareBookingWorkflow(
   const action = initial.observation.action;
   if (
     (action !== "book" && action !== "waitlist") ||
-    !context.request.permitted_actions.some(
+    !context.input.permitted_actions.some(
       (permittedAction) => permittedAction === action
     )
   ) {
-    return safeStop(context.request.request_id, true);
+    return safeStop();
   }
 
-  const packageDecision = decidePackage(context.policy, initial.packages);
+  const packageDecision = decidePackage(
+    { allowed_packages: context.input.allowed_packages },
+    initial.packages
+  );
   if (packageDecision === undefined) {
-    return safeStop(context.request.request_id, true);
+    return safeStop();
   }
   const selection = packageDecision.selection;
   if (selection === null) {
-    return safeStop(context.request.request_id, true, packageDecision);
+    return safeStop(packageDecision);
   }
 
-  if (context.request.dry_run) {
+  if (context.input.dry_run) {
     if (!hasUsableDryRunControls(initial, action, selection)) {
-      return safeStop(context.request.request_id, true);
+      return safeStop();
     }
     return actionableDryRun(context, initial, action, selection);
   }
 
   if (!hasUsableInitialControls(initial, selection)) {
-    return safeStop(context.request.request_id, true);
+    return safeStop();
   }
 
   let finalState: BookingPageState;
@@ -174,15 +173,11 @@ export async function prepareBookingWorkflow(
     await page.acceptCancellationPolicy();
     finalState = await page.read();
   } catch {
-    return safeStop(context.request.request_id, true);
+    return safeStop();
   }
 
-  const finalClassMatches = isExactClassMatch(context, finalState);
-  if (
-    !finalClassMatches ||
-    !isFullyAuthorized(context, finalState, action, selection)
-  ) {
-    return safeStop(context.request.request_id, finalClassMatches);
+  if (!isFullyAuthorized(context, finalState, action, selection)) {
+    return safeStop();
   }
 
   return {
@@ -191,7 +186,6 @@ export async function prepareBookingWorkflow(
     observed_class: finalState.observation.observed_class,
     selection,
     safety_checks: {
-      exact_class_match: true,
       approved_package_verified: true,
       no_charge: true,
       cancellation_policy_accepted: true
@@ -256,7 +250,7 @@ function isFullyAuthorized(
   }
 
   const finalSelection = decidePackage(
-    context.policy,
+    { allowed_packages: context.input.allowed_packages },
     state.packages
   )?.selection;
   return (
@@ -273,37 +267,19 @@ function isFullyAuthorized(
   );
 }
 
-function isExactClassMatch(
-  context: ExecutionContext,
-  state: BookingPageState
-): boolean {
-  const expected = context.request.expected_class;
-  const observed = state.observation.observed_class;
-  return (
-    observed.name === expected.name &&
-    observed.date === expected.date &&
-    observed.start_time === expected.start_time &&
-    observed.timezone === expected.timezone
-  );
-}
-
 function existingEnrollment(
   context: ExecutionContext,
   state: BookingPageState,
   outcome: "ALREADY_BOOKED" | "ALREADY_WAITLISTED"
 ): TerminalBookingPreparation {
   return {
-    schema_version: 1,
-    request_id: context.request.request_id,
+    schema_version: 2,
     outcome,
     exit_code: 0,
     action_submitted: false,
     confirmation_verified: true,
     observed_class: state.observation.observed_class,
-    safety_checks: {
-      ...incompleteSafetyChecks,
-      exact_class_match: true
-    },
+    safety_checks: incompleteSafetyChecks,
     details:
       outcome === "ALREADY_BOOKED"
         ? DETAILS.ALREADY_BOOKED
@@ -318,8 +294,7 @@ function actionableDryRun(
   selection: PackageSelection
 ): TerminalBookingPreparation {
   return {
-    schema_version: 1,
-    request_id: context.request.request_id,
+    schema_version: 2,
     outcome: "DRY_RUN",
     exit_code: 0,
     action_submitted: false,
@@ -329,7 +304,6 @@ function actionableDryRun(
     observed_class: state.observation.observed_class,
     ...selectedPackageEvidence(selection),
     safety_checks: {
-      exact_class_match: true,
       approved_package_verified: true,
       no_charge: false,
       cancellation_policy_accepted: false
@@ -344,38 +318,28 @@ function existingDryRun(
   availability: "ALREADY_BOOKED" | "ALREADY_WAITLISTED"
 ): TerminalBookingPreparation {
   return {
-    schema_version: 1,
-    request_id: context.request.request_id,
+    schema_version: 2,
     outcome: "DRY_RUN",
     exit_code: 0,
     action_submitted: false,
     confirmation_verified: true,
     availability,
     observed_class: state.observation.observed_class,
-    safety_checks: {
-      ...incompleteSafetyChecks,
-      exact_class_match: true
-    },
+    safety_checks: incompleteSafetyChecks,
     details: DETAILS.DRY_RUN
   };
 }
 
 function safeStop(
-  requestId: string,
-  exactClassMatch: boolean,
   packageDecision?: PackageDecision
 ): TerminalBookingPreparation {
   return {
-    schema_version: 1,
-    request_id: requestId,
+    schema_version: 2,
     outcome: "SAFE_STOP",
     exit_code: 20,
     action_submitted: false,
     confirmation_verified: false,
-    safety_checks: {
-      ...incompleteSafetyChecks,
-      exact_class_match: exactClassMatch
-    },
+    safety_checks: incompleteSafetyChecks,
     ...(packageDecision?.selection === null
       ? {
           package_selected: null,
@@ -397,7 +361,6 @@ function selectedPackageEvidence(selection: PackageSelection): Readonly<{
 }
 
 function confirmedResult(
-  requestId: string,
   preparation: AuthorizedBooking,
   confirmation: Extract<
     import("./booking-page.js").BookingConfirmation,
@@ -407,8 +370,7 @@ function confirmedResult(
   const result: BookingResult =
     confirmation.kind === "BOOKED"
       ? {
-          schema_version: 1,
-          request_id: requestId,
+          schema_version: 2,
           outcome: "BOOKED",
           exit_code: 0,
           action_submitted: true,
@@ -422,8 +384,7 @@ function confirmedResult(
           details: DETAILS.BOOKED
         }
       : {
-          schema_version: 1,
-          request_id: requestId,
+          schema_version: 2,
           outcome: "WAITLISTED",
           exit_code: 0,
           action_submitted: true,
@@ -433,6 +394,5 @@ function confirmedResult(
           safety_checks: preparation.safety_checks,
           details: DETAILS.WAITLISTED
         };
-  if (!validateResult(result)) throw new BookingWorkflowError();
   return result;
 }

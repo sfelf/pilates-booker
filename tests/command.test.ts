@@ -1,166 +1,63 @@
-import { mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, win32 } from "node:path";
-import { describe, expect, test, vi } from "vitest";
+import { expect, it, vi } from "vitest";
 
-import {
-  COMMAND_FAILURE_DIAGNOSTIC,
-  parseCommandArguments,
-  runCommand,
-  type CommandDependencies
-} from "../src/command.js";
-import type {
-  BookingPolicy,
-  BookingRequest,
-  BookingResult
-} from "../src/contracts.js";
+import { COMMAND_FAILURE_DIAGNOSTIC, runCommand } from "../src/command.js";
 
-const requestId = "00000000-0000-4000-8000-000000000701";
-const policy: BookingPolicy = {
-  schema_version: 1,
-  policy_version: "2030-01-01",
-  allowed_packages: ["Synthetic Priority Package"]
-};
-const request: BookingRequest = {
-  schema_version: 1,
-  request_id: requestId,
-  booking_url:
-    "https://app.arketa.co/iframe/example/calendar/checkout/FAKE_CHECKOUT_ID",
-  expected_class: {
-    name: "Synthetic Reformer Flow",
-    date: "2030-01-16",
-    start_time: "10:30",
-    timezone: "America/Los_Angeles"
-  },
-  reserve_for: "myself",
-  permitted_actions: ["book", "waitlist"],
-  policy_version: "2030-01-01",
-  allow_monetary_charge: false,
-  dry_run: true
-};
+const checkoutUrl =
+  "https://app.arketa.co/iframe/synthetic/calendar/checkout/command";
 
-describe("parseCommandArguments", () => {
-  test("extracts one absolute POSIX runtime and preserves CLI arguments", () => {
-    expect(
-      parseCommandArguments([
+it("passes the validated public arguments to one workflow invocation", async () => {
+  const execute = vi.fn(async () => ({
+    schema_version: 2 as const,
+    outcome: "SAFE_STOP" as const,
+    exit_code: 20 as const,
+    action_submitted: false as const,
+    confirmation_verified: false as const,
+    safety_checks: {
+      approved_package_verified: false as const,
+      no_charge: false as const,
+      cancellation_policy_accepted: false as const
+    },
+    details: "Booking stopped safely." as const
+  }));
+  const emitResult = vi.fn(async () => undefined);
+  const acquireLock = vi.fn(async () => ({
+    release: async () => ({ released: true as const })
+  }));
+
+  expect(
+    await runCommand(
+      [
+        "--booking-url",
+        checkoutUrl,
+        "--allow-package",
+        "First Pack",
+        "--allow-package",
+        "Second Pack",
         "--runtime",
         "/private/runtime",
-        "--policy",
-        "policy.json",
-        "request.json"
-      ])
-    ).toEqual({
-      runtimeDir: "/private/runtime",
-      cliArguments: ["--policy", "policy.json", "request.json"]
-    });
-  });
-
-  test("accepts an absolute Windows runtime on every host", () => {
-    const runtimeDir = win32.join("C:\\", "Private", "Arketa Runtime");
-    expect(
-      parseCommandArguments([
-        "--runtime",
-        runtimeDir,
-        "--policy",
-        "policy.json",
-        "request.json"
-      ])
-    ).toEqual({
-      runtimeDir,
-      cliArguments: ["--policy", "policy.json", "request.json"]
-    });
-  });
-
-  test.each([
-    ["missing", ["--policy", "policy.json", "request.json"]],
-    [
-      "relative",
-      ["--runtime", "runtime", "--policy", "policy.json", "request.json"]
-    ],
-    [
-      "duplicate",
-      [
-        "--runtime",
-        "/private/one",
-        "--runtime",
-        "/private/two",
-        "--policy",
-        "policy.json",
-        "request.json"
-      ]
-    ]
-  ] as const)("rejects a %s runtime argument", (_name, argv) => {
-    expect(parseCommandArguments(argv)).toBeUndefined();
+        "--book-only"
+      ],
+      { execute, emitResult, acquireLock }
+    )
+  ).toBe(20);
+  expect(execute).toHaveBeenCalledOnce();
+  const calls = execute.mock.calls as unknown as readonly [
+    readonly [{ input: unknown }]
+  ];
+  expect(calls[0][0].input).toEqual({
+    booking_url: checkoutUrl,
+    allowed_packages: ["First Pack", "Second Pack"],
+    permitted_actions: ["book"],
+    dry_run: false
   });
 });
 
-describe("runCommand", () => {
-  test("runs the existing CLI with a private runtime and request-keyed result", async () => {
-    const runtimeDir = await mkdtemp(join(tmpdir(), "pilates-command-"));
-    const result: BookingResult = {
-      schema_version: 1,
-      request_id: requestId,
-      outcome: "SAFE_STOP",
-      exit_code: 20,
-      action_submitted: false,
-      confirmation_verified: false,
-      safety_checks: {
-        exact_class_match: false,
-        approved_package_verified: false,
-        no_charge: false,
-        cancellation_policy_accepted: false
-      },
-      details: "Booking stopped safely."
-    };
-    const emitted: string[] = [];
-    const reportDiagnostic = vi.fn();
-    const dependencies: CommandDependencies = {
-      cwd: runtimeDir,
-      loadPolicy: async () => policy,
-      loadRequest: async () => request,
-      validateRequest: (value) => value as BookingRequest,
-      execute: async ({ advance }) => {
-        await advance("VALIDATED");
-        return result;
-      },
-      emitResult: async (bytes) => {
-        emitted.push(bytes);
-      },
-      reportDiagnostic
-    };
-
-    await expect(
-      runCommand(
-        ["--runtime", runtimeDir, "--policy", "policy.json", "request.json"],
-        dependencies
-      )
-    ).resolves.toBe(20);
-    const durable = await readFile(
-      join(runtimeDir, "results", `${requestId}.json`),
-      "utf8"
-    );
-    expect(JSON.parse(durable)).toMatchObject({
-      request_id: requestId,
-      outcome: "SAFE_STOP"
-    });
-    expect(emitted).toEqual([durable]);
-    expect(reportDiagnostic).not.toHaveBeenCalled();
-  });
-
-  test("reports one fixed printable stderr line for invalid command arguments", async () => {
-    const emitResult = vi.fn(async () => undefined);
-    const reportDiagnostic = vi.fn();
-    const dependencies: CommandDependencies = {
-      loadRequest: vi.fn(),
-      validateRequest: vi.fn(),
-      emitResult,
-      reportDiagnostic
-    };
-
-    await expect(runCommand([], dependencies)).resolves.toBe(30);
-    expect(emitResult).not.toHaveBeenCalled();
-    expect(reportDiagnostic).toHaveBeenCalledTimes(1);
-    expect(reportDiagnostic).toHaveBeenCalledWith(COMMAND_FAILURE_DIAGNOSTIC);
-    expect(COMMAND_FAILURE_DIAGNOSTIC).toMatch(/^[ -~]+$/u);
-  });
+it("rejects invalid arguments before acquiring the runtime lock", async () => {
+  const acquireLock = vi.fn();
+  const reportDiagnostic = vi.fn();
+  expect(
+    await runCommand(["--unknown"], { acquireLock, reportDiagnostic })
+  ).toBe(30);
+  expect(acquireLock).not.toHaveBeenCalled();
+  expect(reportDiagnostic).toHaveBeenCalledWith(COMMAND_FAILURE_DIAGNOSTIC);
 });

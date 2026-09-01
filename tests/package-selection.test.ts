@@ -6,11 +6,9 @@ import {
   normalizePackageNameForComparison,
   type PackageOption
 } from "../src/package-selection.js";
-import type { BookingPolicy } from "../src/contracts.js";
+import type { PackagePolicy } from "../src/contracts.js";
 
-const policy: BookingPolicy = {
-  schema_version: 1,
-  policy_version: "2030-01-01",
+const policy: PackagePolicy = {
   allowed_packages: ["5 Reformer Classes", "10 Reformer Classes"]
 };
 
@@ -236,7 +234,7 @@ describe("choosePackage", () => {
     ],
     ["an empty normalized policy name", ["✨✨"] as const]
   ])("fails closed for %s", (_case, allowed_packages) => {
-    const invalidPolicy: BookingPolicy = { ...policy, allowed_packages };
+    const invalidPolicy: PackagePolicy = { ...policy, allowed_packages };
 
     expect(
       decidePackage(invalidPolicy, [
@@ -257,7 +255,7 @@ describe("choosePackage", () => {
   );
 
   it("projects canonical balances while retaining the configured policy name", () => {
-    const configuredPolicy: BookingPolicy = {
+    const configuredPolicy: PackagePolicy = {
       ...policy,
       allowed_packages: ["⭐ 5 Reformer Classes", "10 Reformer Classes"]
     };

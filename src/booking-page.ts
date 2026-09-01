@@ -9,12 +9,7 @@ import {
   inspectCheckoutSnapshot,
   type RawCheckoutSnapshot
 } from "./checkout-inspection.js";
-import type {
-  BookingRequest,
-  CheckoutObservation,
-  ExpectedClass,
-  PermittedAction
-} from "./contracts.js";
+import type { CheckoutObservation, PermittedAction } from "./contracts.js";
 import type { PackageOption } from "./package-selection.js";
 import { validateCheckoutUrl } from "./url-policy.js";
 
@@ -73,6 +68,13 @@ export type BookingBrowser = <T>(
 export type BookingPageOptions = Readonly<{
   confirmationTimeoutMs?: number;
   classId?: string;
+  now?: Date;
+  timezone?: string;
+}>;
+
+export type ObservedClassHint = Readonly<{
+  date: string;
+  timezone: string;
 }>;
 
 type BookingBrowserOptions = Readonly<{
@@ -141,14 +143,22 @@ class BookingBrowserReadinessError extends Error {
 
 export function createBookingPage(
   page: Page,
-  expectedClass: ExpectedClass,
-  options: BookingPageOptions = {}
+  hintOrOptions: ObservedClassHint | BookingPageOptions = {},
+  additionalOptions: BookingPageOptions = {}
 ): BookingPage {
+  const options =
+    "date" in hintOrOptions
+      ? {
+          ...additionalOptions,
+          timezone: hintOrOptions.timezone,
+          now: new Date(`${hintOrOptions.date}T00:00:00Z`)
+        }
+      : hintOrOptions;
   const confirmationTimeoutMs = options.confirmationTimeoutMs ?? 30_000;
   let lastReadConfirmation: BookingPageState["confirmation"] | undefined;
   return {
     read: async () => {
-      const state = await readBookingPage(page, expectedClass);
+      const state = await readBookingPage(page, options);
       lastReadConfirmation = state.confirmation;
       return state;
     },
@@ -182,28 +192,39 @@ export function createBookingPage(
 }
 
 export function createBookingBrowser(
-  expectedClass: ExpectedClass,
-  launcher?: PersistentBrowserLauncher,
-  options: BookingBrowserOptions = {}
+  hintOrLauncher?: ObservedClassHint | PersistentBrowserLauncher,
+  launcherOrOptions?: PersistentBrowserLauncher | BookingBrowserOptions,
+  additionalOptions: BookingBrowserOptions = {}
 ): BookingBrowser {
+  const hint = typeof hintOrLauncher === "object" ? hintOrLauncher : undefined;
+  const launcher =
+    typeof hintOrLauncher === "function"
+      ? hintOrLauncher
+      : typeof launcherOrOptions === "function"
+        ? launcherOrOptions
+        : undefined;
+  const options =
+    typeof launcherOrOptions === "object" && hint === undefined
+      ? launcherOrOptions
+      : additionalOptions;
   return (profileDir, checkoutUrl, use) =>
     openBookingBrowser(
-      expectedClass,
       profileDir,
       checkoutUrl,
       use,
       launcher,
-      options.readinessTimeoutMs ?? 30_000
+      options.readinessTimeoutMs ?? 30_000,
+      hint
     );
 }
 
 async function openBookingBrowser<T>(
-  expectedClass: ExpectedClass,
   profileDir: string,
   checkoutUrl: string,
   use: (page: BookingPage) => Promise<T>,
   launcher: PersistentBrowserLauncher | undefined,
-  readinessTimeoutMs: number
+  readinessTimeoutMs: number,
+  hint: ObservedClassHint | undefined
 ): Promise<T> {
   const validatedCheckoutUrl = validateCheckoutUrl(checkoutUrl);
   const validatedUrl = validatedCheckoutUrl.href;
@@ -223,12 +244,11 @@ async function openBookingBrowser<T>(
       throw new BookingBrowserReadinessError();
     }
     const classId = validatedCheckoutUrl.pathname.split("/")[5];
+    const pageOptions = classId === undefined ? {} : { classId };
     return use(
-      createBookingPage(
-        page,
-        expectedClass,
-        classId === undefined ? {} : { classId }
-      )
+      hint === undefined
+        ? createBookingPage(page, pageOptions)
+        : createBookingPage(page, hint, pageOptions)
     );
   };
 
@@ -664,11 +684,11 @@ async function waitForGoogleCalendarUrl(
 
 async function readBookingPage(
   page: Page,
-  expectedClass: ExpectedClass
+  options: BookingPageOptions
 ): Promise<BookingPageState> {
   try {
     if (await hasLiveCheckout(page)) {
-      return await readLiveBookingPage(page, expectedClass);
+      return await readLiveBookingPage(page, options);
     }
     const raw = await page.locator("body").evaluate((root): RawPageState => {
       const isVisible = (element: Element): element is HTMLElement => {
@@ -891,10 +911,7 @@ async function readBookingPage(
       };
     });
 
-    const observation = inspectCheckoutSnapshot(
-      inspectionRequest(expectedClass),
-      raw.checkout
-    );
+    const observation = inspectCheckoutSnapshot(raw.checkout);
     if (observation.status !== "observed") throw new Error("not observed");
     const [book, waitlist] = await Promise.all([
       readExactActionState(page, "book"),
@@ -930,7 +947,7 @@ async function hasLiveCheckout(page: Page): Promise<boolean> {
 
 async function readLiveBookingPage(
   page: Page,
-  expectedClass: ExpectedClass
+  options: BookingPageOptions
 ): Promise<BookingPageState> {
   const title = page.locator(".classTitle").filter({ visible: true });
   if ((await title.count()) !== 1) throw new Error("ambiguous class");
@@ -975,15 +992,24 @@ async function readLiveBookingPage(
     };
   });
   const { dateTimeText, instructorText } = metadata;
-  const parsed = parseLiveDateTime(dateTimeText, expectedClass);
+  const timezone =
+    options.timezone ??
+    (await page.evaluate(
+      () => Intl.DateTimeFormat().resolvedOptions().timeZone
+    ));
+  const parsed = parseLiveDateTime(
+    dateTimeText,
+    timezone,
+    options.now ?? new Date()
+  );
   if (!instructorText.startsWith("with ")) throw new Error("incomplete class");
   const observedClass = {
     name: (await title.innerText()).trim(),
     instructor: instructorText.slice("with ".length).trim(),
-    date: expectedClass.date,
+    date: parsed.date,
     start_time: parsed.start,
     end_time: parsed.end,
-    timezone: expectedClass.timezone
+    timezone
   };
   const enrollment = await readLiveEnrollment(page);
   if (enrollment !== undefined) {
@@ -1241,40 +1267,84 @@ async function readConfirmationCounts(
 
 function parseLiveDateTime(
   value: string,
-  expectedClass: ExpectedClass
-): Readonly<{ start: string; end: string }> {
+  timezone: string,
+  now: Date
+): Readonly<{ date: string; start: string; end: string }> {
   const match = value.match(
     /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12][0-9]|3[01]) • (0?[1-9]|1[0-2]):([0-5][0-9]) (AM|PM) - (0?[1-9]|1[0-2]):([0-5][0-9]) (AM|PM) ((?:[A-Z]{2,5}|GMT[+-](?:[0-9]|1[0-4])(?::[0-5][0-9])?))$/u
   );
   if (match === null) throw new Error("invalid class time");
-  const expectedDate = new Date(`${expectedClass.date}T12:00:00Z`);
-  const expectedPrefix = new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC"
-  }).format(expectedDate);
-  if (`${match[1]}, ${match[2]} ${match[3]}` !== expectedPrefix) {
-    throw new Error("class date mismatch");
-  }
   const to24Hour = (hour: string, minute: string, meridiem: string): string => {
     const numeric = (Number(hour) % 12) + (meridiem === "PM" ? 12 : 0);
     return `${String(numeric).padStart(2, "0")}:${minute}`;
   };
   const start = to24Hour(match[4]!, match[5]!, match[6]!);
   const end = to24Hour(match[7]!, match[8]!, match[9]!);
-  if (start !== expectedClass.start_time)
-    throw new Error("class time mismatch");
-  if (
-    !zoneNamesForLocalDateTime(
-      expectedClass.date,
-      start,
-      expectedClass.timezone
-    ).has(match[10]!)
-  ) {
+  const date = inferUpcomingDate(
+    match[1]!,
+    match[2]!,
+    Number(match[3]!),
+    timezone,
+    now
+  );
+  if (!zoneNamesForLocalDateTime(date, start, timezone).has(match[10]!)) {
     throw new Error("class timezone mismatch");
   }
-  return { start, end };
+  return { date, start, end };
+}
+
+function inferUpcomingDate(
+  weekday: string,
+  month: string,
+  day: number,
+  timezone: string,
+  now: Date
+): string {
+  const monthNumber =
+    [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec"
+    ].indexOf(month) + 1;
+  if (monthNumber === 0) throw new Error("invalid class date");
+  const currentYear = Number(
+    new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      timeZone: timezone
+    }).format(now)
+  );
+  const todayParts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: timezone
+  }).formatToParts(now);
+  const todayValue = (type: Intl.DateTimeFormatPartTypes): string =>
+    todayParts.find((part) => part.type === type)?.value ?? "";
+  const today = `${todayValue("year")}-${todayValue("month")}-${todayValue("day")}`;
+  for (const year of [currentYear, currentYear + 1]) {
+    const candidate = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const instant = new Date(`${candidate}T12:00:00Z`);
+    const prefix = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC"
+    }).format(instant);
+    if (candidate >= today && prefix === `${weekday}, ${month} ${day}`) {
+      return candidate;
+    }
+  }
+  throw new Error("invalid class date");
 }
 
 function zoneNamesForLocalDateTime(
@@ -1321,20 +1391,5 @@ async function readExactActionState(
   return {
     visibleCount,
     enabled: visibleCount === 1 && (await visible.isEnabled())
-  };
-}
-
-function inspectionRequest(expectedClass: ExpectedClass): BookingRequest {
-  return {
-    schema_version: 1,
-    request_id: "00000000-0000-4000-8000-000000000000",
-    booking_url:
-      "https://app.arketa.co/iframe/synthetic/calendar/checkout/synthetic",
-    expected_class: expectedClass,
-    reserve_for: "myself",
-    permitted_actions: ["book", "waitlist"],
-    policy_version: "booking-page-inspection",
-    allow_monetary_charge: false,
-    dry_run: false
   };
 }

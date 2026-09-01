@@ -1,20 +1,41 @@
 import { createRequire } from "node:module";
 
 import resultSchema from "../schemas/result.schema.json" with { type: "json" };
-import type {
-  BookingPolicy,
-  BookingRequest,
-  BookingResult
-} from "./contracts.js";
+import type { BookingInput, BookingResult } from "./contracts.js";
 import { normalizePackageNameForComparison } from "./package-selection.js";
 import { validateCalendarUrl, validateCheckoutUrl } from "./url-policy.js";
 
 const require = createRequire(import.meta.url);
 const Ajv = require("ajv").default;
 const addFormats = require("ajv-formats").default;
-const ajv = addFormats(new Ajv({ allErrors: true, strict: true }));
-const resultValidator = ajv.compile(resultSchema);
-const CHECKOUT_CLASS_ID = /^[A-Za-z0-9_-]+$/u;
+const validator = addFormats(
+  new Ajv({ allErrors: true, strict: true })
+).compile(resultSchema);
+
+export const validateResult = (value: unknown): value is BookingResult =>
+  (validator(value) as boolean) &&
+  !(
+    (value as BookingResult).outcome === "DRY_RUN" &&
+    (value as BookingResult).observed_class === undefined
+  ) &&
+  hasExactSelectedPackageEvidence(value as BookingResult);
+
+export function validateResultForInput(
+  value: unknown,
+  input: BookingInput
+): value is BookingResult {
+  if (!validateResult(value)) return false;
+  if (!hasPermittedAction(value, input)) return false;
+  if (!hasPolicyBoundPackageEvidence(value, input)) return false;
+  const calendarUrl = (value as { google_calendar_url?: unknown })
+    .google_calendar_url;
+  return (
+    calendarUrl === undefined ||
+    (typeof calendarUrl === "string" &&
+      permitsCalendarUrl(value) &&
+      validateCalendarUrlForCheckout(calendarUrl, input.booking_url))
+  );
+}
 
 export function validateCalendarUrlForCheckout(
   value: string,
@@ -29,78 +50,48 @@ export function validateCalendarUrlForCheckout(
   if (value.includes("%") || validateCalendarUrl(value) === undefined) {
     return false;
   }
-
   const calendar = new URL(value);
-  const checkoutClassId = checkout.pathname.split("/")[5];
+  const classId = checkout.pathname.split("/")[5];
   return (
-    checkoutClassId !== undefined &&
+    classId !== undefined &&
     calendar.pathname === "/api/calendar/google" &&
-    calendar.search === `?classId=${checkoutClassId}`
+    calendar.search === `?classId=${classId}`
   );
 }
 
-export const validateResult = (value: unknown): value is BookingResult => {
-  if (!(resultValidator(value) as boolean)) return false;
-  const result = value as BookingResult;
-  if (result.outcome === "DRY_RUN" && result.observed_class === undefined) {
-    return false;
+function hasPermittedAction(
+  result: BookingResult,
+  input: BookingInput
+): boolean {
+  if (result.outcome === "BOOKED") {
+    return !input.dry_run && permits(input, "book");
   }
-  if (
-    result.outcome !== "DRY_RUN" ||
-    (result.availability !== "BOOKING_AVAILABLE" &&
-      result.availability !== "WAITLIST_AVAILABLE")
-  ) {
-    return true;
+  if (result.outcome === "WAITLISTED") {
+    return !input.dry_run && permits(input, "waitlist");
   }
-  if (
-    result.packages_before.some(
-      (candidate) =>
-        !Number.isSafeInteger(candidate.remaining) || candidate.remaining < 0
-    )
-  ) {
-    return false;
+  if (result.outcome !== "DRY_RUN") {
+    return (
+      !input.dry_run ||
+      result.outcome === "SAFE_STOP" ||
+      result.outcome === "TECHNICAL_FAILURE"
+    );
   }
-
-  const configuredName = normalizePackageNameForComparison(
-    result.package_selected
-  );
+  if (!input.dry_run) return false;
+  if (result.availability === "BOOKING_AVAILABLE") {
+    return permits(input, "book");
+  }
   return (
-    configuredName.length > 0 &&
-    result.packages_before.some(
-      (candidate) =>
-        candidate.approved &&
-        candidate.remaining > 0 &&
-        normalizePackageNameForComparison(candidate.name) === configuredName
-    )
+    result.availability !== "WAITLIST_AVAILABLE" || permits(input, "waitlist")
   );
-};
+}
 
-export function validateResultForRequest(
-  result: unknown,
-  request: BookingRequest,
-  policy: BookingPolicy
-): result is BookingResult {
-  if (!validateResult(result) || result.request_id !== request.request_id) {
-    return false;
-  }
-  if (!hasExpectedClassWhenVerified(result, request)) return false;
-  if (!hasPermittedAction(result, request)) return false;
-  if (!hasExactSelectedPackageEvidence(result)) return false;
-  if (!hasPolicyBoundPackageEvidence(result, policy)) return false;
-
-  const calendarUrl = (result as { google_calendar_url?: unknown })
-    .google_calendar_url;
-  return (
-    calendarUrl === undefined ||
-    (typeof calendarUrl === "string" &&
-      permitsCalendarUrl(result) &&
-      validateCalendarUrlForCheckout(calendarUrl, request.booking_url))
-  );
+function permits(input: BookingInput, action: "book" | "waitlist"): boolean {
+  return input.permitted_actions.some((candidate) => candidate === action);
 }
 
 function hasPolicyBoundPackageEvidence(
   result: BookingResult,
-  policy: BookingPolicy
+  input: BookingInput
 ): boolean {
   const evidence = result as {
     package_selected?: unknown;
@@ -108,141 +99,38 @@ function hasPolicyBoundPackageEvidence(
   };
   if (evidence.package_selected === undefined) return true;
   if (!Array.isArray(evidence.packages_before)) return false;
-
-  const canonicalByNormalizedName = new Map<string, string>();
-  for (const canonicalName of policy.allowed_packages) {
-    const normalizedName = normalizePackageNameForComparison(canonicalName);
-    if (
-      normalizedName.length === 0 ||
-      canonicalByNormalizedName.has(normalizedName)
-    ) {
-      return false;
-    }
-    canonicalByNormalizedName.set(normalizedName, canonicalName);
+  const canonical = new Map<string, string>();
+  for (const name of input.allowed_packages) {
+    const normalized = normalizePackageNameForComparison(name);
+    if (normalized.length === 0 || canonical.has(normalized)) return false;
+    canonical.set(normalized, name);
   }
-
   for (const candidate of evidence.packages_before) {
     if (
       typeof candidate !== "object" ||
       candidate === null ||
       typeof (candidate as { name?: unknown }).name !== "string" ||
       typeof (candidate as { approved?: unknown }).approved !== "boolean"
+    )
+      return false;
+    const { name, approved } = candidate as { name: string; approved: boolean };
+    const normalized = normalizePackageNameForComparison(name);
+    const configured = canonical.get(normalized);
+    if (
+      approved
+        ? configured !== name
+        : configured !== undefined || name !== normalized
     ) {
       return false;
     }
-    const { name, approved } = candidate as {
-      name: string;
-      approved: boolean;
-    };
-    const normalizedName = normalizePackageNameForComparison(name);
-    const canonicalName = canonicalByNormalizedName.get(normalizedName);
-    if (approved) {
-      if (canonicalName === undefined || name !== canonicalName) return false;
-    } else if (canonicalName !== undefined || name !== normalizedName) {
-      return false;
-    }
   }
-
   if (evidence.package_selected === null) return true;
-  if (typeof evidence.package_selected !== "string") return false;
-  const selectedCanonicalName = canonicalByNormalizedName.get(
-    normalizePackageNameForComparison(evidence.package_selected)
-  );
   return (
-    selectedCanonicalName !== undefined &&
-    evidence.package_selected === selectedCanonicalName
+    typeof evidence.package_selected === "string" &&
+    canonical.get(
+      normalizePackageNameForComparison(evidence.package_selected)
+    ) === evidence.package_selected
   );
-}
-
-export function validateResultForRecovery(
-  result: unknown,
-  requestId: string
-): result is BookingResult {
-  if (
-    !validateResult(result) ||
-    result.request_id !== requestId ||
-    !hasExactSelectedPackageEvidence(result)
-  ) {
-    return false;
-  }
-
-  const calendarUrl = (result as { google_calendar_url?: unknown })
-    .google_calendar_url;
-  return (
-    calendarUrl === undefined ||
-    (typeof calendarUrl === "string" &&
-      permitsCalendarUrl(result) &&
-      validateRecoveredCalendarUrl(calendarUrl))
-  );
-}
-
-function validateRecoveredCalendarUrl(value: string): boolean {
-  if (value.includes("%") || validateCalendarUrl(value) === undefined) {
-    return false;
-  }
-
-  const calendar = new URL(value);
-  const classId = calendar.searchParams.get("classId");
-  return (
-    classId !== null &&
-    CHECKOUT_CLASS_ID.test(classId) &&
-    calendar.pathname === "/api/calendar/google" &&
-    calendar.search === `?classId=${classId}`
-  );
-}
-
-function hasExpectedClassWhenVerified(
-  result: BookingResult,
-  request: BookingRequest
-): boolean {
-  const observedClass = (
-    result as { observed_class?: BookingRequest["expected_class"] }
-  ).observed_class;
-  if (observedClass === undefined || !result.safety_checks.exact_class_match) {
-    return true;
-  }
-
-  const expectedClass = request.expected_class;
-  return (
-    observedClass.name === expectedClass.name &&
-    observedClass.date === expectedClass.date &&
-    observedClass.start_time === expectedClass.start_time &&
-    observedClass.timezone === expectedClass.timezone
-  );
-}
-
-function hasPermittedAction(
-  result: BookingResult,
-  request: BookingRequest
-): boolean {
-  if (result.outcome === "BOOKED") {
-    return !request.dry_run && permitsAction(request, "book");
-  }
-  if (result.outcome === "WAITLISTED") {
-    return !request.dry_run && permitsAction(request, "waitlist");
-  }
-  if (result.outcome !== "DRY_RUN") {
-    return (
-      !request.dry_run ||
-      result.outcome === "SAFE_STOP" ||
-      result.outcome === "TECHNICAL_FAILURE"
-    );
-  }
-  if (!request.dry_run) return false;
-  if (result.availability === "BOOKING_AVAILABLE") {
-    return permitsAction(request, "book");
-  }
-  return (
-    result.availability !== "WAITLIST_AVAILABLE" ||
-    permitsAction(request, "waitlist")
-  );
-}
-
-function permitsAction(
-  request: BookingRequest,
-  action: "book" | "waitlist"
-): boolean {
-  return request.permitted_actions.some((permitted) => permitted === action);
 }
 
 function hasExactSelectedPackageEvidence(result: BookingResult): boolean {
@@ -250,44 +138,33 @@ function hasExactSelectedPackageEvidence(result: BookingResult): boolean {
     package_selected?: unknown;
     packages_before?: unknown;
   };
-  if (evidence.package_selected === undefined) {
-    return true;
-  }
+  if (evidence.package_selected === undefined) return true;
+  if (!Array.isArray(evidence.packages_before)) return false;
   if (evidence.package_selected === null) {
-    return (
-      Array.isArray(evidence.packages_before) &&
-      evidence.packages_before.every(
-        (candidate) =>
-          typeof candidate === "object" &&
-          candidate !== null &&
-          (candidate as { approved?: unknown }).approved === false
-      )
+    return evidence.packages_before.every(
+      (candidate) =>
+        typeof candidate === "object" &&
+        candidate !== null &&
+        (candidate as { approved?: unknown }).approved === false
     );
   }
-  if (
-    typeof evidence.package_selected !== "string" ||
-    !Array.isArray(evidence.packages_before)
-  ) {
-    return false;
-  }
-
-  const configuredName = normalizePackageNameForComparison(
-    evidence.package_selected
-  );
+  if (typeof evidence.package_selected !== "string") return false;
+  const selected = normalizePackageNameForComparison(evidence.package_selected);
   return (
-    configuredName.length > 0 &&
+    selected.length > 0 &&
     evidence.packages_before.some(
       (candidate) =>
         typeof candidate === "object" &&
         candidate !== null &&
         (candidate as { approved?: unknown }).approved === true &&
-        (candidate as { remaining?: unknown }).remaining !== undefined &&
-        Number.isSafeInteger((candidate as { remaining: number }).remaining) &&
+        Number.isSafeInteger(
+          (candidate as { remaining?: unknown }).remaining
+        ) &&
         (candidate as { remaining: number }).remaining > 0 &&
         typeof (candidate as { name?: unknown }).name === "string" &&
         normalizePackageNameForComparison(
           (candidate as { name: string }).name
-        ) === configuredName
+        ) === selected
     )
   );
 }

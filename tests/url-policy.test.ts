@@ -19,8 +19,7 @@ const calendarOrigin = "https://app.arketa.co";
 
 function resultWithCalendarUrl(googleCalendarUrl: string) {
   return {
-    schema_version: 1,
-    request_id: "00000000-0000-4000-8000-000000000001",
+    schema_version: 2,
     outcome: "ALREADY_BOOKED",
     exit_code: 0,
     action_submitted: false,
@@ -35,7 +34,6 @@ function resultWithCalendarUrl(googleCalendarUrl: string) {
     },
     google_calendar_url: googleCalendarUrl,
     safety_checks: {
-      exact_class_match: true,
       approved_package_verified: true,
       no_charge: true,
       cancellation_policy_accepted: false

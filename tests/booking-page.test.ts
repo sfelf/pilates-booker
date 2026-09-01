@@ -12,7 +12,12 @@ import type {
   BrowserContextLike,
   PersistentBrowserLauncher
 } from "../src/browser-session.js";
-import type { ExpectedClass } from "../src/contracts.js";
+type ExpectedClass = Readonly<{
+  name: string;
+  date: string;
+  start_time: string;
+  timezone: string;
+}>;
 import { bookingPageHtml, liveBookingPageHtml } from "./fixtures/checkout.js";
 
 const expectedClass: ExpectedClass = {

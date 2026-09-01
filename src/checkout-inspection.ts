@@ -1,5 +1,4 @@
 import type {
-  BookingRequest,
   CheckoutAction,
   CheckoutObservation,
   ObservedClass,
@@ -23,23 +22,16 @@ export type RawCheckoutSnapshot = Readonly<{
   offerings: readonly RawOffering[];
 }>;
 
-export type CheckoutInspectionErrorCode =
-  | "AMBIGUOUS_CHECKOUT_STATE"
-  | "CLASS_MISMATCH";
+export type CheckoutInspectionErrorCode = "AMBIGUOUS_CHECKOUT_STATE";
 
 export class CheckoutInspectionError extends Error {
   constructor(readonly code: CheckoutInspectionErrorCode) {
-    super(
-      code === "CLASS_MISMATCH"
-        ? "Checkout class does not match the request."
-        : "Checkout state is ambiguous."
-    );
+    super("Checkout state is ambiguous.");
     this.name = "CheckoutInspectionError";
   }
 }
 
 export function inspectCheckoutSnapshot(
-  request: BookingRequest,
   raw: RawCheckoutSnapshot
 ): CheckoutObservation {
   if (raw.authenticated === raw.login_required) {
@@ -62,20 +54,15 @@ export function inspectCheckoutSnapshot(
   }
 
   const observedClass = raw.classes[0]!;
-  const expectedClass = request.expected_class;
   if (
+    observedClass.name.length === 0 ||
     observedClass.instructor.length === 0 ||
-    !/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(observedClass.end_time)
+    !/^\d{4}-\d{2}-\d{2}$/u.test(observedClass.date) ||
+    !/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/u.test(observedClass.start_time) ||
+    !/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(observedClass.end_time) ||
+    observedClass.timezone.length === 0
   ) {
     throw new CheckoutInspectionError("AMBIGUOUS_CHECKOUT_STATE");
-  }
-  if (
-    observedClass.name !== expectedClass.name ||
-    observedClass.date !== expectedClass.date ||
-    observedClass.start_time !== expectedClass.start_time ||
-    observedClass.timezone !== expectedClass.timezone
-  ) {
-    throw new CheckoutInspectionError("CLASS_MISMATCH");
   }
 
   return {

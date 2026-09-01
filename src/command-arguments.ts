@@ -2,11 +2,11 @@ import { isAbsolute, win32 } from "node:path";
 
 import { normalizePackageNameForComparison } from "./package-selection.js";
 import { validateCheckoutUrl } from "./url-policy.js";
-import type { BookingInput } from "./v2-contracts.js";
+import type { BookingInput } from "./contracts.js";
 import {
   resolveDefaultRuntime,
   type RuntimeEnvironment
-} from "./v2-runtime-paths.js";
+} from "./runtime-paths.js";
 
 export type CommandArguments = Readonly<{
   input: BookingInput;
@@ -16,7 +16,16 @@ export type CommandArguments = Readonly<{
 
 export function parseCommandArguments(
   argv: readonly string[],
-  environment: RuntimeEnvironment
+  environment: RuntimeEnvironment = {
+    platform: process.platform,
+    ...(process.env.HOME === undefined ? {} : { home: process.env.HOME }),
+    ...(process.env.XDG_STATE_HOME === undefined
+      ? {}
+      : { xdgStateHome: process.env.XDG_STATE_HOME }),
+    ...(process.env.LOCALAPPDATA === undefined
+      ? {}
+      : { localAppData: process.env.LOCALAPPDATA })
+  }
 ): CommandArguments | undefined {
   let bookingUrl: string | undefined;
   const allowedPackages: string[] = [];
