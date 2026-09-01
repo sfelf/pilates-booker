@@ -121,7 +121,10 @@ describe("README first-use contract", () => {
     expect(badgeRow).toContain(
       "[![Language: TypeScript](https://img.shields.io/static/v1?label=language&message=TypeScript&color=3178C6&logo=typescript&logoColor=white)](tsconfig.json)"
     );
-    expect(badgeRow).not.toMatch(/npm|codecov/i);
+    const imageMarkup = [...readme.matchAll(/!\[[^\]]*\]\([^)]+\)/g)]
+      .map((match) => match[0])
+      .join("\n");
+    expect(imageMarkup).not.toMatch(/npm|codecov/i);
   });
 
   it("starts with an operator mental model and dry-run warning", async () => {
