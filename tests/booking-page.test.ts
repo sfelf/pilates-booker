@@ -22,9 +22,42 @@ const expectedClass: ExpectedClass = {
   timezone: "America/Los_Angeles"
 };
 
+const currentWrappedExpectedClass: ExpectedClass = {
+  ...expectedClass,
+  date: "2026-09-09",
+  start_time: "12:30"
+};
+
 const calendarClassId = "SYNTHETIC_CLASS_ID";
 const googleCalendarUrl =
   "https://app.arketa.co/api/calendar/google?classId=SYNTHETIC_CLASS_ID";
+
+function wrappedLiveBookingPageHtml(): string {
+  return liveBookingPageHtml()
+    .replace(
+      '<h2 class="classTitle">Reformer – Début ✨</h2>',
+      '<div><h2 class="classTitle">Reformer – Début ✨</h2></div>'
+    )
+    .replace(
+      "Tuesday, Sep 1 • 9:30 AM - 10:20 AM PDT",
+      "Wednesday, Sep 9 • 12:30 PM - 01:15 PM PDT"
+    );
+}
+
+function ambiguousLiveBookingPageHtml(): string {
+  return liveBookingPageHtml().replace(
+    `<h2 class="classTitle">Reformer – Début ✨</h2>
+          <p>Tuesday, Sep 1 • 9:30 AM - 10:20 AM PDT</p>
+          <p>with Ana O’Neil</p>`,
+    `<div>
+            <h2 class="classTitle">Reformer – Début ✨</h2>
+            <p>Tuesday, Sep 1 • 9:30 AM - 10:20 AM PDT</p>
+            <p>with Ana O’Neil</p>
+          </div>
+          <p>Tuesday, Sep 1 • 9:30 AM - 10:20 AM PDT</p>
+          <p>with Ana O’Neil</p>`
+  );
+}
 
 let browser: Browser;
 
@@ -70,6 +103,34 @@ describe("BookingPage read boundary", () => {
       cancellation: { visibleCount: 1, accepted: false, enabled: true },
       submission: { book: { visibleCount: 1, enabled: true } }
     });
+    await page.close();
+  });
+
+  it("reads current live metadata after one class-title wrapper", async () => {
+    const page = await syntheticPage(wrappedLiveBookingPageHtml());
+
+    const state = await createBookingPage(
+      page,
+      currentWrappedExpectedClass
+    ).read();
+
+    expect(state.observation.observed_class).toEqual({
+      name: "Reformer – Début ✨",
+      instructor: "Ana O’Neil",
+      date: "2026-09-09",
+      start_time: "12:30",
+      end_time: "13:15",
+      timezone: "America/Los_Angeles"
+    });
+    await page.close();
+  });
+
+  it("rejects ambiguous direct and wrapped live metadata bindings", async () => {
+    const page = await syntheticPage(ambiguousLiveBookingPageHtml());
+
+    await expect(createBookingPage(page, expectedClass).read()).rejects.toThrow(
+      "Booking page could not be read."
+    );
     await page.close();
   });
 
@@ -1222,6 +1283,20 @@ function lifecycleHarness(
 }
 
 describe("BookingBrowser lifecycle", () => {
+  it("recognizes current live metadata after one class-title wrapper", async () => {
+    const page = await syntheticPage(wrappedLiveBookingPageHtml());
+
+    await expect(waitForBookingReady(page, 200)).resolves.toBeUndefined();
+    await page.close();
+  });
+
+  it("does not accept ambiguous direct and wrapped metadata as ready", async () => {
+    const page = await syntheticPage(ambiguousLiveBookingPageHtml());
+
+    await expect(waitForBookingReady(page, 100)).rejects.toThrow();
+    await page.close();
+  });
+
   it("waits for the booked enrollment details control to hydrate", async () => {
     const page = await syntheticPage(
       liveBookingPageHtml().replace(

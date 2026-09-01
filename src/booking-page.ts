@@ -261,8 +261,28 @@ export async function waitForBookingReady(
       if (liveTitles.length > 0) {
         if (liveTitles.length !== 1) return false;
         const title = liveTitles[0]!;
-        const sibling = title.nextElementSibling;
-        const instructor = sibling?.nextElementSibling ?? null;
+        const metadataBindings = [title, title.parentElement]
+          .filter((anchor): anchor is HTMLElement => anchor !== null)
+          .map((anchor) => {
+            const dateTime = anchor.nextElementSibling;
+            const instructor = dateTime?.nextElementSibling ?? null;
+            const dateTimeText = (dateTime?.textContent ?? "")
+              .replace(/\s+/gu, " ")
+              .trim();
+            const instructorText = (instructor?.textContent ?? "")
+              .replace(/\s+/gu, " ")
+              .trim();
+            return { dateTime, instructor, dateTimeText, instructorText };
+          })
+          .filter(
+            ({ dateTime, instructor, dateTimeText, instructorText }) =>
+              visible(dateTime) &&
+              visible(instructor) &&
+              dateTimeText.includes(" • ") &&
+              dateTimeText.includes(" - ") &&
+              instructorText.startsWith("with ")
+          );
+        if (metadataBindings.length !== 1) return false;
         const exactVisibleInput = (
           selector: string,
           accessibleName: string
@@ -319,12 +339,10 @@ export async function waitForBookingReady(
                     (button.textContent ?? "").replace(/\s+/gu, " ").trim() ===
                       "View Details"
                 );
-          return (
-            visible(sibling) && visible(instructor) && details.length === 1
-          );
+          return metadataBindings.length === 1 && details.length === 1;
         }
         if (waitlisted.length === 1) {
-          return visible(sibling) && visible(instructor);
+          return metadataBindings.length === 1;
         }
         const packages = [...document.querySelectorAll("div.card")].filter(
           (card) =>
@@ -334,8 +352,7 @@ export async function waitForBookingReady(
             card.querySelector("p") !== null
         );
         return (
-          visible(sibling) &&
-          visible(instructor) &&
+          metadataBindings.length === 1 &&
           actions.length === 1 &&
           packages.length > 0 &&
           exactVisibleInput(
@@ -917,10 +934,47 @@ async function readLiveBookingPage(
 ): Promise<BookingPageState> {
   const title = page.locator(".classTitle").filter({ visible: true });
   if ((await title.count()) !== 1) throw new Error("ambiguous class");
-  const metadata = title.locator("xpath=following-sibling::*");
-  if ((await metadata.count()) < 2) throw new Error("incomplete class");
-  const dateTimeText = (await metadata.nth(0).innerText()).trim();
-  const instructorText = (await metadata.nth(1).innerText()).trim();
+  const metadata = await title.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("unsupported class title");
+    }
+    const visible = (candidate: Element | null): candidate is HTMLElement => {
+      if (!(candidate instanceof HTMLElement) || candidate.hidden) return false;
+      const style = getComputedStyle(candidate);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        candidate.getClientRects().length > 0
+      );
+    };
+    const bindings = [element, element.parentElement]
+      .filter((anchor): anchor is HTMLElement => anchor !== null)
+      .map((anchor) => {
+        const dateTime = anchor.nextElementSibling;
+        const instructor = dateTime?.nextElementSibling ?? null;
+        const dateTimeText = (dateTime?.textContent ?? "")
+          .replace(/\s+/gu, " ")
+          .trim();
+        const instructorText = (instructor?.textContent ?? "")
+          .replace(/\s+/gu, " ")
+          .trim();
+        return { dateTime, instructor, dateTimeText, instructorText };
+      })
+      .filter(
+        ({ dateTime, instructor, dateTimeText, instructorText }) =>
+          visible(dateTime) &&
+          visible(instructor) &&
+          dateTimeText.includes(" • ") &&
+          dateTimeText.includes(" - ") &&
+          instructorText.startsWith("with ")
+      );
+    if (bindings.length !== 1) throw new Error("ambiguous class metadata");
+    return {
+      dateTimeText: bindings[0]!.dateTimeText,
+      instructorText: bindings[0]!.instructorText
+    };
+  });
+  const { dateTimeText, instructorText } = metadata;
   const parsed = parseLiveDateTime(dateTimeText, expectedClass);
   if (!instructorText.startsWith("with ")) throw new Error("incomplete class");
   const observedClass = {
@@ -1190,7 +1244,7 @@ function parseLiveDateTime(
   expectedClass: ExpectedClass
 ): Readonly<{ start: string; end: string }> {
   const match = value.match(
-    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12][0-9]|3[01]) • ([1-9]|1[0-2]):([0-5][0-9]) (AM|PM) - ([1-9]|1[0-2]):([0-5][0-9]) (AM|PM) ((?:[A-Z]{2,5}|GMT[+-](?:[0-9]|1[0-4])(?::[0-5][0-9])?))$/u
+    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12][0-9]|3[01]) • (0?[1-9]|1[0-2]):([0-5][0-9]) (AM|PM) - (0?[1-9]|1[0-2]):([0-5][0-9]) (AM|PM) ((?:[A-Z]{2,5}|GMT[+-](?:[0-9]|1[0-4])(?::[0-5][0-9])?))$/u
   );
   if (match === null) throw new Error("invalid class time");
   const expectedDate = new Date(`${expectedClass.date}T12:00:00Z`);
