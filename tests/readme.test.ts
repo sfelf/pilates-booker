@@ -110,7 +110,7 @@ describe("README first-use contract", () => {
       "[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml)"
     );
     expect(badgeRow).toContain(
-      "[![Release: v0.1.0 planned](https://img.shields.io/badge/release-v0.1.0%20planned-lightgrey)](https://github.com/sfelf/pilates-booker/milestone/1)"
+      "[![Release: v0.1.0](https://img.shields.io/badge/release-v0.1.0-blue)](https://github.com/sfelf/pilates-booker/releases/tag/v0.1.0)"
     );
     expect(badgeRow).toContain(
       "[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)"
