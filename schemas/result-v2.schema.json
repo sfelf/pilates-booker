@@ -1,0 +1,596 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Booking result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "outcome",
+    "exit_code",
+    "action_submitted",
+    "confirmation_verified",
+    "safety_checks",
+    "details"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "outcome": {
+      "enum": [
+        "BOOKED",
+        "WAITLISTED",
+        "ALREADY_BOOKED",
+        "ALREADY_WAITLISTED",
+        "DRY_RUN",
+        "SAFE_STOP",
+        "TECHNICAL_FAILURE",
+        "CONFIRMATION_UNCERTAIN"
+      ]
+    },
+    "exit_code": {
+      "enum": [0, 20, 30, 40]
+    },
+    "action_submitted": {
+      "type": "boolean"
+    },
+    "confirmation_verified": {
+      "type": "boolean"
+    },
+    "observed_class": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "instructor",
+        "date",
+        "start_time",
+        "end_time",
+        "timezone"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "instructor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "start_time": {
+          "type": "string",
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "end_time": {
+          "type": "string",
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "package_selected": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "packages_before": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "remaining", "approved"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "approved": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "availability": {
+      "enum": [
+        "BOOKING_AVAILABLE",
+        "WAITLIST_AVAILABLE",
+        "ALREADY_BOOKED",
+        "ALREADY_WAITLISTED"
+      ]
+    },
+    "google_calendar_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "safety_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approved_package_verified",
+        "no_charge",
+        "cancellation_policy_accepted"
+      ],
+      "properties": {
+        "approved_package_verified": {
+          "type": "boolean"
+        },
+        "no_charge": {
+          "type": "boolean"
+        },
+        "cancellation_policy_accepted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "details": {
+      "type": "string"
+    }
+  },
+  "oneOf": [
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "observed_class",
+          "package_selected",
+          "packages_before",
+          "google_calendar_url",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "required": ["observed_class", "package_selected", "packages_before"],
+      "properties": {
+        "outcome": {
+          "const": "BOOKED"
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "action_submitted": {
+          "const": true
+        },
+        "confirmation_verified": {
+          "const": true
+        },
+        "observed_class": true,
+        "package_selected": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packages_before": {
+          "type": "array",
+          "minItems": 1
+        },
+        "safety_checks": {
+          "type": "object",
+          "properties": {
+            "approved_package_verified": {
+              "const": true
+            },
+            "no_charge": {
+              "const": true
+            },
+            "cancellation_policy_accepted": {
+              "const": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "observed_class",
+          "package_selected",
+          "packages_before",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "required": ["observed_class", "package_selected", "packages_before"],
+      "properties": {
+        "outcome": {
+          "const": "WAITLISTED"
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "action_submitted": {
+          "const": true
+        },
+        "confirmation_verified": {
+          "const": true
+        },
+        "observed_class": true,
+        "package_selected": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packages_before": {
+          "type": "array",
+          "minItems": 1
+        },
+        "safety_checks": {
+          "type": "object",
+          "properties": {
+            "approved_package_verified": {
+              "const": true
+            },
+            "no_charge": {
+              "const": true
+            },
+            "cancellation_policy_accepted": {
+              "const": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "observed_class",
+          "google_calendar_url",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "required": ["observed_class"],
+      "properties": {
+        "outcome": {
+          "const": "ALREADY_BOOKED"
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "action_submitted": {
+          "const": false
+        },
+        "confirmation_verified": {
+          "const": true
+        },
+        "observed_class": true,
+        "safety_checks": {
+          "type": "object",
+          "properties": {
+            "cancellation_policy_accepted": {
+              "const": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "observed_class",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "required": ["observed_class"],
+      "properties": {
+        "outcome": {
+          "const": "ALREADY_WAITLISTED"
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "action_submitted": {
+          "const": false
+        },
+        "confirmation_verified": {
+          "const": true
+        },
+        "observed_class": true,
+        "safety_checks": {
+          "type": "object",
+          "properties": {
+            "cancellation_policy_accepted": {
+              "const": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "availability",
+          "observed_class",
+          "package_selected",
+          "packages_before",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "required": [
+        "availability",
+        "observed_class",
+        "package_selected",
+        "packages_before"
+      ],
+      "properties": {
+        "outcome": {
+          "const": "DRY_RUN"
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "action_submitted": {
+          "const": false
+        },
+        "confirmation_verified": {
+          "const": false
+        },
+        "availability": {
+          "enum": ["BOOKING_AVAILABLE", "WAITLIST_AVAILABLE"]
+        },
+        "observed_class": true,
+        "package_selected": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packages_before": {
+          "type": "array",
+          "minItems": 1
+        },
+        "safety_checks": {
+          "type": "object",
+          "properties": {
+            "approved_package_verified": {
+              "const": true
+            },
+            "no_charge": {
+              "const": false
+            },
+            "cancellation_policy_accepted": {
+              "const": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "availability",
+          "observed_class",
+          "google_calendar_url",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "required": ["availability", "observed_class"],
+      "properties": {
+        "outcome": {
+          "const": "DRY_RUN"
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "action_submitted": {
+          "const": false
+        },
+        "confirmation_verified": {
+          "const": true
+        },
+        "availability": {
+          "const": "ALREADY_BOOKED"
+        },
+        "observed_class": true,
+        "safety_checks": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "availability",
+          "observed_class",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "required": ["availability", "observed_class"],
+      "properties": {
+        "outcome": {
+          "const": "DRY_RUN"
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "action_submitted": {
+          "const": false
+        },
+        "confirmation_verified": {
+          "const": true
+        },
+        "availability": {
+          "const": "ALREADY_WAITLISTED"
+        },
+        "observed_class": true,
+        "safety_checks": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "observed_class",
+          "package_selected",
+          "packages_before",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": ["package_selected"],
+            "properties": {
+              "package_selected": true,
+              "packages_before": true
+            },
+            "not": {
+              "required": ["packages_before"],
+              "properties": {
+                "packages_before": true
+              }
+            }
+          },
+          {
+            "required": ["packages_before"],
+            "properties": {
+              "package_selected": true,
+              "packages_before": true
+            },
+            "not": {
+              "required": ["package_selected"],
+              "properties": {
+                "package_selected": true
+              }
+            }
+          }
+        ]
+      },
+      "properties": {
+        "outcome": {
+          "const": "SAFE_STOP"
+        },
+        "exit_code": {
+          "const": 20
+        },
+        "action_submitted": {
+          "const": false
+        },
+        "confirmation_verified": {
+          "const": false
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "properties": {
+        "outcome": {
+          "const": "TECHNICAL_FAILURE"
+        },
+        "exit_code": {
+          "const": 30
+        },
+        "action_submitted": {
+          "const": false
+        },
+        "confirmation_verified": {
+          "const": false
+        }
+      }
+    },
+    {
+      "propertyNames": {
+        "enum": [
+          "schema_version",
+          "outcome",
+          "exit_code",
+          "action_submitted",
+          "confirmation_verified",
+          "safety_checks",
+          "details"
+        ]
+      },
+      "properties": {
+        "outcome": {
+          "const": "CONFIRMATION_UNCERTAIN"
+        },
+        "exit_code": {
+          "const": 40
+        },
+        "action_submitted": {
+          "const": true
+        },
+        "confirmation_verified": {
+          "const": false
+        },
+        "safety_checks": {
+          "type": "object",
+          "properties": {
+            "approved_package_verified": {
+              "const": true
+            },
+            "no_charge": {
+              "const": true
+            },
+            "cancellation_policy_accepted": {
+              "const": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}
