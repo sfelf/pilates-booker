@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, it, vi } from "vitest";
 
 import { COMMAND_FAILURE_DIAGNOSTIC, runCommand } from "../src/command.js";
@@ -5,20 +7,32 @@ import { COMMAND_FAILURE_DIAGNOSTIC, runCommand } from "../src/command.js";
 const checkoutUrl =
   "https://app.arketa.co/iframe/synthetic/calendar/checkout/command";
 
+it("builds the public executable before the test suite", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8")
+  ) as { scripts?: Record<string, string> };
+  expect(packageJson.scripts?.pretest).toBe("npm run build");
+});
+
 it("passes the validated public arguments to one workflow invocation", async () => {
-  const execute = vi.fn(async () => ({
-    schema_version: 2 as const,
-    outcome: "SAFE_STOP" as const,
-    exit_code: 20 as const,
-    action_submitted: false as const,
-    confirmation_verified: false as const,
-    safety_checks: {
-      approved_package_verified: false as const,
-      no_charge: false as const,
-      cancellation_policy_accepted: false as const
-    },
-    details: "Booking stopped safely." as const
-  }));
+  const execute = vi.fn(
+    async (context: { advance(stage: "VALIDATED"): Promise<void> }) => {
+      await context.advance("VALIDATED");
+      return {
+        schema_version: 2 as const,
+        outcome: "SAFE_STOP" as const,
+        exit_code: 20 as const,
+        action_submitted: false as const,
+        confirmation_verified: false as const,
+        safety_checks: {
+          approved_package_verified: false as const,
+          no_charge: false as const,
+          cancellation_policy_accepted: false as const
+        },
+        details: "Booking stopped safely." as const
+      };
+    }
+  );
   const emitResult = vi.fn(async () => undefined);
   const acquireLock = vi.fn(async () => ({
     release: async () => ({ released: true as const })

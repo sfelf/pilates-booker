@@ -108,8 +108,8 @@ type RawPageState = Readonly<{
 class BookingPageError extends Error {
   readonly code = "BOOKING_PAGE_UNAVAILABLE";
 
-  constructor() {
-    super("Booking page could not be read.");
+  constructor(cause?: unknown) {
+    super("Booking page could not be read.", { cause });
     this.name = "BookingPageError";
   }
 }
@@ -117,8 +117,8 @@ class BookingPageError extends Error {
 class BookingPageControlError extends Error {
   readonly code = "BOOKING_PAGE_CONTROL_UNAVAILABLE";
 
-  constructor() {
-    super("Booking page control is unavailable.");
+  constructor(cause?: unknown) {
+    super("Booking page control is unavailable.", { cause });
     this.name = "BookingPageControlError";
   }
 }
@@ -126,8 +126,8 @@ class BookingPageControlError extends Error {
 class BookingBrowserError extends Error {
   readonly code = "BOOKING_BROWSER_NAVIGATION_FAILED";
 
-  constructor() {
-    super("Booking browser navigation failed.");
+  constructor(cause?: unknown) {
+    super("Booking browser navigation failed.", { cause });
     this.name = "BookingBrowserError";
   }
 }
@@ -135,8 +135,8 @@ class BookingBrowserError extends Error {
 class BookingBrowserReadinessError extends Error {
   readonly code = "BOOKING_BROWSER_READINESS_FAILED";
 
-  constructor() {
-    super("Booking browser readiness failed.");
+  constructor(cause?: unknown) {
+    super("Booking browser readiness failed.", { cause });
     this.name = "BookingBrowserReadinessError";
   }
 }
@@ -235,13 +235,13 @@ async function openBookingBrowser<T>(
       if (validateCheckoutUrl(page.url()).href !== validatedUrl) {
         throw new Error("redirected");
       }
-    } catch {
-      throw new BookingBrowserError();
+    } catch (error) {
+      throw new BookingBrowserError(error);
     }
     try {
       await waitForBookingReady(page, readinessTimeoutMs);
-    } catch {
-      throw new BookingBrowserReadinessError();
+    } catch (error) {
+      throw new BookingBrowserReadinessError(error);
     }
     const classId = validatedCheckoutUrl.pathname.split("/")[5];
     const pageOptions = classId === undefined ? {} : { classId };
@@ -476,16 +476,16 @@ async function exactEnabledVisible(locator: Locator): Promise<Locator> {
       throw new Error("unavailable");
     }
     return visible;
-  } catch {
-    throw new BookingPageControlError();
+  } catch (error) {
+    throw new BookingPageControlError(error);
   }
 }
 
 async function checkExactControl(locator: Locator): Promise<void> {
   try {
     await (await exactEnabledVisible(locator)).check();
-  } catch {
-    throw new BookingPageControlError();
+  } catch (error) {
+    throw new BookingPageControlError(error);
   }
 }
 
@@ -501,8 +501,8 @@ async function fillEmptyInjuries(page: Page, value: "None"): Promise<void> {
     if ((await input.inputValue()).trim().length === 0) {
       await input.fill(value);
     }
-  } catch {
-    throw new BookingPageControlError();
+  } catch (error) {
+    throw new BookingPageControlError(error);
   }
 }
 
@@ -522,8 +522,8 @@ async function selectPackageRow(page: Page, row: number): Promise<void> {
       .filter({ visible: true })
       .nth(row);
     await checkExactControl(offering.locator('input[type="radio"]'));
-  } catch {
-    throw new BookingPageControlError();
+  } catch (error) {
+    throw new BookingPageControlError(error);
   }
 }
 
@@ -536,8 +536,8 @@ async function submitExactAction(
       ? accessibleActionButton(page, action)
       : exactActionButton(page, action);
     await button.click({ timeout: 250 });
-  } catch {
-    throw new BookingPageControlError();
+  } catch (error) {
+    throw new BookingPageControlError(error);
   }
 }
 
@@ -930,8 +930,8 @@ async function readBookingPage(
       submission: { book, waitlist },
       confirmation: raw.confirmation
     };
-  } catch {
-    throw new BookingPageError();
+  } catch (error) {
+    throw new BookingPageError(error);
   }
 }
 

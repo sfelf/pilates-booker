@@ -1,9 +1,9 @@
 import type { Stats } from "node:fs";
 import {
+  chmod,
   mkdir,
+  lstat,
   open,
-  readFile,
-  stat,
   unlink,
   type FileHandle
 } from "node:fs/promises";
@@ -29,10 +29,11 @@ export type ProfileLock = Readonly<{
 export type DirectoryInitializer = (path: string) => Promise<void>;
 export type LockOperations = Readonly<{
   writeFile(handle: FileHandle, contents: string): Promise<void>;
-  readFile(path: string): Promise<string>;
+  openRead(path: string): Promise<FileHandle>;
+  read(handle: FileHandle, buffer: Buffer): Promise<number>;
   statFile(handle: FileHandle): Promise<Stats>;
   close(handle: FileHandle): Promise<void>;
-  stat(path: string): Promise<Stats>;
+  lstat(path: string): Promise<Stats>;
   unlink(path: string): Promise<void>;
 }>;
 export type PidState = "active" | "absent" | "indeterminate";
@@ -43,10 +44,12 @@ export type LockEnvironment = Readonly<{
 
 const defaultLockOperations: LockOperations = {
   writeFile: (handle, contents) => handle.writeFile(contents, "utf8"),
-  readFile: (path) => readFile(path, "utf8"),
+  openRead: (path) => open(path, "r"),
+  read: async (handle, buffer) =>
+    (await handle.read(buffer, 0, buffer.byteLength, 0)).bytesRead,
   statFile: (handle) => handle.stat(),
   close: (handle) => handle.close(),
-  stat,
+  lstat,
   unlink
 };
 
@@ -69,8 +72,16 @@ type LockMetadata = Readonly<{
   pid: number;
 }>;
 
+type InspectedLock = Readonly<{
+  contents: string;
+  identity: Stats;
+}>;
+
+const MAX_LOCK_METADATA_BYTES = 1024;
+
 export const ensureDirectory: DirectoryInitializer = async (path) => {
   await mkdir(path, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") await chmod(path, 0o700);
 };
 
 async function removeOwnedLockPath(
@@ -81,7 +92,7 @@ async function removeOwnedLockPath(
   if (acquired !== undefined) {
     let current: Stats;
     try {
-      current = await operations.stat(path);
+      current = await operations.lstat(path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return { released: true };
@@ -176,31 +187,22 @@ async function removeConclusiveStaleLock(
   operations: LockOperations,
   environment: LockEnvironment
 ): Promise<boolean> {
-  let inspected: Stats;
-  let firstContents: string;
-  try {
-    inspected = await operations.stat(path);
-    if (!inspected.isFile() || inspected.size > 1024) return false;
-    firstContents = await operations.readFile(path);
-    if (Buffer.byteLength(firstContents, "utf8") > 1024) return false;
-  } catch {
-    return false;
-  }
-  const first = parseLockMetadata(firstContents);
+  const inspected = await inspectLock(path, operations);
+  if (inspected === undefined) return false;
+  const first = parseLockMetadata(inspected.contents);
   if (first === undefined || environment.probePid(first.pid) !== "absent") {
     return false;
   }
 
   try {
-    const secondContents = await operations.readFile(path);
-    const current = await operations.stat(path);
-    const second = parseLockMetadata(secondContents);
+    const current = await inspectLock(path, operations);
+    if (current === undefined) return false;
+    const second = parseLockMetadata(current.contents);
     if (
-      Buffer.byteLength(secondContents, "utf8") > 1024 ||
-      current.size > 1024 ||
       second === undefined ||
       second.pid !== first.pid ||
-      !sameFile(current, inspected)
+      !sameFile(current.identity, inspected.identity) ||
+      environment.probePid(second.pid) !== "absent"
     ) {
       return false;
     }
@@ -209,6 +211,62 @@ async function removeConclusiveStaleLock(
   } catch {
     return false;
   }
+}
+
+async function inspectLock(
+  path: string,
+  operations: LockOperations
+): Promise<InspectedLock | undefined> {
+  let handle: FileHandle | undefined;
+  let inspected: InspectedLock | undefined;
+  try {
+    const identity = await operations.lstat(path);
+    if (!identity.isFile() || identity.size > MAX_LOCK_METADATA_BYTES) {
+      return undefined;
+    }
+    handle = await operations.openRead(path);
+    const opened = await operations.statFile(handle);
+    if (
+      !opened.isFile() ||
+      opened.size > MAX_LOCK_METADATA_BYTES ||
+      !sameFile(opened, identity)
+    ) {
+      return undefined;
+    }
+    const buffer = Buffer.alloc(MAX_LOCK_METADATA_BYTES + 1);
+    const bytesRead = await operations.read(handle, buffer);
+    if (bytesRead > MAX_LOCK_METADATA_BYTES || bytesRead !== opened.size) {
+      return undefined;
+    }
+    inspected = {
+      contents: buffer.subarray(0, bytesRead).toString("utf8"),
+      identity
+    };
+  } catch {
+    return undefined;
+  } finally {
+    if (handle !== undefined) {
+      try {
+        await operations.close(handle);
+      } catch {
+        inspected = undefined;
+      }
+    }
+  }
+  if (inspected === undefined) return undefined;
+  try {
+    const current = await operations.lstat(path);
+    if (
+      !current.isFile() ||
+      current.size > MAX_LOCK_METADATA_BYTES ||
+      !sameFile(current, inspected.identity)
+    ) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return inspected;
 }
 
 function parseLockMetadata(contents: string): LockMetadata | undefined {

@@ -1,360 +1,160 @@
 # pilates-booker
 
-[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Release: v0.1.0](https://img.shields.io/badge/release-v0.1.0-blue)](https://github.com/sfelf/pilates-booker/releases/tag/v0.1.0) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js >=22.12.0](https://img.shields.io/badge/Node.js-%3E%3D22.12.0-339933?logo=nodedotjs&logoColor=white)](package.json) [![Language: TypeScript](https://img.shields.io/static/v1?label=language&message=TypeScript&color=3178C6&logo=typescript&logoColor=white)](tsconfig.json)
+[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Release: v0.2.0](https://img.shields.io/badge/release-v0.2.0-blue)](https://github.com/sfelf/pilates-booker/releases/tag/v0.2.0) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js >=22.12.0](https://img.shields.io/badge/Node.js-%3E%3D22.12.0-339933?logo=nodedotjs&logoColor=white)](package.json)
 
-`pilates-booker` is a command-line tool for previewing or submitting one Arketa booking or waitlist request. It checks the supplied checkout, request, and policy before it can make an attempt.
+Pilates Booker inspects or submits one Arketa booking or waitlist attempt from command-line arguments. Arketa is authoritative for enrollment state. The utility does not discover classes, schedule runs, automate login, or retry automatically.
 
-Start with a dry run: it inspects the checkout without submitting. Read that result before continuing. A live run can make one external booking or waitlist attempt without another prompt.
+## Install
 
-## Before you begin
-
-Pilates Booker does not discover or schedule classes, automate login, solve CAPTCHA or MFA, retry automatically, or guarantee success after uncertainty. It stops safely outside its supported boundary and can make at most one external booking or waitlist submission only after you explicitly set a request to live mode. Arketa remains authoritative for enrollment state.
-
-Keep all private artifacts outside this checkout and outside Git: authenticated browser profile state, booking URLs, attendee information, injury content, requests, policies, journals, results, screenshots, traces, cookies, and live page captures. The tracked configuration files are synthetic examples only.
-
-You need:
-
-- A macOS, Linux, or Windows computer.
-- Node.js `>=22.12.0` and the npm bundled with Node.js.
-- Git.
-- An Arketa account that you can authenticate manually.
-
-Check the installed tools.
-
-### macOS or Linux
+Install Node.js `>=22.12.0`, clone this repository into a private location, and run:
 
 ```sh
-git --version
-node --version
-npm --version
-```
-
-### Windows PowerShell
-
-```powershell
-git --version
-node --version
-npm --version
-```
-
-## Install Pilates Booker
-
-Choose a private location for the repository. These examples use `$HOME/Tools/pilates-booker` on macOS or Linux and `C:\Tools\pilates-booker` on Windows.
-
-### macOS
-
-```sh
-mkdir -p "$HOME/Tools"
-git clone https://github.com/sfelf/pilates-booker.git "$HOME/Tools/pilates-booker"
-cd "$HOME/Tools/pilates-booker"
 npm ci
 npx playwright install chromium
 npm run build
 ```
 
-### Linux
+Linux may require `npx playwright install --with-deps chromium`.
 
-```sh
-mkdir -p "$HOME/Tools"
-git clone https://github.com/sfelf/pilates-booker.git "$HOME/Tools/pilates-booker"
-cd "$HOME/Tools/pilates-booker"
-npm ci
-npx playwright install --with-deps chromium
-npm run build
-```
+## Runtime and sign-in
 
-### Windows PowerShell
+The default private runtime is platform-specific:
 
-```powershell
-New-Item -ItemType Directory -Force "C:\Tools" | Out-Null
-git clone https://github.com/sfelf/pilates-booker.git C:\Tools\pilates-booker
-Set-Location "C:\Tools\pilates-booker"
-npm ci
-npx playwright install chromium
-npm run build
-```
-
-A successful build creates `dist/main.js`. `npm ci` installs the locked dependencies. Re-run `npm ci` after dependency changes and `npm run build` after source changes.
-
-## Create the private runtime directory
-
-The runtime stores the authenticated browser profile and evidence that prevents accidental repeat submission. It must be an absolute, private, stable directory outside the repository, and you must reuse it for every invocation.
-
-| Platform | Runtime directory                                      |
+| Platform | Default runtime                                        |
 | -------- | ------------------------------------------------------ |
 | macOS    | `$HOME/Library/Application Support/Pilates Booker`     |
 | Linux    | `${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker` |
 | Windows  | `$env:LOCALAPPDATA\Pilates Booker`                     |
 
-Create it:
+Use `--runtime` with an absolute path to override the default. Keep every runtime outside the repository checkout so authenticated profile data and debug logs cannot be added to Git. On macOS and Linux, every runtime must use mode `700`; the utility reapplies that mode before each attempt. On Windows, verify that Windows inherited ACLs restrict the runtime to the current account. The runtime contains `Profile/`, the exclusive `run.lock`, and opt-in debug logs only. A current lock contains versioned metadata with only the owner PID.
 
-### macOS
-
-```sh
-umask 077
-install -d -m 700 "$HOME/Library/Application Support/Pilates Booker"
-```
-
-### Linux
+Before the first sign-in on macOS, create and protect the default runtime:
 
 ```sh
-umask 077
-install -d -m 700 "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker"
+mkdir -p "$HOME/Library/Application Support/Pilates Booker" && chmod 700 "$HOME/Library/Application Support/Pilates Booker"
 ```
 
-### Windows PowerShell
+On Linux, create and protect its default runtime instead:
 
-```powershell
-$runtime = Join-Path $env:LOCALAPPDATA "Pilates Booker"
-New-Item -ItemType Directory -Force $runtime | Out-Null
+```sh
+mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker" && chmod 700 "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker"
 ```
 
-On Windows, `LOCALAPPDATA` is the current user's private application-data root. Confirm that inherited ACLs restrict the runtime, copied policy and request files, and generated profile to your Windows account. Never commit or share these paths or their contents. Do not keep this runtime directory inside the repository.
+On Windows, create the default runtime and verify its inherited ACLs restrict access to the current account before opening the profile.
 
-| Path below `<runtime>`       | Purpose                                                                    |
-| ---------------------------- | -------------------------------------------------------------------------- |
-| `Profile/`                   | Dedicated local browser profile for manual Arketa authentication.          |
-| `run.lock`                   | Prevents simultaneous booking processes.                                   |
-| `journals/<request-id>.json` | Private request-scoped progress evidence used for recovery.                |
-| `results/<request-id>.json`  | Private finalized result evidence used for exact-byte replay and recovery. |
-
-## Sign in to Arketa
-
-The application appends `Profile` to the exact runtime directory passed with `--runtime`. The commands below open that same profile, so signing in here signs in the application profile.
-
-Run the command for your platform from the repository root:
-
-### macOS
+Sign in manually using the same profile before running the utility:
 
 ```sh
 npx playwright open --user-data-dir "$HOME/Library/Application Support/Pilates Booker/Profile" "https://app.arketa.co"
 ```
 
-### Linux
+On Linux or Windows, substitute the platform default shown above. Complete login and MFA, verify the session, and close Chromium before booking.
+
+When using a custom runtime, sign in with that exact runtime's profile before passing the same path to the booking command:
 
 ```sh
-npx playwright open --user-data-dir "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker/Profile" "https://app.arketa.co"
+npx playwright open --user-data-dir "/absolute/private/path/Profile" "https://app.arketa.co"
+node dist/main.js --runtime "/absolute/private/path" --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack" --dry-run
 ```
 
-### Windows PowerShell
+## Command
 
-```powershell
-$runtime = Join-Path $env:LOCALAPPDATA "Pilates Booker"
-npx playwright open --user-data-dir "$runtime\Profile" "https://app.arketa.co"
+Start with a dry run:
+
+```text
+node dist/main.js --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack" --allow-package "5-Class Pack" --dry-run
 ```
 
-In the opened Chromium window:
+The one-line command works in POSIX shells and PowerShell.
 
-1. Sign into Arketa normally, including any MFA.
-2. Visit `https://app.arketa.co` again and confirm you remain signed in.
-3. Close the entire Chromium window.
+`--booking-url` is required and must be a supported Arketa checkout URL. Repeat `--allow-package` in preference order; the first eligible positive-balance class package is selected. The caller is responsible for supplying the intended class URL, while `observed_class` in the result lets the caller verify what Arketa displayed.
 
-The profile contains authenticated state, so do not commit it, share it, or use it in another browser while a booking command runs. The command does not automate login or follow sign-in redirects. If the session expires, repeat this manual sign-in with the same dedicated profile, then close the browser again.
+Read the complete dry-run JSON result and verify that `observed_class` matches the class you intend to book, including its name, date, start time, and timezone. Proceed to a live command only after that verification; the application does not independently compare the displayed class with caller-supplied class fields.
 
-## Create your private configuration
+Omitting `--dry-run` permits one live booking or waitlist attempt without another prompt:
 
-Create a private configuration folder outside the repository. These examples use `$HOME/Private/Pilates Booker` on macOS or Linux and the current Windows user's local application-data directory.
-
-### macOS or Linux
-
-```sh
-config="$HOME/Private/Pilates Booker"
-install -d -m 700 "$config"
-if [ ! -e "$config/booking-policy.json" ]; then
-  install -m 600 config/booking-policy.example.json "$config/booking-policy.json"
-fi
-if [ ! -e "$config/booking-request.json" ]; then
-  install -m 600 config/booking-request.example.json "$config/booking-request.json"
-fi
-node -e "console.log(require('node:crypto').randomUUID())"
+```text
+node dist/main.js --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack"
 ```
 
-### Windows PowerShell
+By default both booking and waitlisting are allowed. Add `--book-only` to stop safely instead of joining a waitlist. Add `--runtime "/absolute/private/path"` to override the platform default.
 
-```powershell
-$config = Join-Path $env:LOCALAPPDATA "Pilates Booker Config"
-New-Item -ItemType Directory -Force $config | Out-Null
-if (-not (Test-Path -LiteralPath "$config\booking-policy.json")) {
-  Copy-Item config\booking-policy.example.json "$config\booking-policy.json"
+## Results and exits
+
+Every reportable outcome writes one compact schema-version-2 JSON object followed by one newline.
+
+| Outcome                  | Meaning                                                   | Exit |
+| ------------------------ | --------------------------------------------------------- | ---: |
+| `BOOKED`                 | Exact booking confirmation observed                       |    0 |
+| `WAITLISTED`             | Exact waitlist confirmation observed                      |    0 |
+| `ALREADY_BOOKED`         | Arketa showed an existing booking; no submission          |    0 |
+| `ALREADY_WAITLISTED`     | Arketa showed existing waitlist enrollment; no submission |    0 |
+| `DRY_RUN`                | Inspection completed without form mutation or submission  |    0 |
+| `SAFE_STOP`              | A safety condition prevented submission                   |   20 |
+| `TECHNICAL_FAILURE`      | Failure occurred before submission                        |   30 |
+| `CONFIRMATION_UNCERTAIN` | Submission began but confirmation is not dependable       |   40 |
+
+The result includes `observed_class` when the page could be inspected and includes package evidence where relevant. A missing JSON response cannot be recovered locally. Invoke the command again with the same URL; Arketa's existing-enrollment page is the supported reconciliation mechanism and prevents another enrollment submission.
+
+## Response object
+
+Every response has `schema_version`, `outcome`, `exit_code`, `action_submitted`, `confirmation_verified`, `safety_checks`, and the fixed `details` text for its outcome. Inspection results add `observed_class`; actionable dry runs add `availability`, `package_selected`, and `packages_before`. Confirmed bookings and waitlists include the same package evidence, and a confirmed booking may include `google_calendar_url`. Fields that do not apply to an outcome are omitted rather than set to an invented value.
+
+This synthetic dry-run response is formatted for readability; the command emits the same object compactly on one line:
+
+```json
+{
+  "schema_version": 2,
+  "outcome": "DRY_RUN",
+  "exit_code": 0,
+  "action_submitted": false,
+  "confirmation_verified": false,
+  "availability": "BOOKING_AVAILABLE",
+  "observed_class": {
+    "name": "Reformer Fundamentals",
+    "instructor": "Example Instructor",
+    "date": "2026-09-01",
+    "start_time": "09:30",
+    "end_time": "10:20",
+    "timezone": "America/Los_Angeles"
+  },
+  "package_selected": "10-Class Pack",
+  "packages_before": [
+    {
+      "name": "10-Class Pack",
+      "remaining": 3,
+      "approved": true
+    }
+  ],
+  "safety_checks": {
+    "approved_package_verified": true,
+    "no_charge": false,
+    "cancellation_policy_accepted": false
+  },
+  "details": "Dry run completed."
 }
-if (-not (Test-Path -LiteralPath "$config\booking-request.json")) {
-  Copy-Item config\booking-request.example.json "$config\booking-request.json"
-}
-node -e "console.log(require('node:crypto').randomUUID())"
 ```
 
-The commands create each private configuration file only when it does not already exist, so repeating the block preserves your edits. The copied files come from the tracked [synthetic policy example](config/booking-policy.example.json) and [synthetic request example](config/booking-request.example.json). Edit the private copies in a text editor. Do not edit the tracked examples with real data.
+## Debug logging
 
-Use the generated lowercase UUID as `request_id`, then apply these rules:
+No debug log is touched unless `--debug` is present. With `--debug`, compact NDJSON records are written to `<runtime>/pilates-booker.log`. Before the current file would exceed 1 MiB it becomes `pilates-booker.log.1`, replacing the previous generation.
 
-- Give `request_id` a fresh lowercase canonical request UUID. That UUID owns the runtime journal and result for this one transaction.
-- Set `booking_url` to the checkout you intend to validate. You are responsible for selecting the checkout link for the correct year: the supported checkout displays weekday, month, and day but not a year.
-- Set `expected_class.name`, `expected_class.date`, and `expected_class.start_time` to the class you expect. Use an IANA timezone in the `America/*` namespace for `expected_class.timezone`.
-- Keep `reserve_for: "myself"`, and list only the permitted `book` and/or `waitlist` actions in `permitted_actions`.
-- Make `policy_version` match the private policy file. List `allowed_packages` in preference order; the command considers the first configured package with a positive approved balance.
-- Keep `allow_monetary_charge: false`. A positive approved balance on the selected package is the complete no-charge evidence; the command does not infer it from payment text or controls.
-- For a first use, keep `"dry_run": true` exactly. Do not change it yet.
-
-## Run a dry run
-
-Keep `"dry_run": true`. A dry run may inspect the page and expand `View Details` for existing-enrollment evidence, but it does not change booking fields or submit.
-
-### macOS
-
-```sh
-node "$HOME/Tools/pilates-booker/dist/main.js" \
-  --runtime "$HOME/Library/Application Support/Pilates Booker" \
-  --policy "$HOME/Private/Pilates Booker/booking-policy.json" \
-  "$HOME/Private/Pilates Booker/booking-request.json"
-```
-
-### Linux
-
-```sh
-node "$HOME/Tools/pilates-booker/dist/main.js" \
-  --runtime "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker" \
-  --policy "$HOME/Private/Pilates Booker/booking-policy.json" \
-  "$HOME/Private/Pilates Booker/booking-request.json"
-```
-
-### Windows PowerShell
-
-```powershell
-$runtime = Join-Path $env:LOCALAPPDATA "Pilates Booker"
-$config = Join-Path $env:LOCALAPPDATA "Pilates Booker Config"
-node C:\Tools\pilates-booker\dist\main.js `
-  --runtime "$runtime" `
-  --policy "$config\booking-policy.json" `
-  "$config\booking-request.json"
-```
-
-Quote every path that may contain spaces.
-
-Wait for the command to finish. Read its result before authorizing any live action.
-
-## Read the result
-
-Stdout is the sole machine-readable finalized result channel. A fresh finalization writes one compact JSON object plus a newline. A same-UUID replay emits the exact stored bytes, including existing whitespace, field order, and newline. A finalized `TECHNICAL_FAILURE` is JSON on stdout with exit `30`. The fixed stderr line `Booking command failed.` is used only when no finalized result can be emitted.
-
-| Exit | Meaning                                                                             | Operator action                                                                                                         |
-| ---- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `0`  | Confirmed booking/waitlist, authoritative existing enrollment, or completed dry run | Read the JSON outcome; do not infer booking from optional metadata                                                      |
-| `20` | Safe stop before submission                                                         | Preserve and inspect the finalized result; correct the cause, assign a fresh request UUID, then make a deliberate rerun |
-| `30` | Command/technical failure                                                           | Read stdout first; use the technical-failure path below                                                                 |
-| `40` | Submission or later processing may have occurred without a finalized success result | Reconcile with Arketa and the durable result; never automatically retry                                                 |
-
-A dry run reports availability and evidence without submitting; it is not a live outcome. When package evidence applies, `packages_before` records the inventory and its positive-balance/approval evidence, and `package_selected` identifies the selected package. The field package_selected can be `null` in a coherent safe-stop result when no trustworthy positive-balance package exists, or when trustworthy positive-balance inventory exists but no package matches the policy allowlist. `google_calendar_url` is optional metadata only for its documented eligible outcomes. Exact Arketa confirmation or authoritative existing-enrollment evidence determines success, not that link or other optional metadata.
-
-## Recover safely
-
-Treat a UUID as one transaction: it owns one journal/result pair. A same request UUID with a finalized result returns that result without opening the browser. An incomplete journal before submission becomes a technical failure; recovery at `SUBMITTING` or later can finalize `CONFIRMATION_UNCERTAIN`.
-
-Uncertainty is not proof of failure. Preserve the durable result and journal, inspect both the durable result and Arketa, then deliberately choose a new request UUID if needed. The app does not retry automatically; Arketa is authoritative for already-booked and already-waitlisted state.
-
-Use one deliberate rerun rule when a corrected cause warrants another attempt. If a finalized result exists, preserve and inspect it, correct the cause, assign a fresh lowercase canonical request UUID, then deliberately rerun. This applies after finalized `SAFE_STOP` or finalized `TECHNICAL_FAILURE`. If no finalized result exists, after correcting the command failure, inspect the available journal evidence and Arketa before deciding whether to rerun; retain or reuse the request UUID only when appropriate. Do not assume a stored UUID result exists. This is an operator reconciliation step, not an additional runtime authorization barrier; Arketa remains authoritative for an existing booking or waitlist enrollment.
-
-When no finalized result was emitted, use the fixed stderr marker `Booking command failed.` and private runtime evidence instead. The marker does not prove a stored result exists.
-
-A stale lock is `<runtime>/run.lock`. Only after you verify that no booking process is running, remove it manually:
-
-### macOS
-
-```sh
-runtime="$HOME/Library/Application Support/Pilates Booker"
-rm "$runtime/run.lock"
-```
-
-### Linux
-
-```sh
-runtime="${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker"
-rm "$runtime/run.lock"
-```
-
-### Windows PowerShell
-
-```powershell
-$runtime = Join-Path $env:LOCALAPPDATA "Pilates Booker"
-Remove-Item -LiteralPath (Join-Path $runtime "run.lock")
-```
-
-## Make one live attempt
-
-Only continue after you have inspected a successful dry-run result; preserve the finalized dry-run UUID and evidence. Then make the two required live-authorizing edits: assign a fresh request UUID, then set `dry_run` from `true` to `false`. This creates a new live journal/result pair; reusing the dry-run UUID only replays its dry-run result. The next invocation can perform one external booking or waitlist mutation.
-
-For a live request, Arketa must remain stable throughout the sequential authorization read and until the single submission click. Within that supported stable-page model, the command:
-
-- reads the relevant checkout facts sequentially;
-- applies the required `Myself` attendee selection, preserves a non-empty injuries response or supplies `None` for an empty one, and accepts the cancellation policy;
-- uses the first eligible configured positive-balance package and permits only the exact requested action; and
-- may expand `View Details` for existing-enrollment evidence without submitting.
-
-After the one submission click, the command checks only for the matching exact Arketa confirmation. It does not recheck form fields or the URL afterward.
-
-Run the same platform command only after making those two edits:
-
-### macOS
-
-```sh
-node "$HOME/Tools/pilates-booker/dist/main.js" \
-  --runtime "$HOME/Library/Application Support/Pilates Booker" \
-  --policy "$HOME/Private/Pilates Booker/booking-policy.json" \
-  "$HOME/Private/Pilates Booker/booking-request.json"
-```
-
-### Linux
-
-```sh
-node "$HOME/Tools/pilates-booker/dist/main.js" \
-  --runtime "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker" \
-  --policy "$HOME/Private/Pilates Booker/booking-policy.json" \
-  "$HOME/Private/Pilates Booker/booking-request.json"
-```
-
-### Windows PowerShell
-
-```powershell
-$runtime = Join-Path $env:LOCALAPPDATA "Pilates Booker"
-$config = Join-Path $env:LOCALAPPDATA "Pilates Booker Config"
-node C:\Tools\pilates-booker\dist\main.js `
-  --runtime "$runtime" `
-  --policy "$config\booking-policy.json" `
-  "$config\booking-request.json"
-```
+The log may contain the validated command arguments, complete booking URL, runtime path, observed class/package evidence, workflow decisions, numeric response status codes, and projected exception messages or stacks. It excludes request/response headers, cookies, tokens, browser storage/profile contents, attendee identity, injury/form values, HTML, screenshots, and traces. Treat the runtime and log as private.
 
 ## Troubleshooting
 
-| Symptom                         | Action                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Expired authentication          | Reopen Arketa with the same dedicated profile, authenticate manually, and close the browser. After a finalized `SAFE_STOP` or `TECHNICAL_FAILURE`, preserve the finalized evidence and apply the rerun rule in `Recover safely` with a fresh lowercase canonical request UUID. Retain the existing UUID only if no result was finalized and it is appropriate after correcting the command failure. |
-| Existing runtime lock           | Wait for the active command, or manually remove a stale lock only after you verify that no booking process is running.                                                                                                                                                                                                                                                                              |
-| Safe stop (`20`)                | Correct the request, policy, authentication, or supported page state, then apply the rerun rule in `Recover safely`; do not add speculative selector fallbacks.                                                                                                                                                                                                                                     |
-| Technical failure (`30`)        | If stdout has a finalized result, preserve its evidence and apply the rerun rule in `Recover safely`. If no finalized result was emitted, use `Booking command failed.` as the fixed stderr marker and inspect private runtime evidence without deleting anything.                                                                                                                                  |
-| Confirmation uncertainty (`40`) | Preserve evidence, inspect the durable result and Arketa, and decide deliberately whether a new request UUID is appropriate; never automatically retry.                                                                                                                                                                                                                                             |
-| No calendar link                | `google_calendar_url` is optional metadata, so rely on exact Arketa confirmation or authoritative existing-enrollment evidence instead.                                                                                                                                                                                                                                                             |
-| Changed or unsupported checkout | Stop safely; do not work around CAPTCHA, guess selectors, or proceed until the checkout is supported again.                                                                                                                                                                                                                                                                                         |
+| Symptom or exit                        | Meaning and action                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Booking command failed.` with no JSON | Argument parsing, runtime-path resolution, or stdout transport failed. Check argument spelling and the runtime path. When stdout remains available, a debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE` result with exit 30.                                                                              |
+| Exit 20                                | The checkout was unsupported, ambiguous, ineligible, or disallowed by `--book-only`; no submission occurred.                                                                                                                                                                                                                                |
+| Exit 40                                | Do not infer failure. Run the utility again and let Arketa report existing enrollment or offer an action.                                                                                                                                                                                                                                   |
+| Lock contention                        | Pilates Booker removes a valid current `run.lock` only when its recorded PID is conclusively absent. It revalidates the PID and device/inode immediately before removal, then retries exclusive acquisition once.                                                                                                                           |
+| Lock remains after the process ended   | A legacy, malformed, unreadable, active, or indeterminate lock is preserved for manual recovery. PID reuse, an unreaped zombie, permission restrictions, or another ambiguous PID probe can make a stale lock appear active. Confirm no Pilates Booker or profile Chromium process is active before removing that exact lock file manually. |
+| Lock changed during recovery           | PID and device/inode revalidation narrows the final replacement race, but pathname removal is not atomic for an exact open inode. The lock does not guarantee power-loss recovery or recover Chromium's own profile locks.                                                                                                                  |
+| Session expired                        | Sign in manually again with the same `Profile/` directory.                                                                                                                                                                                                                                                                                  |
 
-Keep private runtime artifacts out of tickets, commits, and public diagnostics.
-
-## Development validation
-
-After `npm ci`, repository checks that do not access a browser profile are:
-
-```sh
-npm run format:check
-npm run lint
-npm run typecheck
-npm run build
-npm test
-git diff --check
-```
-
-CI runs the formatting, lint, typecheck, build, and test commands above on Ubuntu; `git diff --check` is a local check. CI does not execute the documented setup blocks or verify resulting filesystem permissions. The deterministic README test checks the documented platform blocks and ordering without claiming a live booking on each platform.
-
-## Architecture and safety reference
-
-[Architecture](docs/architecture.md) describes components, data flow, state transitions, and the result model; [Safety boundaries](docs/safety-boundaries.md) defines trusted inputs, authorization, guarantees, non-guarantees, and supported checkout assumptions.
+See [Architecture](docs/architecture.md) and [Safety boundaries](docs/safety-boundaries.md) for the implementation contract.
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE), identified by the SPDX expression `AGPL-3.0-or-later`.
+Pilates Booker is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE) (`AGPL-3.0-or-later`); see [LICENSE](LICENSE).

@@ -137,6 +137,56 @@
       "type": "string"
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "BOOKED" } } },
+      "then": { "properties": { "details": { "const": "Booking confirmed." } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "WAITLISTED" } } },
+      "then": {
+        "properties": { "details": { "const": "Waitlist confirmed." } }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "ALREADY_BOOKED" } } },
+      "then": {
+        "properties": { "details": { "const": "Existing booking confirmed." } }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "ALREADY_WAITLISTED" } } },
+      "then": {
+        "properties": { "details": { "const": "Existing waitlist confirmed." } }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "DRY_RUN" } } },
+      "then": { "properties": { "details": { "const": "Dry run completed." } } }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "SAFE_STOP" } } },
+      "then": {
+        "properties": { "details": { "const": "Booking stopped safely." } }
+      }
+    },
+    {
+      "if": { "properties": { "outcome": { "const": "TECHNICAL_FAILURE" } } },
+      "then": {
+        "properties": { "details": { "const": "Runtime operation failed." } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "outcome": { "const": "CONFIRMATION_UNCERTAIN" } }
+      },
+      "then": {
+        "properties": {
+          "details": { "const": "Booking confirmation is uncertain." }
+        }
+      }
+    }
+  ],
   "oneOf": [
     {
       "propertyNames": {

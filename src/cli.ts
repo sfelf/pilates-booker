@@ -1,17 +1,29 @@
 import type { BookingBrowser } from "./booking-page.js";
 import { executeBookingWorkflow } from "./booking-workflow.js";
 import type { CommandArguments } from "./command-arguments.js";
-import type { BookingResult, ExecutionStage } from "./contracts.js";
+import {
+  RESULT_DETAILS,
+  type BookingResult,
+  type ExecutionStage
+} from "./contracts.js";
+import {
+  createDebugLogger,
+  NOOP_DEBUG_LOGGER,
+  type DebugData,
+  type DebugLogger,
+  type DebugMetadata
+} from "./debug-log.js";
+import { projectDebugException } from "./debug-exception.js";
 import { acquireProfileLock, type ProfileLock } from "./lock.js";
 import { validateResultForInput } from "./result-validator.js";
 import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
-import { resolveRuntimePaths } from "./runtime-paths.js";
+import { resolveRuntimePaths, type RuntimePathsV2 } from "./runtime-paths.js";
 
 export type ExecutionContext = Readonly<{
   input: CommandArguments["input"];
   profileDir: string;
   advance(stage: ExecutionStage): Promise<void>;
-  log(event: string, data?: Readonly<Record<string, unknown>>): Promise<void>;
+  log(event: string, data?: DebugData): Promise<void>;
 }>;
 
 export type CliExecutor = (context: ExecutionContext) => Promise<BookingResult>;
@@ -24,6 +36,10 @@ export type CliDependencies = Readonly<{
   bookingBrowser?: BookingBrowser;
   acquireLock?(path: string): Promise<ProfileLock>;
   emitResult?: ResultEmitter;
+  createLogger?(
+    paths: RuntimePathsV2,
+    metadata: DebugMetadata
+  ): Promise<DebugLogger>;
   reportDiagnostic?(diagnostic: CliDiagnostic): void;
 }>;
 
@@ -64,7 +80,7 @@ function failureResult(stage: ExecutionStage): BookingResult {
         action_submitted: true,
         confirmation_verified: false,
         safety_checks: completedSafetyChecks,
-        details: "Booking confirmation is uncertain."
+        details: RESULT_DETAILS.CONFIRMATION_UNCERTAIN
       }
     : {
         schema_version: 2,
@@ -73,7 +89,7 @@ function failureResult(stage: ExecutionStage): BookingResult {
         action_submitted: false,
         confirmation_verified: false,
         safety_checks: incompleteSafetyChecks,
-        details: "Runtime operation failed."
+        details: RESULT_DETAILS.TECHNICAL_FAILURE
       };
 }
 
@@ -93,7 +109,53 @@ export async function runCli(
   try {
     lock = await acquireLock(paths.lockFile);
   } catch {
-    return emitFreshResult(failureResult("STARTING"), args, dependencies);
+    return emitFreshResult(
+      failureResult("STARTING"),
+      args,
+      dependencies,
+      NOOP_DEBUG_LOGGER,
+      "STARTING"
+    );
+  }
+
+  let logger = NOOP_DEBUG_LOGGER;
+  if (args.debug) {
+    try {
+      logger = await (dependencies.createLogger ?? createDebugLogger)(paths, {
+        now: () => new Date(),
+        pid: process.pid,
+        version: "0.2.0"
+      });
+      await logger.append({
+        event: "command.started",
+        stage: "STARTING",
+        submission_started: false,
+        response_emitted: false,
+        data: {
+          arguments: {
+            booking_url: args.input.booking_url,
+            allowed_packages: args.input.allowed_packages,
+            permitted_actions: args.input.permitted_actions,
+            dry_run: args.input.dry_run,
+            runtime: paths.baseDir,
+            debug: true
+          }
+        }
+      });
+    } catch {
+      try {
+        await lock.release();
+      } catch {
+        // Initialization failure remains pre-browser and pre-submission.
+      }
+      return emitFreshResult(
+        failureResult("STARTING"),
+        args,
+        dependencies,
+        NOOP_DEBUG_LOGGER,
+        "STARTING"
+      );
+    }
   }
 
   let stage: ExecutionStage = "STARTING";
@@ -101,11 +163,14 @@ export async function runCli(
     input: args.input,
     profileDir: paths.profileDir,
     advance: async (next) => {
+      if (args.input.dry_run && next !== "VALIDATED")
+        throw new Error("invalid dry-run execution stage");
       if (transitions[stage] !== next)
         throw new Error("invalid execution stage");
       stage = next;
+      await appendEvent(logger, "stage.advanced", stage);
     },
-    log: async () => undefined
+    log: (event, data) => appendEvent(logger, event, stage, data)
   };
   const execute: CliExecutor =
     dependencies.execute ??
@@ -115,35 +180,145 @@ export async function runCli(
   let result: BookingResult;
   try {
     result = await execute(context);
-    if (!validateResultForInput(result, args.input))
+    if (
+      !validateResultForInput(result, args.input) ||
+      !resultMatchesStage(result, stage)
+    )
       throw new Error("invalid result");
-  } catch {
+    await appendEvent(logger, "workflow.completed", stage, resultData(result));
+  } catch (error) {
+    try {
+      await appendEvent(logger, "workflow.failed", stage, {
+        exception: projectDebugException(error)
+      });
+    } catch {
+      // The execution stage still determines the safe result.
+    }
     result = failureResult(stage);
   }
 
-  try {
-    const released = await lock.release();
-    if (!released.released) result = failureResult(stage);
-  } catch {
-    result = failureResult(stage);
-  }
-  return emitFreshResult(result, args, dependencies);
+  return emitFreshResult(result, args, dependencies, logger, stage, lock);
 }
 
 async function emitFreshResult(
   result: BookingResult,
   args: CommandArguments,
-  dependencies: CliDependencies
+  dependencies: CliDependencies,
+  logger: DebugLogger = NOOP_DEBUG_LOGGER,
+  stage: ExecutionStage = "STARTING",
+  lock?: ProfileLock
 ): Promise<number> {
-  if (!validateResultForInput(result, args.input)) {
+  if (
+    !validateResultForInput(result, args.input) ||
+    !resultMatchesStage(result, stage)
+  ) {
+    return reportCliFailure(dependencies);
+  }
+  let selected = result;
+  try {
+    await appendEvent(logger, "response.pending", stage);
+  } catch {
+    selected = failureResult(stage);
+    if (
+      !validateResultForInput(selected, args.input) ||
+      !resultMatchesStage(selected, stage)
+    ) {
+      return reportCliFailure(dependencies);
+    }
+  }
+  const bytes = `${JSON.stringify(selected)}\n`;
+  try {
+    await (dependencies.emitResult ?? writeResultToStdout)(bytes);
+  } catch {
+    try {
+      await appendEvent(logger, "response.failed", stage);
+    } catch {
+      // The fixed diagnostic remains the only available transport.
+    }
+    try {
+      await lock?.release();
+    } catch {
+      // Preserve the exact stale lock for manual recovery.
+    }
     return reportCliFailure(dependencies);
   }
   try {
-    await (dependencies.emitResult ?? writeResultToStdout)(
-      `${JSON.stringify(result)}\n`
-    );
+    await logger.append({
+      event: "response.emitted",
+      stage,
+      submission_started: submissionStarted(stage),
+      response_emitted: true
+    });
   } catch {
-    return reportCliFailure(dependencies);
+    // Complete stdout is already authoritative for this invocation.
   }
-  return result.exit_code;
+  try {
+    await lock?.release();
+  } catch {
+    // Output is already complete; leave the exact stale lock for manual recovery.
+  }
+  return selected.exit_code;
+}
+
+function appendEvent(
+  logger: DebugLogger,
+  event: string,
+  stage: ExecutionStage,
+  data?: DebugData
+): Promise<void> {
+  return logger.append({
+    event,
+    stage,
+    submission_started: submissionStarted(stage),
+    response_emitted: false,
+    ...(data === undefined ? {} : { data })
+  });
+}
+
+function submissionStarted(stage: ExecutionStage): boolean {
+  return stage === "SUBMITTING" || stage === "CONFIRMED";
+}
+
+function resultMatchesStage(
+  result: BookingResult,
+  stage: ExecutionStage
+): boolean {
+  if (stage === "STARTING" || stage === "READY_TO_SUBMIT") {
+    return result.outcome === "TECHNICAL_FAILURE";
+  }
+  if (stage === "VALIDATED") {
+    return (
+      result.outcome === "ALREADY_BOOKED" ||
+      result.outcome === "ALREADY_WAITLISTED" ||
+      result.outcome === "DRY_RUN" ||
+      result.outcome === "SAFE_STOP" ||
+      result.outcome === "TECHNICAL_FAILURE"
+    );
+  }
+  if (stage === "SUBMITTING") {
+    return result.outcome === "CONFIRMATION_UNCERTAIN";
+  }
+  if (stage === "CONFIRMED") {
+    return (
+      result.outcome === "BOOKED" ||
+      result.outcome === "WAITLISTED" ||
+      result.outcome === "CONFIRMATION_UNCERTAIN"
+    );
+  }
+  return false;
+}
+
+function resultData(result: BookingResult): DebugData {
+  return {
+    ...(result.observed_class === undefined
+      ? {}
+      : { observed_class: result.observed_class }),
+    ...(result.package_selected === undefined
+      ? {}
+      : { package_selected: result.package_selected }),
+    ...(result.packages_before === undefined
+      ? {}
+      : { packages_before: result.packages_before }),
+    decision: result.outcome
+  };
 }

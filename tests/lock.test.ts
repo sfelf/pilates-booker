@@ -1,9 +1,13 @@
 import {
+  chmod,
+  lstat,
   mkdtemp,
+  open,
   readFile,
   readdir,
   rename,
   stat,
+  symlink,
   unlink,
   writeFile
 } from "node:fs/promises";
@@ -23,10 +27,12 @@ const operations = (
   overrides: Partial<LockOperations> = {}
 ): LockOperations => ({
   writeFile: (handle, contents) => handle.writeFile(contents, "utf8"),
-  readFile: (path) => readFile(path, "utf8"),
+  openRead: (path) => open(path, "r"),
+  read: async (handle, buffer) =>
+    (await handle.read(buffer, 0, buffer.byteLength, 0)).bytesRead,
   statFile: (handle) => handle.stat(),
   close: (handle) => handle.close(),
-  stat,
+  lstat,
   unlink,
   ...overrides
 });
@@ -48,6 +54,25 @@ const filesystemError = (code: string): NodeJS.ErrnoException =>
 afterEach(() => vi.restoreAllMocks());
 
 describe("acquireProfileLock", () => {
+  test.skipIf(process.platform === "win32")(
+    "tightens an existing runtime base before lock acquisition",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+      await chmod(directory, 0o755);
+      const path = join(directory, "run.lock");
+
+      const lock = await acquireProfileLock(
+        path,
+        ensureDirectory,
+        operations(),
+        environment()
+      );
+
+      expect((await stat(directory)).mode & 0o777).toBe(0o700);
+      await lock.release();
+    }
+  );
+
   test("creates the runtime base and writes only its PID", async () => {
     const parent = await mkdtemp(join(tmpdir(), "arketa-lock-parent-"));
     const path = join(parent, "private-runtime", "run.lock");
@@ -107,6 +132,32 @@ describe("acquireProfileLock", () => {
     await lock.release();
   });
 
+  test.each(["active", "indeterminate"] as const)(
+    "preserves a stale candidate whose PID becomes %s before removal",
+    async (finalState) => {
+      const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+      const path = join(directory, "run.lock");
+      const contents = lockContents();
+      await writeFile(path, contents, "utf8");
+      const probePid = vi
+        .fn<LockEnvironment["probePid"]>()
+        .mockReturnValueOnce("absent")
+        .mockReturnValueOnce(finalState);
+
+      await expect(
+        acquireProfileLock(
+          path,
+          ensureDirectory,
+          operations(),
+          environment({ probePid })
+        )
+      ).rejects.toBeInstanceOf(LockUnavailableError);
+      expect(probePid).toHaveBeenNthCalledWith(1, 77);
+      expect(probePid).toHaveBeenNthCalledWith(2, 77);
+      expect(await readFile(path, "utf8")).toBe(contents);
+    }
+  );
+
   test.each([
     '{"version":1}\n',
     "",
@@ -151,7 +202,7 @@ describe("acquireProfileLock", () => {
         path,
         ensureDirectory,
         operations({
-          readFile: async () => {
+          openRead: async () => {
             throw filesystemError("EACCES");
           }
         }),
@@ -166,50 +217,129 @@ describe("acquireProfileLock", () => {
     const path = join(directory, "run.lock");
     const contents = lockContents();
     await writeFile(path, contents, "utf8");
-    let metadataRead = false;
+    let metadataOpened = false;
 
     await expect(
       acquireProfileLock(
         path,
         ensureDirectory,
         operations({
-          readFile: async (readPath) => {
-            metadataRead = true;
-            return readFile(readPath, "utf8");
+          openRead: async (readPath) => {
+            metadataOpened = true;
+            return open(readPath, "r");
           },
-          stat: async (statPath) => {
-            const details = await stat(statPath);
+          lstat: async (statPath) => {
+            const details = await lstat(statPath);
             return Object.assign(details, { isFile: () => false });
           }
         }),
         environment()
       )
     ).rejects.toBeInstanceOf(LockUnavailableError);
-    expect(metadataRead).toBe(false);
+    expect(metadataOpened).toBe(false);
     expect(await readFile(path, "utf8")).toBe(contents);
   });
 
-  test("preserves a lock that grows past the size limit during revalidation", async () => {
+  test("preserves a symlinked lock path and its regular-file target", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
     const path = join(directory, "run.lock");
-    const oversized = `${lockContents()}${" ".repeat(1025)}`;
+    const target = join(directory, "target.lock");
+    const contents = lockContents();
+    await writeFile(target, contents, "utf8");
+    await symlink(target, path);
+
+    await expect(
+      acquireProfileLock(path, ensureDirectory, operations(), environment())
+    ).rejects.toBeInstanceOf(LockUnavailableError);
+    expect((await lstat(path)).isSymbolicLink()).toBe(true);
+    expect(await readFile(path, "utf8")).toBe(contents);
+    expect(await readFile(target, "utf8")).toBe(contents);
+  });
+
+  test("bounds the initial metadata read when the lock grows after inspection", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const oversized = `${lockContents()}${" ".repeat(1024 * 1024)}`;
     await writeFile(path, lockContents(), "utf8");
-    let reads = 0;
+    const boundedReadSizes: number[] = [];
+    const injectedOperations = {
+      ...operations(),
+      openRead: (readPath: string) => open(readPath, "r"),
+      read: async (
+        handle: import("node:fs/promises").FileHandle,
+        buffer: Buffer
+      ) => {
+        boundedReadSizes.push(buffer.byteLength);
+        await writeFile(path, oversized, "utf8");
+        return (await handle.read(buffer, 0, buffer.byteLength, 0)).bytesRead;
+      }
+    };
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectory,
+        injectedOperations,
+        environment()
+      )
+    ).rejects.toBeInstanceOf(LockUnavailableError);
+    expect(boundedReadSizes).toEqual([1025]);
+    expect(await readFile(path, "utf8")).toBe(oversized);
+  });
+
+  test("preserves metadata when a read returns only a valid JSON prefix", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const prefix = lockContents();
+    const contents = `${prefix}trailing malformed content`;
+    await writeFile(path, contents, "utf8");
 
     await expect(
       acquireProfileLock(
         path,
         ensureDirectory,
         operations({
-          readFile: async (readPath) => {
-            reads += 1;
-            if (reads === 2) await writeFile(path, oversized, "utf8");
-            return readFile(readPath, "utf8");
+          read: async (_handle, buffer) => {
+            buffer.write(prefix, 0, "utf8");
+            return Buffer.byteLength(prefix);
           }
         }),
         environment()
       )
     ).rejects.toBeInstanceOf(LockUnavailableError);
+    expect(await readFile(path, "utf8")).toBe(contents);
+  });
+
+  test("bounds the revalidation read when the lock grows after inspection", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const oversized = `${lockContents()}${" ".repeat(1024 * 1024)}`;
+    await writeFile(path, lockContents(), "utf8");
+    const boundedReadSizes: number[] = [];
+    const injectedOperations = {
+      ...operations(),
+      openRead: (readPath: string) => open(readPath, "r"),
+      read: async (
+        handle: import("node:fs/promises").FileHandle,
+        buffer: Buffer
+      ) => {
+        boundedReadSizes.push(buffer.byteLength);
+        if (boundedReadSizes.length === 2) {
+          await writeFile(path, oversized, "utf8");
+        }
+        return (await handle.read(buffer, 0, buffer.byteLength, 0)).bytesRead;
+      }
+    };
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectory,
+        injectedOperations,
+        environment()
+      )
+    ).rejects.toBeInstanceOf(LockUnavailableError);
+    expect(boundedReadSizes).toEqual([1025, 1025]);
     expect(await readFile(path, "utf8")).toBe(oversized);
   });
 
@@ -225,10 +355,11 @@ describe("acquireProfileLock", () => {
         path,
         ensureDirectory,
         operations({
-          readFile: async (readPath) => {
+          read: async (handle, buffer) => {
             reads += 1;
             if (reads === 2) await writeFile(path, replacement, "utf8");
-            return readFile(readPath, "utf8");
+            return (await handle.read(buffer, 0, buffer.byteLength, 0))
+              .bytesRead;
           }
         }),
         environment()
@@ -251,13 +382,43 @@ describe("acquireProfileLock", () => {
         path,
         ensureDirectory,
         operations({
-          stat: async (statPath) => {
+          lstat: async (statPath) => {
             stats += 1;
             if (stats === 2) {
               await unlink(path);
               await rename(replacementPath, path);
             }
-            return stat(statPath);
+            return lstat(statPath);
+          }
+        }),
+        environment()
+      )
+    ).rejects.toBeInstanceOf(LockUnavailableError);
+    expect(await readFile(path, "utf8")).toBe(replacement);
+  });
+
+  test("preserves a replacement installed after the revalidation handle opens", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const replacementPath = join(directory, "replacement.lock");
+    const replacement = lockContents(88);
+    await writeFile(path, lockContents(), "utf8");
+    await writeFile(replacementPath, replacement, "utf8");
+    let opens = 0;
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectory,
+        operations({
+          openRead: async (readPath) => {
+            const handle = await open(readPath, "r");
+            opens += 1;
+            if (opens === 2) {
+              await unlink(path);
+              await rename(replacementPath, path);
+            }
+            return handle;
           }
         }),
         environment()
@@ -412,9 +573,9 @@ describe("acquireProfileLock", () => {
             await handle.close();
             if (stage === "close") throw filesystemError("EIO");
           },
-          stat: async (statPath) => {
+          lstat: async (statPath) => {
             if (releasing && stage === "stat") throw filesystemError("EIO");
-            return stat(statPath);
+            return lstat(statPath);
           },
           unlink: async (removedPath) => {
             if (stage === "unlink") throw filesystemError("EIO");

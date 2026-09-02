@@ -582,6 +582,8 @@ describe("BookingPage read boundary", () => {
     );
     expect(String(injuryError)).not.toContain(privateLabel);
     expect(String(cancellationError)).not.toContain(privateLabel);
+    expect((injuryError as Error).cause).toBeInstanceOf(Error);
+    expect((cancellationError as Error).cause).toBeInstanceOf(Error);
     await page.close();
   });
 
@@ -639,6 +641,7 @@ describe("BookingPage read boundary", () => {
 
       expect(String(error)).toContain("Booking page could not be read.");
       expect(String(error)).not.toContain(privateValue);
+      expect((error as Error).cause).toBeInstanceOf(Error);
       await page.close();
     }
   );
@@ -1018,10 +1021,18 @@ describe("BookingPage confirmation boundary", () => {
     });
     await booking.read();
     await booking.submit("book");
-    const reveal = Promise.all([
-      revealConfirmation(page, "confirmation-booked"),
-      revealConfirmation(page, "confirmation-waitlisted")
-    ]);
+    const reveal = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await page
+        .locator(
+          '[data-testid="confirmation-booked"], [data-testid="confirmation-waitlisted"]'
+        )
+        .evaluateAll((elements) => {
+          for (const element of elements) {
+            (element as HTMLElement).hidden = false;
+          }
+        });
+    })();
 
     await expect(booking.waitForConfirmation("book")).resolves.toEqual({
       kind: "UNKNOWN"
@@ -1803,6 +1814,9 @@ describe("BookingBrowser lifecycle", () => {
 
     expect(String(error)).toContain("Booking browser readiness failed.");
     expect(String(error)).not.toContain(privateFailure);
+    expect((error as Error).cause).toEqual(
+      expect.objectContaining({ message: privateFailure })
+    );
     expect(harness.callbacks).toEqual([]);
     expect(harness.closeCount()).toBe(1);
   });
@@ -1864,6 +1878,9 @@ describe("BookingBrowser lifecycle", () => {
 
     expect(String(error)).toContain("Booking browser navigation failed.");
     expect(String(error)).not.toContain(unsafe);
+    expect((error as Error).cause).toEqual(
+      expect.objectContaining({ message: "Invalid Arketa checkout URL." })
+    );
     expect(harness.closeCount()).toBe(1);
   });
 
