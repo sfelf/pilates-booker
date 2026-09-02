@@ -100,7 +100,13 @@ describe("projectDebugText", () => {
     "access_token=private-token",
     "Authorization%3A%20Bearer%20private-token",
     "Authorization%253A%2520Bearer%2520private-token",
-    "Authorization\\u003a Bearer private-token"
+    "Authorization\\u003a Bearer private-token",
+    '{"access_token":"private-token"}',
+    '{"authorization":"Bearer private-token"}',
+    '{\\"authorization\\":\\"Bearer private-token\\"}',
+    "%7B%22access_token%22%3A%22private-token%22%7D",
+    "%257B%2522authorization%2522%253A%2522Bearer%2520private-token%2522%257D",
+    "token: private-token"
   ])("replaces recognizable credential material in %j", (raw) => {
     expect(projectDebugText(raw)).toBe(SENSITIVE_TEXT);
     expect(projectDebugText(projectDebugText(raw))).toBe(SENSITIVE_TEXT);

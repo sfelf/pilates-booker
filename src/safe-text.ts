@@ -104,7 +104,7 @@ export function projectSafeText(raw: string): string {
 }
 
 const CREDENTIAL_MATERIAL =
-  /(?:^|\b)(?:authorization\s*:|proxy-authorization\s*:|cookie\s*:|set-cookie\s*:|(?:access_|refresh_|id_)?token\s*=)/iu;
+  /(?:^|\b)(?:authorization|proxy-authorization|cookie|set-cookie|(?:access_|refresh_|id_)?token)(?:\\?["'])?\s*[:=]/iu;
 
 function containsCredentialRepresentation(raw: string): boolean {
   let inspection = raw;
