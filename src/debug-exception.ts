@@ -7,10 +7,7 @@ const diagnosticBoundaries = new Set([
 
 export function projectDebugException(error: unknown): DebugException {
   if (!(error instanceof Error)) return { name: "Error" };
-  if (
-    !diagnosticBoundaries.has(error.name) &&
-    error.cause instanceof Error
-  ) {
+  if (!diagnosticBoundaries.has(error.name) && error.cause instanceof Error) {
     return projectDebugException(error.cause);
   }
   return {
