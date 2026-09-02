@@ -1,8 +1,6 @@
 import type { Stats } from "node:fs";
-import { randomUUID } from "node:crypto";
 import {
   mkdir,
-  link,
   open,
   readFile,
   stat,
@@ -10,11 +8,6 @@ import {
   type FileHandle
 } from "node:fs/promises";
 import { dirname } from "node:path";
-
-import {
-  createProcessIdentityProvider,
-  type ProcessIdentityProvider
-} from "./process-identity.js";
 
 export class LockUnavailableError extends Error {
   constructor() {
@@ -40,15 +33,12 @@ export type LockOperations = Readonly<{
   statFile(handle: FileHandle): Promise<Stats>;
   close(handle: FileHandle): Promise<void>;
   stat(path: string): Promise<Stats>;
-  link(existingPath: string, newPath: string): Promise<void>;
   unlink(path: string): Promise<void>;
 }>;
+export type PidState = "active" | "absent" | "indeterminate";
 export type LockEnvironment = Readonly<{
   pid: number;
-  createToken(): string;
-  processIdentity: ProcessIdentityProvider;
-  claimWaitTimeoutMs?: number;
-  wait?(milliseconds: number): Promise<void>;
+  probePid(pid: number): PidState;
 }>;
 
 const defaultLockOperations: LockOperations = {
@@ -57,24 +47,26 @@ const defaultLockOperations: LockOperations = {
   statFile: (handle) => handle.stat(),
   close: (handle) => handle.close(),
   stat,
-  link,
   unlink
 };
 
 const defaultLockEnvironment: LockEnvironment = {
   pid: process.pid,
-  createToken: randomUUID,
-  processIdentity: createProcessIdentityProvider(),
-  claimWaitTimeoutMs: 5000,
-  wait: (milliseconds) =>
-    new Promise((resolve) => setTimeout(resolve, milliseconds))
+  probePid: (pid) => {
+    try {
+      process.kill(pid, 0);
+      return "active";
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ESRCH"
+        ? "absent"
+        : "indeterminate";
+    }
+  }
 };
 
 type LockMetadata = Readonly<{
   version: 2;
   pid: number;
-  process_start: string;
-  instance_token: string;
 }>;
 
 export const ensureDirectory: DirectoryInitializer = async (path) => {
@@ -84,91 +76,26 @@ export const ensureDirectory: DirectoryInitializer = async (path) => {
 async function removeOwnedLockPath(
   path: string,
   operations: LockOperations,
-  acquired?: Stats,
-  recoveryClaimHeld = false,
-  claimWait?: Readonly<{
-    timeoutMs: number;
-    wait(milliseconds: number): Promise<void>;
-  }>
+  acquired?: Stats
 ): Promise<LockReleaseResult> {
-  const recoveryPath = `${path}.recovery`;
-  let claimCreated = false;
   if (acquired !== undefined) {
-    if (!recoveryClaimHeld) {
-      const deadline = Date.now() + (claimWait?.timeoutMs ?? 0);
-      while (!claimCreated) {
-        try {
-          await operations.link(path, recoveryPath);
-          claimCreated = true;
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === "ENOENT") return { released: true };
-          if (
-            code !== "EEXIST" ||
-            claimWait === undefined ||
-            Date.now() >= deadline
-          ) {
-            return { released: false, stage: "stat" };
-          }
-          await claimWait.wait(25);
-        }
-      }
-    }
+    let current: Stats;
     try {
-      const claimed = await operations.stat(recoveryPath);
-      if (!sameFile(claimed, acquired)) {
-        await operations.unlink(recoveryPath).catch(() => undefined);
+      current = await operations.stat(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return { released: true };
       }
-      let current: Stats;
-      try {
-        current = await operations.stat(path);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          await operations.unlink(recoveryPath).catch(() => undefined);
-          return { released: true };
-        }
-        await operations.unlink(recoveryPath).catch(() => undefined);
-        return { released: false, stage: "stat" };
-      }
-      if (!sameFile(current, acquired)) {
-        await operations.unlink(recoveryPath).catch(() => undefined);
-        return { released: true };
-      }
-    } catch {
-      await operations.unlink(recoveryPath).catch(() => undefined);
       return { released: false, stage: "stat" };
     }
+    if (!sameFile(current, acquired)) return { released: true };
   }
   try {
     await operations.unlink(path);
   } catch {
-    if (acquired !== undefined) {
-      await operations.unlink(recoveryPath).catch(() => undefined);
-    }
     return { released: false, stage: "unlink" };
   }
-  if (acquired !== undefined) {
-    try {
-      await operations.unlink(recoveryPath);
-    } catch {
-      return { released: false, stage: "unlink" };
-    }
-  }
   return { released: true };
-}
-
-async function removeDirectOwnedLockPath(
-  path: string,
-  operations: LockOperations,
-  acquired: Stats
-): Promise<void> {
-  try {
-    const current = await operations.stat(path);
-    if (sameFile(current, acquired)) await operations.unlink(path);
-  } catch {
-    // The caller is already handling an acquisition failure.
-  }
 }
 
 export async function acquireProfileLock(
@@ -178,44 +105,22 @@ export async function acquireProfileLock(
   environment: LockEnvironment = defaultLockEnvironment
 ): Promise<ProfileLock> {
   await initializeDirectory(dirname(path));
-  const currentProcess = await environment.processIdentity.identify(
-    environment.pid
-  );
-  if (currentProcess.kind !== "found") {
-    throw new Error("current process identity is unavailable");
+  if (!validPid(environment.pid)) {
+    throw new Error("current process identifier is unavailable");
   }
-  const metadata: LockMetadata = {
-    version: 2,
-    pid: environment.pid,
-    process_start: currentProcess.identity,
-    instance_token: environment.createToken()
-  };
-  if (!isLockMetadata(metadata)) {
-    throw new Error("current process identity is unavailable");
-  }
+  const metadata: LockMetadata = { version: 2, pid: environment.pid };
 
-  let handle;
-  let recoveryClaimHeld = false;
-  if (!(await pathIsAbsent(`${path}.recovery`, operations))) {
-    throw new LockUnavailableError();
-  }
+  let handle: FileHandle;
   try {
     handle = await open(path, "wx", 0o600);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-      throw error;
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (!(await removeConclusiveStaleLock(path, operations, environment))) {
+      throw new LockUnavailableError();
     }
-    recoveryClaimHeld = await claimStaleLock(
-      path,
-      operations,
-      environment.processIdentity,
-      currentProcess.identity
-    );
-    if (!recoveryClaimHeld) throw new LockUnavailableError();
     try {
       handle = await open(path, "wx", 0o600);
     } catch (retryError) {
-      await operations.unlink(`${path}.recovery`).catch(() => undefined);
       if ((retryError as NodeJS.ErrnoException).code === "EEXIST") {
         throw new LockUnavailableError();
       }
@@ -223,62 +128,21 @@ export async function acquireProfileLock(
     }
   }
 
-  let acquired;
-  let blockedByRecovery = false;
-  let claimSupportFailed = false;
+  let acquired: Stats | undefined;
   try {
     acquired = await operations.statFile(handle);
-    if (
-      !recoveryClaimHeld &&
-      !(await pathIsAbsent(`${path}.recovery`, operations))
-    ) {
-      blockedByRecovery = true;
-      await operations.close(handle);
-      await removeDirectOwnedLockPath(path, operations, acquired);
-      throw new LockUnavailableError();
-    }
     await operations.writeFile(handle, `${JSON.stringify(metadata)}\n`);
-    if (!recoveryClaimHeld) {
-      try {
-        await verifyLockClaimSupport(
-          path,
-          metadata.instance_token,
-          operations,
-          acquired
-        );
-      } catch {
-        claimSupportFailed = true;
-        throw new Error("runtime filesystem does not support lock claims");
-      }
-    }
   } catch (error) {
     await operations.close(handle).catch(() => undefined);
     if (acquired !== undefined) {
-      if (recoveryClaimHeld || blockedByRecovery || claimSupportFailed) {
-        await removeDirectOwnedLockPath(path, operations, acquired);
-      } else {
-        await removeOwnedLockPath(path, operations, acquired);
-      }
-    }
-    if (recoveryClaimHeld) {
-      await operations.unlink(`${path}.recovery`).catch(() => undefined);
+      await removeOwnedLockPath(path, operations, acquired);
     }
     throw error;
-  }
-  if (recoveryClaimHeld) {
-    try {
-      await operations.unlink(`${path}.recovery`);
-    } catch {
-      await operations.close(handle).catch(() => undefined);
-      await removeDirectOwnedLockPath(path, operations, acquired);
-      throw new Error("runtime recovery claim cleanup failed");
-    }
   }
 
   let released = false;
   let closed = false;
   let releaseInFlight: Promise<LockReleaseResult> | undefined;
-
   const performRelease = async (): Promise<LockReleaseResult> => {
     if (released) return { released: true };
     if (!closed) {
@@ -289,19 +153,7 @@ export async function acquireProfileLock(
       }
       closed = true;
     }
-    const result = await removeOwnedLockPath(
-      path,
-      operations,
-      acquired,
-      false,
-      {
-        timeoutMs: environment.claimWaitTimeoutMs ?? 5000,
-        wait:
-          environment.wait ??
-          ((milliseconds) =>
-            new Promise((resolve) => setTimeout(resolve, milliseconds)))
-      }
-    );
+    const result = await removeOwnedLockPath(path, operations, acquired);
     if (!result.released) return result;
     released = true;
     return { released: true };
@@ -319,132 +171,71 @@ export async function acquireProfileLock(
   };
 }
 
-async function verifyLockClaimSupport(
-  path: string,
-  instanceToken: string,
-  operations: LockOperations,
-  acquired: Stats
-): Promise<void> {
-  const probePath = `${path}.probe-${instanceToken}`;
-  let probeCreated = false;
-  try {
-    await operations.link(path, probePath);
-    probeCreated = true;
-    const probe = await operations.stat(probePath);
-    if (!sameFile(probe, acquired)) throw new Error("invalid lock claim");
-    await operations.unlink(probePath);
-    probeCreated = false;
-  } catch (error) {
-    if (probeCreated) {
-      await operations.unlink(probePath).catch(() => undefined);
-    }
-    throw error;
-  }
-}
-
-async function claimStaleLock(
+async function removeConclusiveStaleLock(
   path: string,
   operations: LockOperations,
-  processIdentity: ProcessIdentityProvider,
-  currentIdentity: string
+  environment: LockEnvironment
 ): Promise<boolean> {
-  const recoveryPath = `${path}.recovery`;
-  let contents: string;
-  let claimCreated = false;
+  let inspected: Stats;
+  let firstContents: string;
   try {
-    await operations.link(path, recoveryPath);
-    claimCreated = true;
-    const claimed = await operations.stat(recoveryPath);
+    inspected = await operations.stat(path);
+    if (inspected.size > 1024) return false;
+    firstContents = await operations.readFile(path);
+    if (Buffer.byteLength(firstContents, "utf8") > 1024) return false;
+  } catch {
+    return false;
+  }
+  const first = parseLockMetadata(firstContents);
+  if (first === undefined || environment.probePid(first.pid) !== "absent") {
+    return false;
+  }
+
+  try {
+    const secondContents = await operations.readFile(path);
     const current = await operations.stat(path);
-    if (!sameFile(claimed, current) || claimed.size > 1024) {
-      await operations.unlink(recoveryPath).catch(() => undefined);
+    const second = parseLockMetadata(secondContents);
+    if (
+      Buffer.byteLength(secondContents, "utf8") > 1024 ||
+      current.size > 1024 ||
+      second === undefined ||
+      second.pid !== first.pid ||
+      !sameFile(current, inspected)
+    ) {
       return false;
     }
-    contents = await operations.readFile(recoveryPath);
-  } catch {
-    if (claimCreated) {
-      await operations.unlink(recoveryPath).catch(() => undefined);
-    }
-    return false;
-  }
-  const metadata = parseLockMetadata(contents);
-  if (
-    metadata === undefined ||
-    identityPlatform(metadata.process_start) !==
-      identityPlatform(currentIdentity)
-  ) {
-    await operations.unlink(recoveryPath).catch(() => undefined);
-    return false;
-  }
-  const owner = await processIdentity.identify(metadata.pid);
-  if (
-    owner.kind === "unknown" ||
-    (owner.kind === "found" && owner.identity === metadata.process_start)
-  ) {
-    await operations.unlink(recoveryPath).catch(() => undefined);
-    return false;
-  }
-
-  try {
     await operations.unlink(path);
+    return true;
   } catch {
-    await operations.unlink(recoveryPath).catch(() => undefined);
     return false;
   }
-  return true;
-}
-
-async function pathIsAbsent(
-  path: string,
-  operations: LockOperations
-): Promise<boolean> {
-  try {
-    await operations.stat(path);
-    return false;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
-    return false;
-  }
-}
-
-function sameFile(left: Stats, right: Stats): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
 }
 
 function parseLockMetadata(contents: string): LockMetadata | undefined {
   try {
     const parsed: unknown = JSON.parse(contents);
-    return isLockMetadata(parsed) ? parsed : undefined;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return undefined;
+    }
+    const record = parsed as Record<string, unknown>;
+    return Object.keys(record).length === 2 &&
+      record.version === 2 &&
+      validPid(record.pid)
+      ? { version: 2, pid: record.pid }
+      : undefined;
   } catch {
     return undefined;
   }
 }
 
-function identityPlatform(identity: string): string | undefined {
-  return identity.match(/^(linux|darwin|win32):/u)?.[1];
+function validPid(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
 }
 
-function isLockMetadata(value: unknown): value is LockMetadata {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    Object.keys(record).length !== 4 ||
-    record.version !== 2 ||
-    !Number.isSafeInteger(record.pid) ||
-    (record.pid as number) <= 0 ||
-    typeof record.process_start !== "string" ||
-    typeof record.instance_token !== "string"
-  ) {
-    return false;
-  }
-  return (
-    /^(?:linux:[1-9]\d*|darwin:[1-9]\d*|win32:[1-9]\d*)$/u.test(
-      record.process_start
-    ) &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
-      record.instance_token
-    )
-  );
+function sameFile(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
 }
