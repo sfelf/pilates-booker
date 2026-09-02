@@ -1,10 +1,12 @@
 import {
+  chmod,
   lstat,
   mkdtemp,
   open,
   readFile,
   readdir,
   rename,
+  stat,
   symlink,
   unlink,
   writeFile
@@ -52,6 +54,25 @@ const filesystemError = (code: string): NodeJS.ErrnoException =>
 afterEach(() => vi.restoreAllMocks());
 
 describe("acquireProfileLock", () => {
+  test.skipIf(process.platform === "win32")(
+    "tightens an existing runtime base before lock acquisition",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+      await chmod(directory, 0o755);
+      const path = join(directory, "run.lock");
+
+      const lock = await acquireProfileLock(
+        path,
+        ensureDirectory,
+        operations(),
+        environment()
+      );
+
+      expect((await stat(directory)).mode & 0o777).toBe(0o700);
+      await lock.release();
+    }
+  );
+
   test("creates the runtime base and writes only its PID", async () => {
     const parent = await mkdtemp(join(tmpdir(), "arketa-lock-parent-"));
     const path = join(parent, "private-runtime", "run.lock");

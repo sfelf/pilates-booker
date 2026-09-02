@@ -26,7 +26,21 @@ The default private runtime is platform-specific:
 | Linux    | `${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker` |
 | Windows  | `$env:LOCALAPPDATA\Pilates Booker`                     |
 
-Use `--runtime` with an absolute path to override the default. Keep every runtime outside the repository checkout so authenticated profile data and debug logs cannot be added to Git. On macOS and Linux, protect a custom runtime with mode `700`. On Windows, verify that Windows inherited ACLs restrict the runtime to the current account. The runtime contains `Profile/`, the exclusive `run.lock`, and opt-in debug logs only. A current lock contains versioned metadata with only the owner PID.
+Use `--runtime` with an absolute path to override the default. Keep every runtime outside the repository checkout so authenticated profile data and debug logs cannot be added to Git. On macOS and Linux, every runtime must use mode `700`; the utility reapplies that mode before each attempt. On Windows, verify that Windows inherited ACLs restrict the runtime to the current account. The runtime contains `Profile/`, the exclusive `run.lock`, and opt-in debug logs only. A current lock contains versioned metadata with only the owner PID.
+
+Before the first sign-in on macOS, create and protect the default runtime:
+
+```sh
+mkdir -p "$HOME/Library/Application Support/Pilates Booker" && chmod 700 "$HOME/Library/Application Support/Pilates Booker"
+```
+
+On Linux, create and protect its default runtime instead:
+
+```sh
+mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker" && chmod 700 "${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker"
+```
+
+On Windows, create the default runtime and verify its inherited ACLs restrict access to the current account before opening the profile.
 
 Sign in manually using the same profile before running the utility:
 
@@ -47,13 +61,11 @@ node dist/main.js --runtime "/absolute/private/path" --booking-url "https://app.
 
 Start with a dry run:
 
-```sh
-node dist/main.js \
-  --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" \
-  --allow-package "10-Class Pack" \
-  --allow-package "5-Class Pack" \
-  --dry-run
+```text
+node dist/main.js --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack" --allow-package "5-Class Pack" --dry-run
 ```
+
+The one-line command works in POSIX shells and PowerShell.
 
 `--booking-url` is required and must be a supported Arketa checkout URL. Repeat `--allow-package` in preference order; the first eligible positive-balance class package is selected. The caller is responsible for supplying the intended class URL, while `observed_class` in the result lets the caller verify what Arketa displayed.
 
@@ -61,10 +73,8 @@ Read the complete dry-run JSON result and verify that `observed_class` matches t
 
 Omitting `--dry-run` permits one live booking or waitlist attempt without another prompt:
 
-```sh
-node dist/main.js \
-  --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" \
-  --allow-package "10-Class Pack"
+```text
+node dist/main.js --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack"
 ```
 
 By default both booking and waitlisting are allowed. Add `--book-only` to stop safely instead of joining a waitlist. Add `--runtime "/absolute/private/path"` to override the platform default.

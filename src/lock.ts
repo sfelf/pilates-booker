@@ -1,5 +1,12 @@
 import type { Stats } from "node:fs";
-import { mkdir, lstat, open, unlink, type FileHandle } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  lstat,
+  open,
+  unlink,
+  type FileHandle
+} from "node:fs/promises";
 import { dirname } from "node:path";
 
 export class LockUnavailableError extends Error {
@@ -74,6 +81,7 @@ const MAX_LOCK_METADATA_BYTES = 1024;
 
 export const ensureDirectory: DirectoryInitializer = async (path) => {
   await mkdir(path, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") await chmod(path, 0o700);
 };
 
 async function removeOwnedLockPath(
