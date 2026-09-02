@@ -327,6 +327,36 @@ describe("acquireProfileLock", () => {
     expect(await readFile(path, "utf8")).toBe(replacement);
   });
 
+  test("preserves a replacement installed after the revalidation handle opens", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const replacementPath = join(directory, "replacement.lock");
+    const replacement = lockContents(88);
+    await writeFile(path, lockContents(), "utf8");
+    await writeFile(replacementPath, replacement, "utf8");
+    let opens = 0;
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectory,
+        operations({
+          openRead: async (readPath) => {
+            const handle = await open(readPath, "r");
+            opens += 1;
+            if (opens === 2) {
+              await unlink(path);
+              await rename(replacementPath, path);
+            }
+            return handle;
+          }
+        }),
+        environment()
+      )
+    ).rejects.toBeInstanceOf(LockUnavailableError);
+    expect(await readFile(path, "utf8")).toBe(replacement);
+  });
+
   test("preserves a winner when the single recovery retry loses", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
     const path = join(directory, "run.lock");

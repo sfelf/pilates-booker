@@ -242,6 +242,19 @@ async function inspectLock(
       }
     }
   }
+  if (inspected === undefined) return undefined;
+  try {
+    const current = await operations.lstat(path);
+    if (
+      !current.isFile() ||
+      current.size > MAX_LOCK_METADATA_BYTES ||
+      !sameFile(current, inspected.identity)
+    ) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
   return inspected;
 }
 
