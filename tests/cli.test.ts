@@ -343,6 +343,28 @@ it("rejects skipped or backward stage transitions as pre-submission failures", a
   });
 });
 
+it("rejects submission-stage transitions for dry runs and releases the lock", async () => {
+  const dryRunArgs = {
+    ...args,
+    input: { ...args.input, dry_run: true }
+  };
+  const deps = dependencies(async (context) => {
+    await context.advance("VALIDATED");
+    await context.advance("READY_TO_SUBMIT");
+    await context.advance("SUBMITTING");
+    throw new Error("synthetic failure");
+  });
+
+  expect(await runCli(dryRunArgs, deps)).toBe(30);
+  expect(deps.emitResult).toHaveBeenCalledOnce();
+  const bytes = (deps.emitResult.mock.calls as unknown as [[string]])[0][0];
+  expect(JSON.parse(bytes)).toMatchObject({
+    outcome: "TECHNICAL_FAILURE",
+    action_submitted: false
+  });
+  expect(deps.release).toHaveBeenCalledOnce();
+});
+
 it("emits a technical failure when lock acquisition fails", async () => {
   const emitResult = vi.fn(async () => undefined);
   expect(

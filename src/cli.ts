@@ -162,6 +162,8 @@ export async function runCli(
     input: args.input,
     profileDir: paths.profileDir,
     advance: async (next) => {
+      if (args.input.dry_run && next !== "VALIDATED")
+        throw new Error("invalid dry-run execution stage");
       if (transitions[stage] !== next)
         throw new Error("invalid execution stage");
       stage = next;
