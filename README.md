@@ -26,7 +26,7 @@ The default private runtime is platform-specific:
 | Linux    | `${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker` |
 | Windows  | `$env:LOCALAPPDATA\Pilates Booker`                     |
 
-Use `--runtime` with an absolute path to override the default. Keep every runtime outside the repository checkout so authenticated profile data and debug logs cannot be added to Git. On macOS and Linux, protect a custom runtime with mode `700`. The runtime contains `Profile/`, the temporary `run.lock`, and opt-in debug logs only.
+Use `--runtime` with an absolute path to override the default. Keep every runtime outside the repository checkout so authenticated profile data and debug logs cannot be added to Git. On macOS and Linux, protect a custom runtime with mode `700`. The runtime contains `Profile/`, the exclusive `run.lock`, and opt-in debug logs only. A current lock contains versioned metadata with only the owner PID.
 
 Sign in manually using the same profile before running the utility:
 
@@ -90,7 +90,9 @@ The log may contain the validated command arguments, complete booking URL, runti
 - `Booking command failed.` with no JSON means argument parsing, runtime-path resolution, or stdout transport failed. Check argument spelling and the runtime path. When stdout remains available, a debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE` result with exit 30.
 - Exit 20 means the checkout was unsupported, ambiguous, ineligible, or disallowed by `--book-only`; no submission occurred.
 - Exit 40 means do not infer failure. Run the utility again and let Arketa report existing enrollment or offer an action.
-- A leftover `run.lock` after a crash is not removed automatically. Confirm no Pilates Booker or profile Chromium process is active, then remove that exact lock file manually.
+- On lock contention, Pilates Booker removes a valid current `run.lock` only when its recorded PID is conclusively absent. It revalidates the PID and device/inode immediately before removal, then retries exclusive acquisition once.
+- A legacy, malformed, unreadable, active, or indeterminate lock is preserved for manual recovery. PID reuse, an unreaped zombie, permission restrictions, or another ambiguous PID probe can make a stale lock appear active. Confirm no Pilates Booker or profile Chromium process is active before removing that exact lock file manually.
+- PID and device/inode revalidation narrows the final replacement race, but pathname removal is not atomic for an exact open inode. The lock does not guarantee power-loss recovery or recover Chromium's own profile locks.
 - Expired sessions require another manual sign-in with the same `Profile/` directory.
 
 See [Architecture](docs/architecture.md) and [Safety boundaries](docs/safety-boundaries.md) for the implementation contract.

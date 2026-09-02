@@ -7,9 +7,12 @@ Pilates Booker is a reliable personal tool for a private, single-user runtime. I
 | Data | Source and trust | Runtime use | Result/debug policy |
 | --- | --- | --- | --- |
 | Parsed options and booking URL | Caller; untrusted until strict parsing | Select checkout and behavior | Preserve validated values; reject invalid input |
+| Runtime path | Caller or platform environment; untrusted until resolution | Select private profile, lock, and log locations | Preserve only the resolved absolute path; never derive paths from lock input |
 | Allowed packages | Caller; validated and ordered | Authorize first eligible package | Preserve canonical safe text in preference order |
 | Class/package observations | Arketa; constrained untrusted page text | Drive selection and result evidence | Preserve accepted printable text; never emit decoded inspection forms |
 | Controls and confirmation | Arketa DOM | Authorize one click and classify confirmation | Emit fixed booleans/outcomes only |
+| Runtime-lock PID | Current process or untrusted lock file | Write owner metadata and probe candidate-owner liveness | Accept only a positive safe integer; never return lock input, and project only allowlisted numeric process IDs in opt-in diagnostics |
+| Raw lock content and parse errors | Local runtime; untrusted | Strict validation only | Exclude raw, escaped, encoded, and repeatedly encoded forms from results, diagnostics, exceptions, and logs; use a fixed lock-unavailable error |
 | Exception diagnostics | Runtime/dependencies; untrusted | Failure classification | Debug-only printable projection with fixed credential/unsafe markers |
 | Headers, cookies, tokens, storage, profile | Authentication secrets | Browser authentication | Excluded from results and logs |
 | Attendee, injuries, form values | Private page state | Existing booking workflow | Excluded from results and logs |
@@ -35,6 +38,7 @@ Debug logging is opt-in, bounded to a 1 MiB current file and one `.1` generation
 
 - strict CLI and Arketa URL validation before browser work;
 - private reusable browser profile and exclusive process lock;
+- conservative PID-only recovery when a current lock's owner PID is conclusively absent;
 - dry run without booking-field mutation or submission;
 - deterministic ordered package preference and retained no-charge checks;
 - at most one booking or waitlist click per invocation;
@@ -45,4 +49,4 @@ Debug logging is opt-in, bounded to a 1 MiB current file and one `.1` generation
 
 ## Explicit non-guarantees
 
-The utility does not provide class discovery, scheduling, automatic login or retry, automatic stale-lock removal, alternate checkout structures, hostile same-account protection, power-loss durability, filesystem-corruption recovery, adversarial concurrent account access, screenshots, traces, HTML capture, or remote log shipping. It does not use repeated speculative pre-click checks for page changes outside the supported stable-page model.
+The utility does not provide class discovery, scheduling, automatic login or booking retry, general stale-lock removal, alternate checkout structures, hostile same-account protection, power-loss durability, filesystem-corruption recovery, adversarial concurrent account access, screenshots, traces, HTML capture, or remote log shipping. Legacy, malformed, unreadable, active, indeterminate, replaced, and retry-race locks are preserved. PID reuse, an unreaped zombie, permission restrictions, or an ambiguous probe can cause false-active preservation and require manual removal. PID plus device/inode revalidation is not an atomic exact-inode deletion guarantee, and the utility does not inspect process-start identity, boot identity, or zombie state. It does not recover Chromium profile locks or use repeated speculative pre-click checks for page changes outside the supported stable-page model.
