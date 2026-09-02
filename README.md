@@ -50,6 +50,8 @@ node dist/main.js \
 
 `--booking-url` is required and must be a supported Arketa checkout URL. Repeat `--allow-package` in preference order; the first eligible positive-balance class package is selected. The caller is responsible for supplying the intended class URL, while `observed_class` in the result lets the caller verify what Arketa displayed.
 
+Read the complete dry-run JSON result and verify that `observed_class` matches the class you intend to book, including its name, date, start time, and timezone. Proceed to a live command only after that verification; the application does not independently compare the displayed class with caller-supplied class fields.
+
 Omitting `--dry-run` permits one live booking or waitlist attempt without another prompt:
 
 ```sh
