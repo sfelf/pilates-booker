@@ -222,11 +222,12 @@ it("does not initialize or touch the debug logger when debug is disabled", async
   expect(createLogger).not.toHaveBeenCalled();
 });
 
-it("initializes requested logging before lock or browser work and records validated arguments", async () => {
+it("initializes requested logging under the lock before browser work and records validated arguments", async () => {
   const calls: string[] = [];
   const events: DebugEvent[] = [];
   const createLogger = vi.fn(async () => ({
     append: async (event: DebugEvent) => {
+      if (events.length === 0) calls.push("logger");
       events.push(event);
     }
   }));
@@ -248,7 +249,7 @@ it("initializes requested logging before lock or browser work and records valida
     )
   ).toBe(20);
   expect(createLogger).toHaveBeenCalledOnce();
-  expect(calls).toEqual(["lock", "browser"]);
+  expect(calls).toEqual(["lock", "logger", "browser"]);
   expect(events[0]).toMatchObject({
     event: "command.started",
     stage: "STARTING",
@@ -270,6 +271,8 @@ it("prevents lock and browser work when requested log initialization fails", asy
   const acquireLock = vi.fn();
   const execute = vi.fn();
   const emitResult = vi.fn(async () => undefined);
+  const release = vi.fn(async () => ({ released: true as const }));
+  acquireLock.mockResolvedValue({ release });
   expect(
     await runCli(
       { ...args, debug: true },
@@ -283,7 +286,8 @@ it("prevents lock and browser work when requested log initialization fails", asy
       }
     )
   ).toBe(30);
-  expect(acquireLock).not.toHaveBeenCalled();
+  expect(acquireLock).toHaveBeenCalledOnce();
+  expect(release).toHaveBeenCalledOnce();
   expect(execute).not.toHaveBeenCalled();
   expect(
     JSON.parse((emitResult.mock.calls as unknown as [[string]])[0][0])
@@ -291,6 +295,41 @@ it("prevents lock and browser work when requested log initialization fails", asy
     outcome: "TECHNICAL_FAILURE",
     action_submitted: false
   });
+});
+
+it("records a projected workflow exception event when debug is enabled", async () => {
+  const events: DebugEvent[] = [];
+  const emitResult = vi.fn(async () => undefined);
+  expect(
+    await runCli(
+      { ...args, debug: true },
+      {
+        createLogger: async () => ({
+          append: async (event) => {
+            events.push(event);
+          }
+        }),
+        acquireLock: async () => ({
+          release: async () => ({ released: true as const })
+        }),
+        execute: async () => {
+          throw new Error("synthetic browser failure");
+        },
+        emitResult
+      }
+    )
+  ).toBe(30);
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      event: "workflow.failed",
+      data: {
+        exception: expect.objectContaining({
+          name: "Error",
+          message: "synthetic browser failure"
+        })
+      }
+    })
+  );
 });
 
 it("classifies a submission-stage logging failure as uncertain without retrying", async () => {

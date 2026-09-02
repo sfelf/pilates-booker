@@ -99,6 +99,20 @@ export async function runCli(
     return reportCliFailure(dependencies);
   }
 
+  const acquireLock = dependencies.acquireLock ?? acquireProfileLock;
+  let lock: ProfileLock;
+  try {
+    lock = await acquireLock(paths.lockFile);
+  } catch {
+    return emitFreshResult(
+      failureResult("STARTING"),
+      args,
+      dependencies,
+      NOOP_DEBUG_LOGGER,
+      "STARTING"
+    );
+  }
+
   let logger = NOOP_DEBUG_LOGGER;
   if (args.debug) {
     try {
@@ -124,6 +138,11 @@ export async function runCli(
         }
       });
     } catch {
+      try {
+        await lock.release();
+      } catch {
+        // Initialization failure remains pre-browser and pre-submission.
+      }
       return emitFreshResult(
         failureResult("STARTING"),
         args,
@@ -132,20 +151,6 @@ export async function runCli(
         "STARTING"
       );
     }
-  }
-
-  const acquireLock = dependencies.acquireLock ?? acquireProfileLock;
-  let lock: ProfileLock;
-  try {
-    lock = await acquireLock(paths.lockFile);
-  } catch {
-    return emitFreshResult(
-      failureResult("STARTING"),
-      args,
-      dependencies,
-      logger,
-      "STARTING"
-    );
   }
 
   let stage: ExecutionStage = "STARTING";
@@ -171,7 +176,14 @@ export async function runCli(
     if (!validateResultForInput(result, args.input))
       throw new Error("invalid result");
     await appendEvent(logger, "workflow.completed", stage, resultData(result));
-  } catch {
+  } catch (error) {
+    try {
+      await appendEvent(logger, "workflow.failed", stage, {
+        exception: projectException(error)
+      });
+    } catch {
+      // The execution stage still determines the safe result.
+    }
     result = failureResult(stage);
   }
 
@@ -258,5 +270,14 @@ function resultData(result: BookingResult): DebugData {
       ? {}
       : { packages_before: result.packages_before }),
     decision: result.outcome
+  };
+}
+
+function projectException(error: unknown): NonNullable<DebugData["exception"]> {
+  if (!(error instanceof Error)) return { name: "Error" };
+  return {
+    name: error.name,
+    message: error.message,
+    ...(error.stack === undefined ? {} : { stack: error.stack })
   };
 }
