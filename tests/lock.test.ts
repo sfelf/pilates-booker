@@ -371,6 +371,34 @@ describe("acquireProfileLock", () => {
     });
   });
 
+  test("removes its recovery claim when unlinking the owned lock fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    let failLockUnlink = true;
+    const lock = await acquireProfileLock(
+      path,
+      ensureDirectory,
+      operations({
+        unlink: async (removedPath) => {
+          if (removedPath === path && failLockUnlink) {
+            failLockUnlink = false;
+            throw filesystemError("EIO");
+          }
+          await unlink(removedPath);
+        }
+      }),
+      environment()
+    );
+
+    await expect(lock.release()).resolves.toEqual({
+      released: false,
+      stage: "unlink"
+    });
+    expect(await readdir(directory)).toEqual(["run.lock"]);
+    await expect(lock.release()).resolves.toEqual({ released: true });
+    expect(await readdir(directory)).toEqual([]);
+  });
+
   test("exclusively acquires and releases a versioned owner lock without storing paths", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
     const path = join(directory, "run.lock");

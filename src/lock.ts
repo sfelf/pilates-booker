@@ -143,6 +143,9 @@ async function removeOwnedLockPath(
   try {
     await operations.unlink(path);
   } catch {
+    if (acquired !== undefined) {
+      await operations.unlink(recoveryPath).catch(() => undefined);
+    }
     return { released: false, stage: "unlink" };
   }
   if (acquired !== undefined) {
