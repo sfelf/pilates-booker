@@ -1,6 +1,6 @@
 # Architecture
 
-Pilates Booker v0.2.0 is one independent command invocation. It parses validated CLI values, resolves one private runtime, optionally initializes debug logging, acquires the exclusive profile lock, inspects one Arketa checkout, optionally submits once, emits one schema-v2 result, and releases the lock.
+Pilates Booker v0.2.0 is one independent command invocation. It parses validated CLI values, resolves one private runtime, acquires the exclusive profile lock, optionally initializes debug logging, inspects one Arketa checkout, optionally submits once, emits one schema-v2 result, and releases the lock.
 
 ## Component ownership
 
@@ -16,7 +16,7 @@ Pilates Booker v0.2.0 is one independent command invocation. It parses validated
 
 ## Execution sequence
 
-The command validates all caller input before browser work. Requested debug logging initializes before lock acquisition, and each stage transition is appended before execution continues. The allowed transition chain is `STARTING → VALIDATED → READY_TO_SUBMIT → SUBMITTING → CONFIRMED`.
+The command validates all caller input before browser work. It acquires the exclusive runtime lock before requested debug logging is initialized, so shared log initialization, append, and rotation remain serialized across invocations. Each stage transition is appended before execution continues. The allowed transition chain is `STARTING → VALIDATED → READY_TO_SUBMIT → SUBMITTING → CONFIRMED`.
 
 A failure before `SUBMITTING` produces `TECHNICAL_FAILURE`; a failure at or after `SUBMITTING` produces `CONFIRMATION_UNCERTAIN`. The executor is never retried. Once stdout has accepted a complete result, a later diagnostic append failure cannot replace that response.
 

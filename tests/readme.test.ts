@@ -14,8 +14,10 @@ test("documents only the executable CLI-only v0.2.0 operating model", async () =
     "--dry-run",
     "--debug",
     "pilates-booker.log.1",
+    "outside the repository checkout",
     "Omitting `--dry-run` permits one live",
     "verify that `observed_class` matches the class you intend to book",
+    "debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE`",
     "Arketa is authoritative"
   ]) {
     expect(readme).toContain(required);

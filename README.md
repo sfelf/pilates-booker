@@ -26,7 +26,7 @@ The default private runtime is platform-specific:
 | Linux    | `${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker` |
 | Windows  | `$env:LOCALAPPDATA\Pilates Booker`                     |
 
-Use `--runtime` with an absolute path to override the default. On macOS and Linux, protect a custom runtime with mode `700`. The runtime contains `Profile/`, the temporary `run.lock`, and opt-in debug logs only.
+Use `--runtime` with an absolute path to override the default. Keep every runtime outside the repository checkout so authenticated profile data and debug logs cannot be added to Git. On macOS and Linux, protect a custom runtime with mode `700`. The runtime contains `Profile/`, the temporary `run.lock`, and opt-in debug logs only.
 
 Sign in manually using the same profile before running the utility:
 
@@ -87,7 +87,7 @@ The log may contain the validated command arguments, complete booking URL, runti
 
 ## Troubleshooting
 
-- `Booking command failed.` with no JSON means arguments, runtime setup, debug initialization, or stdout failed. Check argument spelling and, when enabled, the final debug-log event.
+- `Booking command failed.` with no JSON means argument parsing, runtime-path resolution, or stdout transport failed. Check argument spelling and the runtime path. When stdout remains available, a debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE` result with exit 30.
 - Exit 20 means the checkout was unsupported, ambiguous, ineligible, or disallowed by `--book-only`; no submission occurred.
 - Exit 40 means do not infer failure. Run the utility again and let Arketa report existing enrollment or offer an action.
 - A leftover `run.lock` after a crash is not removed automatically. Confirm no Pilates Booker or profile Chromium process is active, then remove that exact lock file manually.
