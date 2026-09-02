@@ -2,16 +2,27 @@ export type PermittedAction = "book" | "waitlist";
 
 export type PermittedActions =
   | readonly ["book"]
-  | readonly ["waitlist"]
-  | readonly ["book", "waitlist"]
-  | readonly ["waitlist", "book"];
+  | readonly ["book", "waitlist"];
 
-export type ExpectedClass = Readonly<{
-  name: string;
-  date: string;
-  start_time: string;
-  timezone: string;
+export type BookingInput = Readonly<{
+  booking_url: string;
+  allowed_packages: readonly [string, ...string[]];
+  permitted_actions: PermittedActions;
+  dry_run: boolean;
 }>;
+
+export type PackagePolicy = Readonly<{
+  allowed_packages: BookingInput["allowed_packages"];
+}>;
+
+export type ExecutionStage =
+  | "STARTING"
+  | "VALIDATED"
+  | "READY_TO_SUBMIT"
+  | "SUBMITTING"
+  | "CONFIRMED"
+  | "EMITTING_RESULT"
+  | "COMPLETED";
 
 export type ObservedClass = Readonly<{
   name: string;
@@ -20,24 +31,6 @@ export type ObservedClass = Readonly<{
   start_time: string;
   end_time: string;
   timezone: string;
-}>;
-
-export type BookingRequest = Readonly<{
-  schema_version: 1;
-  request_id: string;
-  booking_url: string;
-  expected_class: ExpectedClass;
-  reserve_for: "myself";
-  permitted_actions: PermittedActions;
-  policy_version: string;
-  allow_monetary_charge: false;
-  dry_run: boolean;
-}>;
-
-export type BookingPolicy = Readonly<{
-  schema_version: 1;
-  policy_version: string;
-  allowed_packages: readonly [string, ...string[]];
 }>;
 
 export type Outcome =
@@ -56,13 +49,6 @@ export type DryRunAvailability =
   | "ALREADY_BOOKED"
   | "ALREADY_WAITLISTED";
 
-export type JournalState =
-  | "INITIALIZED"
-  | "VALIDATED"
-  | "READY_TO_SUBMIT"
-  | "SUBMITTING"
-  | "CONFIRMED";
-
 export type PackageBalance = Readonly<{
   name: string;
   remaining: number;
@@ -75,15 +61,13 @@ export type NonEmptyPackageBalances = readonly [
 ];
 
 export type SafetyChecks = Readonly<{
-  exact_class_match: boolean;
   approved_package_verified: boolean;
   no_charge: boolean;
   cancellation_policy_accepted: boolean;
 }>;
 
 type BookingResultFields = Readonly<{
-  schema_version: 1;
-  request_id: string;
+  schema_version: 2;
   safety_checks: SafetyChecks;
   details: string;
 }>;
@@ -114,7 +98,6 @@ type ConfirmedBookedResult = Readonly<
     observed_class: ObservedClass;
     google_calendar_url?: string;
     safety_checks: Readonly<{
-      exact_class_match: true;
       approved_package_verified: true;
       no_charge: true;
       cancellation_policy_accepted: true;
@@ -132,7 +115,6 @@ type ConfirmedWaitlistedResult = Readonly<
       observed_class: ObservedClass;
       google_calendar_url?: never;
       safety_checks: Readonly<{
-        exact_class_match: true;
         approved_package_verified: true;
         no_charge: true;
         cancellation_policy_accepted: true;
@@ -150,7 +132,6 @@ type ExistingBookedResult = Readonly<
     google_calendar_url?: string;
     safety_checks: SafetyChecks &
       Readonly<{
-        exact_class_match: true;
         cancellation_policy_accepted: false;
       }>;
   }
@@ -167,7 +148,6 @@ type ExistingWaitlistedResult = Readonly<
       google_calendar_url?: never;
       safety_checks: SafetyChecks &
         Readonly<{
-          exact_class_match: true;
           cancellation_policy_accepted: false;
         }>;
     }
@@ -184,7 +164,6 @@ type ActionableDryRunBookingResult = Readonly<
       observed_class: ObservedClass;
       google_calendar_url?: never;
       safety_checks: Readonly<{
-        exact_class_match: true;
         approved_package_verified: true;
         no_charge: false;
         cancellation_policy_accepted: false;
@@ -202,7 +181,7 @@ type ExistingBookedDryRunBookingResult = Readonly<
       availability: "ALREADY_BOOKED";
       observed_class: ObservedClass;
       google_calendar_url?: string;
-      safety_checks: SafetyChecks & Readonly<{ exact_class_match: true }>;
+      safety_checks: SafetyChecks;
     }
 >;
 
@@ -216,7 +195,7 @@ type ExistingWaitlistedDryRunBookingResult = Readonly<
       availability: "ALREADY_WAITLISTED";
       observed_class: ObservedClass;
       google_calendar_url?: never;
-      safety_checks: SafetyChecks & Readonly<{ exact_class_match: true }>;
+      safety_checks: SafetyChecks;
     }
 >;
 
@@ -256,7 +235,6 @@ type ConfirmationUncertainBookingResult = Readonly<
       availability?: never;
       google_calendar_url?: never;
       safety_checks: Readonly<{
-        exact_class_match: true;
         approved_package_verified: true;
         no_charge: true;
         cancellation_policy_accepted: true;
@@ -275,12 +253,6 @@ export type BookingResult =
   | SafeStopBookingResult
   | TechnicalFailureBookingResult
   | ConfirmationUncertainBookingResult;
-
-export type JournalRecord = Readonly<{
-  schema_version: 1;
-  request_id: string;
-  state: JournalState;
-}>;
 
 export type CheckoutAction =
   | "book"

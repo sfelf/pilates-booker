@@ -13,9 +13,9 @@ import { describe, expect, test } from "vitest";
 import {
   LockUnavailableError,
   acquireProfileLock,
+  ensureDirectory,
   type LockOperations
 } from "../src/lock.js";
-import { ensureDirectory } from "../src/atomic-json.js";
 
 const operations = (
   overrides: Partial<LockOperations> = {}

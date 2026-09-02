@@ -1,8 +1,6 @@
 import type { Stats } from "node:fs";
-import { open, stat, unlink, type FileHandle } from "node:fs/promises";
+import { mkdir, open, stat, unlink, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
-
-import { ensureDirectory } from "./atomic-json.js";
 
 export class LockUnavailableError extends Error {
   constructor() {
@@ -36,6 +34,10 @@ const defaultLockOperations: LockOperations = {
   close: (handle) => handle.close(),
   stat,
   unlink
+};
+
+export const ensureDirectory: DirectoryInitializer = async (path) => {
+  await mkdir(path, { recursive: true, mode: 0o700 });
 };
 
 async function removeOwnedLockPath(

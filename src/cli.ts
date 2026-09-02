@@ -1,40 +1,17 @@
-import { readFile } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
-import { isDeepStrictEqual } from "node:util";
-
-import type {
-  BookingPolicy,
-  BookingRequest,
-  BookingResult,
-  JournalState
-} from "./contracts.js";
-import { writeJsonAtomic } from "./atomic-json.js";
 import type { BookingBrowser } from "./booking-page.js";
 import { executeBookingWorkflow } from "./booking-workflow.js";
-import { advanceJournal, readJournal } from "./journal.js";
-import {
-  acquireProfileLock,
-  type LockReleaseResult,
-  type ProfileLock
-} from "./lock.js";
-import {
-  validateResultForRecovery,
-  validateResultForRequest
-} from "./result-validator.js";
+import type { CommandArguments } from "./command-arguments.js";
+import type { BookingResult, ExecutionStage } from "./contracts.js";
+import { acquireProfileLock, type ProfileLock } from "./lock.js";
+import { validateResultForInput } from "./result-validator.js";
 import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
 import { resolveRuntimePaths } from "./runtime-paths.js";
-import {
-  resultMatchesDurableState,
-  RuntimeCoordinator
-} from "./runtime-coordinator.js";
-import type { ResultReadStatus } from "./runtime-coordinator.js";
-import { loadPolicy as loadPolicyFile } from "./policy.js";
 
 export type ExecutionContext = Readonly<{
-  request: BookingRequest;
-  policy: BookingPolicy;
+  input: CommandArguments["input"];
   profileDir: string;
-  advance(state: Exclude<JournalState, "INITIALIZED">): Promise<void>;
+  advance(stage: ExecutionStage): Promise<void>;
+  log(event: string, data?: Readonly<Record<string, unknown>>): Promise<void>;
 }>;
 
 export type CliExecutor = (context: ExecutionContext) => Promise<BookingResult>;
@@ -43,17 +20,31 @@ export const CLI_FAILURE_DIAGNOSTIC = "Booking command failed." as const;
 export type CliDiagnostic = typeof CLI_FAILURE_DIAGNOSTIC;
 
 export type CliDependencies = Readonly<{
-  baseDir?: string;
-  cwd?: string;
-  loadPolicy?(path: string): Promise<BookingPolicy>;
-  loadRequest(path: string): Promise<unknown>;
-  validateRequest(value: unknown, policy: BookingPolicy): BookingRequest;
   execute?: CliExecutor;
   bookingBrowser?: BookingBrowser;
   acquireLock?(path: string): Promise<ProfileLock>;
   emitResult?: ResultEmitter;
   reportDiagnostic?(diagnostic: CliDiagnostic): void;
 }>;
+
+const incompleteSafetyChecks = {
+  approved_package_verified: false,
+  no_charge: false,
+  cancellation_policy_accepted: false
+} as const;
+
+const completedSafetyChecks = {
+  approved_package_verified: true,
+  no_charge: true,
+  cancellation_policy_accepted: true
+} as const;
+
+const transitions: Readonly<Partial<Record<ExecutionStage, ExecutionStage>>> = {
+  STARTING: "VALIDATED",
+  VALIDATED: "READY_TO_SUBMIT",
+  READY_TO_SUBMIT: "SUBMITTING",
+  SUBMITTING: "CONFIRMED"
+};
 
 function reportCliFailure(dependencies: CliDependencies): 30 {
   try {
@@ -64,182 +55,95 @@ function reportCliFailure(dependencies: CliDependencies): 30 {
   return 30;
 }
 
-async function readResult(
-  path: string,
-  requestId: string
-): Promise<ResultReadStatus> {
-  let raw;
-  try {
-    raw = await readFile(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { status: "missing" };
-    }
-    return { status: "failure" };
-  }
-
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return { status: "invalid" };
-  }
-
-  if (validateResultForRecovery(value, requestId)) {
-    return { status: "valid", result: value, bytes: raw };
-  }
-  const inspectedRequestId = inspectionRequestId(value);
-  return inspectedRequestId === undefined
-    ? { status: "invalid" }
-    : { status: "invalid", inspectionRequestId: inspectedRequestId };
-}
-
-function inspectionRequestId(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return undefined;
-  }
-  const requestId = (value as Record<string, unknown>).request_id;
-  return typeof requestId === "string" ? requestId : undefined;
-}
-
-export async function publishResult(
-  path: string,
-  result: BookingResult,
-  request: BookingRequest,
-  policy: BookingPolicy,
-  readFinalized: (path: string) => Promise<string> = (selectedPath) =>
-    readFile(selectedPath, "utf8")
-): Promise<string> {
-  return publishValidatedResult(
-    path,
-    result,
-    (value): value is BookingResult =>
-      validateResultForRequest(value, request, policy),
-    readFinalized
-  );
-}
-
-async function publishRecoveredResult(
-  path: string,
-  result: BookingResult,
-  requestId: string,
-  state: JournalState
-): Promise<string> {
-  return publishValidatedResult(
-    path,
-    result,
-    (value): value is BookingResult =>
-      validateResultForRecovery(value, requestId) &&
-      resultMatchesDurableState(value, state, requestId)
-  );
-}
-
-async function publishValidatedResult(
-  path: string,
-  result: BookingResult,
-  validate: (value: unknown) => value is BookingResult,
-  readFinalized: (path: string) => Promise<string> = (selectedPath) =>
-    readFile(selectedPath, "utf8")
-): Promise<string> {
-  await writeJsonAtomic(path, result, validate);
-  const bytes = await readFinalized(path);
-  let value: unknown;
-  try {
-    value = JSON.parse(bytes);
-  } catch {
-    throw new Error("finalized result is invalid");
-  }
-  if (
-    bytes !== `${JSON.stringify(value)}\n` ||
-    !validate(value) ||
-    !isDeepStrictEqual(value, result)
-  ) {
-    throw new Error("finalized result is invalid");
-  }
-  return bytes;
+function failureResult(stage: ExecutionStage): BookingResult {
+  return stage === "SUBMITTING" || stage === "CONFIRMED"
+    ? {
+        schema_version: 2,
+        outcome: "CONFIRMATION_UNCERTAIN",
+        exit_code: 40,
+        action_submitted: true,
+        confirmation_verified: false,
+        safety_checks: completedSafetyChecks,
+        details: "Booking confirmation is uncertain."
+      }
+    : {
+        schema_version: 2,
+        outcome: "TECHNICAL_FAILURE",
+        exit_code: 30,
+        action_submitted: false,
+        confirmation_verified: false,
+        safety_checks: incompleteSafetyChecks,
+        details: "Runtime operation failed."
+      };
 }
 
 export async function runCli(
-  argv: readonly string[],
-  dependencies: CliDependencies
+  args: CommandArguments,
+  dependencies: CliDependencies = {}
 ): Promise<number> {
-  if (
-    argv.length !== 3 ||
-    argv[0] !== "--policy" ||
-    argv[1] === "" ||
-    argv[2] === ""
-  ) {
-    return reportCliFailure(dependencies);
-  }
-  let policyPath: string;
-  try {
-    policyPath = isAbsolute(argv[1]!)
-      ? argv[1]!
-      : resolve(dependencies.cwd ?? process.cwd(), argv[1]!);
-  } catch {
-    return reportCliFailure(dependencies);
-  }
-  const loadPolicy = dependencies.loadPolicy ?? loadPolicyFile;
-  let policy: BookingPolicy;
-  let request: BookingRequest;
-  try {
-    policy = await loadPolicy(policyPath);
-    const raw = await dependencies.loadRequest(argv[2]!);
-    request = dependencies.validateRequest(raw, policy);
-  } catch {
-    return reportCliFailure(dependencies);
-  }
   let paths;
   try {
-    paths = resolveRuntimePaths(dependencies.baseDir, request.request_id);
+    paths = resolveRuntimePaths(args.runtimeDir);
   } catch {
     return reportCliFailure(dependencies);
   }
-  const acquireLock = dependencies.acquireLock ?? acquireProfileLock;
-  const lock = await acquireLock(paths.lockFile).catch(() => undefined);
-  if (lock === undefined) return reportCliFailure(dependencies);
 
-  const coordinator = new RuntimeCoordinator(request, {
-    readJournal: () => readJournal(paths.journalFile),
-    writeJournal: (record) => advanceJournal(paths.journalFile, record),
-    readResult: () => readResult(paths.resultFile, request.request_id),
-    writeResult: (result, recoveryState) =>
-      recoveryState === undefined
-        ? publishResult(paths.resultFile, result, request, policy)
-        : publishRecoveredResult(
-            paths.resultFile,
-            result,
-            request.request_id,
-            recoveryState
-          )
-  });
+  const acquireLock = dependencies.acquireLock ?? acquireProfileLock;
+  let lock: ProfileLock;
+  try {
+    lock = await acquireLock(paths.lockFile);
+  } catch {
+    return emitFreshResult(failureResult("STARTING"), args, dependencies);
+  }
+
+  let stage: ExecutionStage = "STARTING";
+  const context: ExecutionContext = {
+    input: args.input,
+    profileDir: paths.profileDir,
+    advance: async (next) => {
+      if (transitions[stage] !== next)
+        throw new Error("invalid execution stage");
+      stage = next;
+    },
+    log: async () => undefined
+  };
   const execute: CliExecutor =
     dependencies.execute ??
-    ((context) => executeBookingWorkflow(context, dependencies.bookingBrowser));
+    ((selectedContext) =>
+      executeBookingWorkflow(selectedContext, dependencies.bookingBrowser));
 
-  const decision = await coordinator.run(({ request, advance }) =>
-    execute({
-      request,
-      policy,
-      profileDir: paths.profileDir,
-      advance
-    })
-  );
-  const finalized = await coordinator.finalize(decision);
-  let lockRelease: LockReleaseResult | undefined;
+  let result: BookingResult;
   try {
-    lockRelease = await lock.release();
+    result = await execute(context);
+    if (!validateResultForInput(result, args.input))
+      throw new Error("invalid result");
   } catch {
-    lockRelease = undefined;
+    result = failureResult(stage);
   }
-  void lockRelease;
-  if (finalized.bytes === undefined) {
+
+  try {
+    const released = await lock.release();
+    if (!released.released) result = failureResult(stage);
+  } catch {
+    result = failureResult(stage);
+  }
+  return emitFreshResult(result, args, dependencies);
+}
+
+async function emitFreshResult(
+  result: BookingResult,
+  args: CommandArguments,
+  dependencies: CliDependencies
+): Promise<number> {
+  if (!validateResultForInput(result, args.input)) {
     return reportCliFailure(dependencies);
   }
   try {
-    await (dependencies.emitResult ?? writeResultToStdout)(finalized.bytes);
+    await (dependencies.emitResult ?? writeResultToStdout)(
+      `${JSON.stringify(result)}\n`
+    );
   } catch {
     return reportCliFailure(dependencies);
   }
-  return finalized.result.exit_code;
+  return result.exit_code;
 }

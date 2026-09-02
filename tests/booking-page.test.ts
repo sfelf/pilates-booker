@@ -12,7 +12,12 @@ import type {
   BrowserContextLike,
   PersistentBrowserLauncher
 } from "../src/browser-session.js";
-import type { ExpectedClass } from "../src/contracts.js";
+type ExpectedClass = Readonly<{
+  name: string;
+  date: string;
+  start_time: string;
+  timezone: string;
+}>;
 import { bookingPageHtml, liveBookingPageHtml } from "./fixtures/checkout.js";
 
 const expectedClass: ExpectedClass = {
@@ -104,6 +109,47 @@ describe("BookingPage read boundary", () => {
       submission: { book: { visibleCount: 1, enabled: true } }
     });
     await page.close();
+  });
+
+  it("uses the checkout-displayed timezone when the browser runs in UTC", async () => {
+    const context = await browser.newContext({ timezoneId: "UTC" });
+    const page = await context.newPage();
+    await page.setContent(liveBookingPageHtml());
+
+    await expect(
+      createBookingPage(page, { now: new Date("2026-08-01T12:00:00Z") }).read()
+    ).resolves.toMatchObject({
+      observation: {
+        observed_class: {
+          date: "2026-09-01",
+          timezone: "PDT"
+        }
+      }
+    });
+    await context.close();
+  });
+
+  it("derives the displayed class year across a UTC/studio year boundary", async () => {
+    const context = await browser.newContext({ timezoneId: "UTC" });
+    const page = await context.newPage();
+    await page.setContent(
+      liveBookingPageHtml().replace(
+        "Tuesday, Sep 1 • 9:30 AM - 10:20 AM PDT",
+        "Wednesday, Dec 31 • 9:30 AM - 10:20 AM PST"
+      )
+    );
+
+    await expect(
+      createBookingPage(page, { now: new Date("2026-01-01T04:00:00Z") }).read()
+    ).resolves.toMatchObject({
+      observation: {
+        observed_class: {
+          date: "2025-12-31",
+          timezone: "PST"
+        }
+      }
+    });
+    await context.close();
   });
 
   it("reads current live metadata after one class-title wrapper", async () => {
