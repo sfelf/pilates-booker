@@ -161,6 +161,34 @@ describe("acquireProfileLock", () => {
     expect(await readFile(path, "utf8")).toBe(lockContents());
   });
 
+  test("preserves a non-regular lock without reading its metadata", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const contents = lockContents();
+    await writeFile(path, contents, "utf8");
+    let metadataRead = false;
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectory,
+        operations({
+          readFile: async (readPath) => {
+            metadataRead = true;
+            return readFile(readPath, "utf8");
+          },
+          stat: async (statPath) => {
+            const details = await stat(statPath);
+            return Object.assign(details, { isFile: () => false });
+          }
+        }),
+        environment()
+      )
+    ).rejects.toBeInstanceOf(LockUnavailableError);
+    expect(metadataRead).toBe(false);
+    expect(await readFile(path, "utf8")).toBe(contents);
+  });
+
   test("preserves a lock that grows past the size limit during revalidation", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
     const path = join(directory, "run.lock");

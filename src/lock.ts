@@ -180,7 +180,7 @@ async function removeConclusiveStaleLock(
   let firstContents: string;
   try {
     inspected = await operations.stat(path);
-    if (inspected.size > 1024) return false;
+    if (!inspected.isFile() || inspected.size > 1024) return false;
     firstContents = await operations.readFile(path);
     if (Buffer.byteLength(firstContents, "utf8") > 1024) return false;
   } catch {
