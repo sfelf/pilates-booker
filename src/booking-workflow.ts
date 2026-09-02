@@ -4,6 +4,7 @@ import {
   type BookingPage,
   type BookingPageState
 } from "./booking-page.js";
+import { RESULT_DETAILS } from "./contracts.js";
 import type {
   BookingInput,
   BookingResult,
@@ -55,15 +56,6 @@ export class BookingWorkflowError extends Error {
     this.name = "BookingWorkflowError";
   }
 }
-
-const DETAILS = {
-  BOOKED: "Booking confirmed.",
-  WAITLISTED: "Waitlist confirmed.",
-  ALREADY_BOOKED: "Existing booking confirmed.",
-  ALREADY_WAITLISTED: "Existing waitlist confirmed.",
-  DRY_RUN: "Dry run completed.",
-  SAFE_STOP: "Booking stopped safely."
-} as const;
 
 const incompleteSafetyChecks = {
   approved_package_verified: false,
@@ -273,19 +265,25 @@ function existingEnrollment(
   state: BookingPageState,
   outcome: "ALREADY_BOOKED" | "ALREADY_WAITLISTED"
 ): TerminalBookingPreparation {
-  return {
+  const common = {
     schema_version: 2,
-    outcome,
     exit_code: 0,
     action_submitted: false,
     confirmation_verified: true,
     observed_class: state.observation.observed_class,
-    safety_checks: incompleteSafetyChecks,
-    details:
-      outcome === "ALREADY_BOOKED"
-        ? DETAILS.ALREADY_BOOKED
-        : DETAILS.ALREADY_WAITLISTED
-  };
+    safety_checks: incompleteSafetyChecks
+  } as const;
+  return outcome === "ALREADY_BOOKED"
+    ? {
+        ...common,
+        outcome,
+        details: RESULT_DETAILS.ALREADY_BOOKED
+      }
+    : {
+        ...common,
+        outcome,
+        details: RESULT_DETAILS.ALREADY_WAITLISTED
+      };
 }
 
 function actionableDryRun(
@@ -309,7 +307,7 @@ function actionableDryRun(
       no_charge: false,
       cancellation_policy_accepted: false
     },
-    details: DETAILS.DRY_RUN
+    details: RESULT_DETAILS.DRY_RUN
   };
 }
 
@@ -327,7 +325,7 @@ function existingDryRun(
     availability,
     observed_class: state.observation.observed_class,
     safety_checks: incompleteSafetyChecks,
-    details: DETAILS.DRY_RUN
+    details: RESULT_DETAILS.DRY_RUN
   };
 }
 
@@ -347,7 +345,7 @@ function safeStop(
           packages_before: packageDecision.balances
         }
       : {}),
-    details: DETAILS.SAFE_STOP
+    details: RESULT_DETAILS.SAFE_STOP
   };
 }
 
@@ -382,7 +380,7 @@ function confirmedResult(
           ...(confirmation.googleCalendarUrl === undefined
             ? {}
             : { google_calendar_url: confirmation.googleCalendarUrl }),
-          details: DETAILS.BOOKED
+          details: RESULT_DETAILS.BOOKED
         }
       : {
           schema_version: 2,
@@ -393,7 +391,7 @@ function confirmedResult(
           observed_class: preparation.observed_class,
           ...selectedPackageEvidence(preparation.selection),
           safety_checks: preparation.safety_checks,
-          details: DETAILS.WAITLISTED
+          details: RESULT_DETAILS.WAITLISTED
         };
   return result;
 }

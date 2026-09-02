@@ -1,6 +1,8 @@
 import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium, type Browser } from "playwright";
 import {
   afterAll,
@@ -13,7 +15,7 @@ import {
 } from "vitest";
 import { createBookingPage, type BookingBrowser } from "../src/booking-page.js";
 import { runCommand } from "../src/command.js";
-import type { BookingResult } from "../src/contracts.js";
+import { RESULT_DETAILS, type BookingResult } from "../src/contracts.js";
 import { validateResult } from "../src/result-validator.js";
 import { bookingPageHtml } from "./fixtures/checkout.js";
 
@@ -40,102 +42,171 @@ type Scenario = Readonly<{
   name: string;
   action: "book" | "waitlist" | "already_booked" | "already_waitlisted";
   dryRun: boolean;
-  outcome: BookingResult["outcome"];
-  availability?: "BOOKING_AVAILABLE" | "WAITLIST_AVAILABLE";
-  submitted: boolean;
-  confirmed: boolean;
+  expected: BookingResult;
+  observation: BuiltCommandObservation;
 }>;
+type BuiltCommandObservation = Readonly<{
+  myself_selected: boolean;
+  injuries_value: string;
+  selected_package_rows: readonly number[];
+  cancellation_accepted: boolean;
+  submissions: number;
+}>;
+const packagesBefore = [
+  {
+    name: "Studio / 10-Class Pack",
+    remaining: 3,
+    approved: true
+  },
+  {
+    name: "Intro / 5-Class Pack",
+    remaining: 1,
+    approved: false
+  }
+] as const;
+const completeSafetyChecks = {
+  approved_package_verified: true,
+  no_charge: true,
+  cancellation_policy_accepted: true
+} as const;
+const incompleteSafetyChecks = {
+  approved_package_verified: false,
+  no_charge: false,
+  cancellation_policy_accepted: false
+} as const;
+const liveObservation = {
+  myself_selected: true,
+  injuries_value: "None",
+  selected_package_rows: [0],
+  cancellation_accepted: true,
+  submissions: 1
+} as const;
+const untouchedObservation = {
+  myself_selected: false,
+  injuries_value: "",
+  selected_package_rows: [],
+  cancellation_accepted: false,
+  submissions: 0
+} as const;
 const scenarios: readonly Scenario[] = [
   {
     name: "confirmed booking",
     action: "book",
     dryRun: false,
-    outcome: "BOOKED",
-    submitted: true,
-    confirmed: true
+    expected: {
+      schema_version: 2,
+      outcome: "BOOKED",
+      exit_code: 0,
+      action_submitted: true,
+      confirmation_verified: true,
+      observed_class: observedClass,
+      package_selected: "Studio / 10-Class Pack",
+      packages_before: packagesBefore,
+      safety_checks: completeSafetyChecks,
+      details: RESULT_DETAILS.BOOKED
+    },
+    observation: liveObservation
   },
   {
     name: "confirmed waitlist",
     action: "waitlist",
     dryRun: false,
-    outcome: "WAITLISTED",
-    submitted: true,
-    confirmed: true
+    expected: {
+      schema_version: 2,
+      outcome: "WAITLISTED",
+      exit_code: 0,
+      action_submitted: true,
+      confirmation_verified: true,
+      observed_class: observedClass,
+      package_selected: "Studio / 10-Class Pack",
+      packages_before: packagesBefore,
+      safety_checks: completeSafetyChecks,
+      details: RESULT_DETAILS.WAITLISTED
+    },
+    observation: liveObservation
   },
   {
     name: "actionable booking dry run",
     action: "book",
     dryRun: true,
-    outcome: "DRY_RUN",
-    availability: "BOOKING_AVAILABLE",
-    submitted: false,
-    confirmed: false
+    expected: {
+      schema_version: 2,
+      outcome: "DRY_RUN",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: false,
+      availability: "BOOKING_AVAILABLE",
+      observed_class: observedClass,
+      package_selected: "Studio / 10-Class Pack",
+      packages_before: packagesBefore,
+      safety_checks: {
+        approved_package_verified: true,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: RESULT_DETAILS.DRY_RUN
+    },
+    observation: untouchedObservation
   },
   {
     name: "actionable waitlist dry run",
     action: "waitlist",
     dryRun: true,
-    outcome: "DRY_RUN",
-    availability: "WAITLIST_AVAILABLE",
-    submitted: false,
-    confirmed: false
+    expected: {
+      schema_version: 2,
+      outcome: "DRY_RUN",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: false,
+      availability: "WAITLIST_AVAILABLE",
+      observed_class: observedClass,
+      package_selected: "Studio / 10-Class Pack",
+      packages_before: packagesBefore,
+      safety_checks: {
+        approved_package_verified: true,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: RESULT_DETAILS.DRY_RUN
+    },
+    observation: untouchedObservation
   },
   {
     name: "authoritative existing booking",
     action: "already_booked",
     dryRun: false,
-    outcome: "ALREADY_BOOKED",
-    submitted: false,
-    confirmed: true
+    expected: {
+      schema_version: 2,
+      outcome: "ALREADY_BOOKED",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      observed_class: observedClass,
+      safety_checks: incompleteSafetyChecks,
+      details: RESULT_DETAILS.ALREADY_BOOKED
+    },
+    observation: untouchedObservation
   },
   {
     name: "authoritative existing waitlist",
     action: "already_waitlisted",
     dryRun: false,
-    outcome: "ALREADY_WAITLISTED",
-    submitted: false,
-    confirmed: true
+    expected: {
+      schema_version: 2,
+      outcome: "ALREADY_WAITLISTED",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      observed_class: observedClass,
+      safety_checks: incompleteSafetyChecks,
+      details: RESULT_DETAILS.ALREADY_WAITLISTED
+    },
+    observation: untouchedObservation
   }
 ];
 
 describe.each(scenarios)("public command: $name", (scenario) => {
-  test("emits one complete schema-v2 result with bounded mutation", async () => {
-    let submissions = 0;
-    let myselfSelected = false;
-    let injuriesValue = "";
-    const bookingBrowser: BookingBrowser = async (_profile, _url, use) => {
-      const page = await browser.newPage();
-      try {
-        await page.setContent(
-          bookingPageHtml({ action: scenario.action, myselfSelected: false })
-        );
-        const bookingPage = createBookingPage(page);
-        const value = await use({
-          ...bookingPage,
-          submit: async (action) => {
-            submissions += 1;
-            await bookingPage.submit(action);
-            const selector =
-              action === "book"
-                ? '[data-testid="confirmation-booked"]'
-                : '[data-testid="confirmation-waitlisted"]';
-            await page
-              .locator(selector)
-              .evaluate((element) => element.removeAttribute("hidden"));
-          }
-        });
-        myselfSelected = await page
-          .getByLabel("Myself", { exact: true })
-          .isChecked();
-        injuriesValue = await page
-          .getByLabel(/^Do you have any injuries\?/u)
-          .inputValue();
-        return value;
-      } finally {
-        await page.close();
-      }
-    };
-    const emitResult = vi.fn(async () => undefined);
+  test("executes dist/main.js and emits one exact result with bounded mutation", async () => {
     const runtime = await mkdtemp(join(tmpdir(), "pilates-e2e-"));
     const argv = [
       "--booking-url",
@@ -146,27 +217,14 @@ describe.each(scenarios)("public command: $name", (scenario) => {
       runtime,
       ...(scenario.dryRun ? ["--dry-run"] : [])
     ];
-    expect(await runCommand(argv, { bookingBrowser, emitResult })).toBe(0);
-    expect(emitResult).toHaveBeenCalledOnce();
-    const bytes = (emitResult.mock.calls as unknown as [[string]])[0][0];
-    expect(bytes).toBe(`${JSON.stringify(JSON.parse(bytes))}\n`);
-    const result = JSON.parse(bytes) as BookingResult & Record<string, unknown>;
+    const invocation = await runBuiltCommand(argv, scenario.action);
+    expect(invocation.exitCode).toBe(0);
+    expect(invocation.stderr).toBe("");
+    const result = JSON.parse(invocation.stdout) as BookingResult;
+    expect(invocation.stdout).toBe(`${JSON.stringify(result)}\n`);
     expect(validateResult(result)).toBe(true);
-    expect(result).toMatchObject({
-      schema_version: 2,
-      outcome: scenario.outcome,
-      action_submitted: scenario.submitted,
-      confirmation_verified: scenario.confirmed,
-      observed_class: observedClass
-    });
-    expect(result.availability).toBe(scenario.availability);
-    expect(result).not.toHaveProperty("request_id");
-    expect(result).not.toHaveProperty("exact_class_match");
-    expect(submissions).toBe(scenario.submitted ? 1 : 0);
-    if (scenario.dryRun) {
-      expect(myselfSelected).toBe(false);
-      expect(injuriesValue).toBe("Synthetic existing answer");
-    }
+    expect(result).toEqual(scenario.expected);
+    expect(invocation.observation).toEqual(scenario.observation);
     expect(
       (await readdir(runtime)).every(
         (name) => !["journals", "results"].includes(name)
@@ -174,6 +232,89 @@ describe.each(scenarios)("public command: $name", (scenario) => {
     ).toBe(true);
   });
 });
+
+test("a repeated built command reconciles through authoritative Arketa evidence", async () => {
+  const runtime = await mkdtemp(join(tmpdir(), "pilates-repeat-e2e-"));
+  const argv = [
+    "--booking-url",
+    checkoutUrl,
+    "--allow-package",
+    "Studio / 10-Class Pack",
+    "--runtime",
+    runtime
+  ];
+
+  const first = await runBuiltCommand(argv, "book");
+  const second = await runBuiltCommand(argv, "already_booked");
+
+  expect(JSON.parse(first.stdout)).toEqual(scenarios[0]?.expected);
+  expect(first.observation.submissions).toBe(1);
+  expect(JSON.parse(second.stdout)).toEqual(scenarios[4]?.expected);
+  expect(second.observation).toEqual(untouchedObservation);
+  expect(first.stderr).toBe("");
+  expect(second.stderr).toBe("");
+  expect(first.exitCode).toBe(0);
+  expect(second.exitCode).toBe(0);
+  expect(await readdir(runtime)).toEqual([]);
+});
+
+async function runBuiltCommand(
+  argv: readonly string[],
+  action: Scenario["action"]
+): Promise<{
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  observation: BuiltCommandObservation;
+}> {
+  const fixtureDirectory = await mkdtemp(join(tmpdir(), "pilates-built-e2e-"));
+  const fixturePath = join(fixtureDirectory, "fixture.json");
+  const observationPath = join(fixtureDirectory, "observation.json");
+  await writeFile(
+    fixturePath,
+    JSON.stringify({
+      html: bookingPageHtml({
+        action,
+        myselfSelected: false,
+        injuries: [""],
+        selectedPackageRows: []
+      }),
+      observation_path: observationPath
+    }),
+    "utf8"
+  );
+  const registerPath = fileURLToPath(
+    new URL("./fixtures/built-command-register.mjs", import.meta.url)
+  );
+  const mainPath = fileURLToPath(new URL("../dist/main.js", import.meta.url));
+  const child = spawn(
+    process.execPath,
+    ["--import", registerPath, mainPath, ...argv],
+    {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      env: { ...process.env, PILATES_BOOKER_E2E_FIXTURE: fixturePath },
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const exitCode = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+  const observation = JSON.parse(
+    await readFile(observationPath, "utf8")
+  ) as BuiltCommandObservation;
+  return { exitCode, stdout, stderr, observation };
+}
 
 test("debug is opt-in and writes only the bounded runtime log", async () => {
   const runtime = await mkdtemp(join(tmpdir(), "pilates-debug-e2e-"));
@@ -278,8 +419,10 @@ test("public command recovers a lock whose PID is conclusively absent", async ()
     details: "Existing booking confirmed."
   };
   expect(exit).toBe(0);
-  expect(stdout).toBe(`${JSON.stringify(expected)}\n`);
-  expect(validateResult(JSON.parse(stdout))).toBe(true);
+  const parsed = JSON.parse(stdout) as BookingResult;
+  expect(stdout).toBe(`${JSON.stringify(parsed)}\n`);
+  expect(parsed).toEqual(expected);
+  expect(validateResult(parsed)).toBe(true);
   expect(browserInvocations).toBe(1);
   expect(await readdir(runtime)).toEqual([]);
   expect(stdout).not.toContain(staleLock.trim());

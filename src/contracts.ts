@@ -43,6 +43,17 @@ export type Outcome =
   | "TECHNICAL_FAILURE"
   | "CONFIRMATION_UNCERTAIN";
 
+export const RESULT_DETAILS = {
+  BOOKED: "Booking confirmed.",
+  WAITLISTED: "Waitlist confirmed.",
+  ALREADY_BOOKED: "Existing booking confirmed.",
+  ALREADY_WAITLISTED: "Existing waitlist confirmed.",
+  DRY_RUN: "Dry run completed.",
+  SAFE_STOP: "Booking stopped safely.",
+  TECHNICAL_FAILURE: "Runtime operation failed.",
+  CONFIRMATION_UNCERTAIN: "Booking confirmation is uncertain."
+} as const satisfies Readonly<Record<Outcome, string>>;
+
 export type DryRunAvailability =
   | "BOOKING_AVAILABLE"
   | "WAITLIST_AVAILABLE"
@@ -66,10 +77,10 @@ export type SafetyChecks = Readonly<{
   cancellation_policy_accepted: boolean;
 }>;
 
-type BookingResultFields = Readonly<{
+type BookingResultFields<O extends Outcome> = Readonly<{
   schema_version: 2;
   safety_checks: SafetyChecks;
-  details: string;
+  details: (typeof RESULT_DETAILS)[O];
 }>;
 
 type SelectedPackageEvidence = Readonly<{
@@ -90,7 +101,7 @@ type WithoutPackageEvidence = Readonly<{
 }>;
 
 type ConfirmedBookedResult = Readonly<
-  BookingResultFields & {
+  BookingResultFields<"BOOKED"> & {
     outcome: "BOOKED";
     exit_code: 0;
     action_submitted: true;
@@ -106,7 +117,7 @@ type ConfirmedBookedResult = Readonly<
 >;
 
 type ConfirmedWaitlistedResult = Readonly<
-  BookingResultFields &
+  BookingResultFields<"WAITLISTED"> &
     SelectedPackageEvidence & {
       outcome: "WAITLISTED";
       exit_code: 0;
@@ -123,7 +134,7 @@ type ConfirmedWaitlistedResult = Readonly<
 >;
 
 type ExistingBookedResult = Readonly<
-  BookingResultFields & {
+  BookingResultFields<"ALREADY_BOOKED"> & {
     outcome: "ALREADY_BOOKED";
     exit_code: 0;
     action_submitted: false;
@@ -138,7 +149,7 @@ type ExistingBookedResult = Readonly<
 >;
 
 type ExistingWaitlistedResult = Readonly<
-  BookingResultFields &
+  BookingResultFields<"ALREADY_WAITLISTED"> &
     WithoutPackageEvidence & {
       outcome: "ALREADY_WAITLISTED";
       exit_code: 0;
@@ -154,7 +165,7 @@ type ExistingWaitlistedResult = Readonly<
 >;
 
 type ActionableDryRunBookingResult = Readonly<
-  BookingResultFields &
+  BookingResultFields<"DRY_RUN"> &
     SelectedPackageEvidence & {
       outcome: "DRY_RUN";
       exit_code: 0;
@@ -172,7 +183,7 @@ type ActionableDryRunBookingResult = Readonly<
 >;
 
 type ExistingBookedDryRunBookingResult = Readonly<
-  BookingResultFields &
+  BookingResultFields<"DRY_RUN"> &
     WithoutPackageEvidence & {
       outcome: "DRY_RUN";
       exit_code: 0;
@@ -186,7 +197,7 @@ type ExistingBookedDryRunBookingResult = Readonly<
 >;
 
 type ExistingWaitlistedDryRunBookingResult = Readonly<
-  BookingResultFields &
+  BookingResultFields<"DRY_RUN"> &
     WithoutPackageEvidence & {
       outcome: "DRY_RUN";
       exit_code: 0;
@@ -200,7 +211,7 @@ type ExistingWaitlistedDryRunBookingResult = Readonly<
 >;
 
 type SafeStopBookingResult = Readonly<
-  BookingResultFields &
+  BookingResultFields<"SAFE_STOP"> &
     OptionalSelectedPackageEvidence & {
       outcome: "SAFE_STOP";
       exit_code: 20;
@@ -212,7 +223,7 @@ type SafeStopBookingResult = Readonly<
 >;
 
 type TechnicalFailureBookingResult = Readonly<
-  BookingResultFields &
+  BookingResultFields<"TECHNICAL_FAILURE"> &
     WithoutPackageEvidence & {
       outcome: "TECHNICAL_FAILURE";
       exit_code: 30;
@@ -225,7 +236,7 @@ type TechnicalFailureBookingResult = Readonly<
 >;
 
 type ConfirmationUncertainBookingResult = Readonly<
-  BookingResultFields &
+  BookingResultFields<"CONFIRMATION_UNCERTAIN"> &
     WithoutPackageEvidence & {
       outcome: "CONFIRMATION_UNCERTAIN";
       exit_code: 40;

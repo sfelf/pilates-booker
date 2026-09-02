@@ -1,7 +1,11 @@
 import type { BookingBrowser } from "./booking-page.js";
 import { executeBookingWorkflow } from "./booking-workflow.js";
 import type { CommandArguments } from "./command-arguments.js";
-import type { BookingResult, ExecutionStage } from "./contracts.js";
+import {
+  RESULT_DETAILS,
+  type BookingResult,
+  type ExecutionStage
+} from "./contracts.js";
 import {
   createDebugLogger,
   NOOP_DEBUG_LOGGER,
@@ -75,7 +79,7 @@ function failureResult(stage: ExecutionStage): BookingResult {
         action_submitted: true,
         confirmation_verified: false,
         safety_checks: completedSafetyChecks,
-        details: "Booking confirmation is uncertain."
+        details: RESULT_DETAILS.CONFIRMATION_UNCERTAIN
       }
     : {
         schema_version: 2,
@@ -84,7 +88,7 @@ function failureResult(stage: ExecutionStage): BookingResult {
         action_submitted: false,
         confirmation_verified: false,
         safety_checks: incompleteSafetyChecks,
-        details: "Runtime operation failed."
+        details: RESULT_DETAILS.TECHNICAL_FAILURE
       };
 }
 
@@ -173,7 +177,10 @@ export async function runCli(
   let result: BookingResult;
   try {
     result = await execute(context);
-    if (!validateResultForInput(result, args.input))
+    if (
+      !validateResultForInput(result, args.input) ||
+      !resultMatchesStage(result, stage)
+    )
       throw new Error("invalid result");
     await appendEvent(logger, "workflow.completed", stage, resultData(result));
   } catch (error) {
@@ -198,7 +205,10 @@ async function emitFreshResult(
   stage: ExecutionStage = "STARTING",
   lock?: ProfileLock
 ): Promise<number> {
-  if (!validateResultForInput(result, args.input)) {
+  if (
+    !validateResultForInput(result, args.input) ||
+    !resultMatchesStage(result, stage)
+  ) {
     return reportCliFailure(dependencies);
   }
   let selected = result;
@@ -206,7 +216,10 @@ async function emitFreshResult(
     await appendEvent(logger, "response.pending", stage);
   } catch {
     selected = failureResult(stage);
-    if (!validateResultForInput(selected, args.input)) {
+    if (
+      !validateResultForInput(selected, args.input) ||
+      !resultMatchesStage(selected, stage)
+    ) {
       return reportCliFailure(dependencies);
     }
   }
@@ -261,6 +274,35 @@ function appendEvent(
 
 function submissionStarted(stage: ExecutionStage): boolean {
   return stage === "SUBMITTING" || stage === "CONFIRMED";
+}
+
+function resultMatchesStage(
+  result: BookingResult,
+  stage: ExecutionStage
+): boolean {
+  if (stage === "STARTING" || stage === "READY_TO_SUBMIT") {
+    return result.outcome === "TECHNICAL_FAILURE";
+  }
+  if (stage === "VALIDATED") {
+    return (
+      result.outcome === "ALREADY_BOOKED" ||
+      result.outcome === "ALREADY_WAITLISTED" ||
+      result.outcome === "DRY_RUN" ||
+      result.outcome === "SAFE_STOP" ||
+      result.outcome === "TECHNICAL_FAILURE"
+    );
+  }
+  if (stage === "SUBMITTING") {
+    return result.outcome === "CONFIRMATION_UNCERTAIN";
+  }
+  if (stage === "CONFIRMED") {
+    return (
+      result.outcome === "BOOKED" ||
+      result.outcome === "WAITLISTED" ||
+      result.outcome === "CONFIRMATION_UNCERTAIN"
+    );
+  }
+  return false;
 }
 
 function resultData(result: BookingResult): DebugData {

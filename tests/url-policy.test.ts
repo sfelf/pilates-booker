@@ -38,7 +38,7 @@ function resultWithCalendarUrl(googleCalendarUrl: string) {
       no_charge: true,
       cancellation_policy_accepted: false
     },
-    details: "Synthetic existing booking confirmation."
+    details: "Existing booking confirmed."
   };
 }
 

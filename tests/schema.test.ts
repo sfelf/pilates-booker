@@ -140,6 +140,23 @@ describe("result schema version 2", () => {
     }
   );
 
+  test.each(
+    Object.entries(canonicalResults).flatMap(([name, result]) => [
+      [`${name} empty`, { ...result, details: "" }],
+      [`${name} wrong`, { ...result, details: "Synthetic wrong detail." }],
+      [
+        `${name} raw newline`,
+        { ...result, details: `${result.details}\nforged` }
+      ],
+      [
+        `${name} escaped newline`,
+        { ...result, details: `${result.details}\\u000aforged` }
+      ]
+    ])
+  )("rejects non-fixed %s details", (_name, result) => {
+    expect(validate(result)).toBe(false);
+  });
+
   test("accepts a coherent booked result", () => {
     expect(validate(booked)).toBe(true);
   });

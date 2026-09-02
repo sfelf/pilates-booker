@@ -25,11 +25,23 @@ test("documents only the executable CLI-only v0.2.0 operating model", async () =
     "unreaped zombie",
     "device/inode",
     "not atomic",
-    "power-loss"
+    "power-loss",
+    "## Response object",
+    '"schema_version": 2',
+    '"outcome": "DRY_RUN"',
+    '"packages_before"',
+    '"safety_checks"',
+    "## License",
+    "AGPL-3.0-or-later",
+    "[LICENSE](LICENSE)"
   ]) {
     expect(readme).toContain(required);
   }
   expect(readme).not.toMatch(
     /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file/iu
+  );
+  expect(readme).toMatch(/\| Symptom or exit\s+\| Meaning and action\s+\|/u);
+  expect(readme.trimEnd()).toMatch(
+    /## License\n\nPilates Booker is licensed under the \[GNU Affero General Public License v3\.0 or later\]\(LICENSE\) \(`AGPL-3\.0-or-later`\); see \[LICENSE\]\(LICENSE\)\.$/u
   );
 });

@@ -79,6 +79,45 @@ Every reportable outcome writes one compact schema-version-2 JSON object followe
 
 The result includes `observed_class` when the page could be inspected and includes package evidence where relevant. A missing JSON response cannot be recovered locally. Invoke the command again with the same URL; Arketa's existing-enrollment page is the supported reconciliation mechanism and prevents another enrollment submission.
 
+## Response object
+
+Every response has `schema_version`, `outcome`, `exit_code`, `action_submitted`, `confirmation_verified`, `safety_checks`, and the fixed `details` text for its outcome. Inspection results add `observed_class`; actionable dry runs add `availability`, `package_selected`, and `packages_before`. Confirmed bookings and waitlists include the same package evidence, and a confirmed booking may include `google_calendar_url`. Fields that do not apply to an outcome are omitted rather than set to an invented value.
+
+This synthetic dry-run response is formatted for readability; the command emits the same object compactly on one line:
+
+```json
+{
+  "schema_version": 2,
+  "outcome": "DRY_RUN",
+  "exit_code": 0,
+  "action_submitted": false,
+  "confirmation_verified": false,
+  "availability": "BOOKING_AVAILABLE",
+  "observed_class": {
+    "name": "Reformer Fundamentals",
+    "instructor": "Example Instructor",
+    "date": "2026-09-01",
+    "start_time": "09:30",
+    "end_time": "10:20",
+    "timezone": "America/Los_Angeles"
+  },
+  "package_selected": "10-Class Pack",
+  "packages_before": [
+    {
+      "name": "10-Class Pack",
+      "remaining": 3,
+      "approved": true
+    }
+  ],
+  "safety_checks": {
+    "approved_package_verified": true,
+    "no_charge": false,
+    "cancellation_policy_accepted": false
+  },
+  "details": "Dry run completed."
+}
+```
+
 ## Debug logging
 
 No debug log is touched unless `--debug` is present. With `--debug`, compact NDJSON records are written to `<runtime>/pilates-booker.log`. Before the current file would exceed 1 MiB it becomes `pilates-booker.log.1`, replacing the previous generation.
@@ -87,12 +126,18 @@ The log may contain the validated command arguments, complete booking URL, runti
 
 ## Troubleshooting
 
-- `Booking command failed.` with no JSON means argument parsing, runtime-path resolution, or stdout transport failed. Check argument spelling and the runtime path. When stdout remains available, a debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE` result with exit 30.
-- Exit 20 means the checkout was unsupported, ambiguous, ineligible, or disallowed by `--book-only`; no submission occurred.
-- Exit 40 means do not infer failure. Run the utility again and let Arketa report existing enrollment or offer an action.
-- On lock contention, Pilates Booker removes a valid current `run.lock` only when its recorded PID is conclusively absent. It revalidates the PID and device/inode immediately before removal, then retries exclusive acquisition once.
-- A legacy, malformed, unreadable, active, or indeterminate lock is preserved for manual recovery. PID reuse, an unreaped zombie, permission restrictions, or another ambiguous PID probe can make a stale lock appear active. Confirm no Pilates Booker or profile Chromium process is active before removing that exact lock file manually.
-- PID and device/inode revalidation narrows the final replacement race, but pathname removal is not atomic for an exact open inode. The lock does not guarantee power-loss recovery or recover Chromium's own profile locks.
-- Expired sessions require another manual sign-in with the same `Profile/` directory.
+| Symptom or exit                        | Meaning and action                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Booking command failed.` with no JSON | Argument parsing, runtime-path resolution, or stdout transport failed. Check argument spelling and the runtime path. When stdout remains available, a debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE` result with exit 30.                                                                              |
+| Exit 20                                | The checkout was unsupported, ambiguous, ineligible, or disallowed by `--book-only`; no submission occurred.                                                                                                                                                                                                                                |
+| Exit 40                                | Do not infer failure. Run the utility again and let Arketa report existing enrollment or offer an action.                                                                                                                                                                                                                                   |
+| Lock contention                        | Pilates Booker removes a valid current `run.lock` only when its recorded PID is conclusively absent. It revalidates the PID and device/inode immediately before removal, then retries exclusive acquisition once.                                                                                                                           |
+| Lock remains after the process ended   | A legacy, malformed, unreadable, active, or indeterminate lock is preserved for manual recovery. PID reuse, an unreaped zombie, permission restrictions, or another ambiguous PID probe can make a stale lock appear active. Confirm no Pilates Booker or profile Chromium process is active before removing that exact lock file manually. |
+| Lock changed during recovery           | PID and device/inode revalidation narrows the final replacement race, but pathname removal is not atomic for an exact open inode. The lock does not guarantee power-loss recovery or recover Chromium's own profile locks.                                                                                                                  |
+| Session expired                        | Sign in manually again with the same `Profile/` directory.                                                                                                                                                                                                                                                                                  |
 
 See [Architecture](docs/architecture.md) and [Safety boundaries](docs/safety-boundaries.md) for the implementation contract.
+
+## License
+
+Pilates Booker is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE) (`AGPL-3.0-or-later`); see [LICENSE](LICENSE).
