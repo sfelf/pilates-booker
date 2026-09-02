@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { projectSafeText, UNSAFE_TEXT } from "../src/safe-text.js";
+import {
+  projectDebugText,
+  projectSafeText,
+  SENSITIVE_TEXT,
+  UNSAFE_TEXT
+} from "../src/safe-text.js";
 
 describe("projectSafeText", () => {
   it("fails closed before inspecting an oversized value", () => {
@@ -85,4 +90,34 @@ describe("projectSafeText", () => {
       );
     }
   );
+});
+
+describe("projectDebugText", () => {
+  it.each([
+    "Authorization: Bearer private-token",
+    "Cookie: session=private-cookie",
+    "Set-Cookie: session=private-cookie",
+    "access_token=private-token",
+    "Authorization%3A%20Bearer%20private-token",
+    "Authorization%253A%2520Bearer%2520private-token",
+    "Authorization\\u003a Bearer private-token",
+    '{"access_token":"private-token"}',
+    '{"authorization":"Bearer private-token"}',
+    '{\\"authorization\\":\\"Bearer private-token\\"}',
+    "%7B%22access_token%22%3A%22private-token%22%7D",
+    "%257B%2522authorization%2522%253A%2522Bearer%2520private-token%2522%257D",
+    "token: private-token"
+  ])("replaces recognizable credential material in %j", (raw) => {
+    expect(projectDebugText(raw)).toBe(SENSITIVE_TEXT);
+    expect(projectDebugText(projectDebugText(raw))).toBe(SENSITIVE_TEXT);
+  });
+
+  it.each([
+    "⭐ 10-Class Pack",
+    "José’s Reformer",
+    "https://app.arketa.co/iframe/synthetic/calendar/checkout/CLASS_ID",
+    "/Users/example/Library/Application Support/Pilates Booker"
+  ])("preserves accepted debug text %j", (raw) => {
+    expect(projectDebugText(raw)).toBe(raw);
+  });
 });
