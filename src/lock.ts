@@ -47,6 +47,8 @@ export type LockEnvironment = Readonly<{
   pid: number;
   createToken(): string;
   processIdentity: ProcessIdentityProvider;
+  claimWaitTimeoutMs?: number;
+  wait?(milliseconds: number): Promise<void>;
 }>;
 
 const defaultLockOperations: LockOperations = {
@@ -62,7 +64,10 @@ const defaultLockOperations: LockOperations = {
 const defaultLockEnvironment: LockEnvironment = {
   pid: process.pid,
   createToken: randomUUID,
-  processIdentity: createProcessIdentityProvider()
+  processIdentity: createProcessIdentityProvider(),
+  claimWaitTimeoutMs: 5000,
+  wait: (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds))
 };
 
 type LockMetadata = Readonly<{
@@ -80,22 +85,41 @@ async function removeOwnedLockPath(
   path: string,
   operations: LockOperations,
   acquired?: Stats,
-  recoveryClaimHeld = false
+  recoveryClaimHeld = false,
+  claimWait?: Readonly<{
+    timeoutMs: number;
+    wait(milliseconds: number): Promise<void>;
+  }>
 ): Promise<LockReleaseResult> {
   const recoveryPath = `${path}.recovery`;
+  let claimCreated = false;
   if (acquired !== undefined) {
     if (!recoveryClaimHeld) {
-      try {
-        await operations.link(path, recoveryPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return { released: true };
+      const deadline = Date.now() + (claimWait?.timeoutMs ?? 0);
+      while (!claimCreated) {
+        try {
+          await operations.link(path, recoveryPath);
+          claimCreated = true;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ENOENT") return { released: true };
+          if (
+            code !== "EEXIST" ||
+            claimWait === undefined ||
+            Date.now() >= deadline
+          ) {
+            return { released: false, stage: "stat" };
+          }
+          await claimWait.wait(25);
         }
-        return { released: false, stage: "stat" };
       }
     }
     try {
       const claimed = await operations.stat(recoveryPath);
+      if (!sameFile(claimed, acquired)) {
+        await operations.unlink(recoveryPath).catch(() => undefined);
+        return { released: true };
+      }
       let current: Stats;
       try {
         current = await operations.stat(path);
@@ -104,13 +128,15 @@ async function removeOwnedLockPath(
           await operations.unlink(recoveryPath).catch(() => undefined);
           return { released: true };
         }
+        await operations.unlink(recoveryPath).catch(() => undefined);
         return { released: false, stage: "stat" };
       }
-      if (!sameFile(claimed, acquired) || !sameFile(current, acquired)) {
+      if (!sameFile(current, acquired)) {
         await operations.unlink(recoveryPath).catch(() => undefined);
         return { released: true };
       }
     } catch {
+      await operations.unlink(recoveryPath).catch(() => undefined);
       return { released: false, stage: "stat" };
     }
   }
@@ -196,6 +222,7 @@ export async function acquireProfileLock(
 
   let acquired;
   let blockedByRecovery = false;
+  let claimSupportFailed = false;
   try {
     acquired = await operations.statFile(handle);
     if (
@@ -208,10 +235,23 @@ export async function acquireProfileLock(
       throw new LockUnavailableError();
     }
     await operations.writeFile(handle, `${JSON.stringify(metadata)}\n`);
+    if (!recoveryClaimHeld) {
+      try {
+        await verifyLockClaimSupport(
+          path,
+          metadata.instance_token,
+          operations,
+          acquired
+        );
+      } catch {
+        claimSupportFailed = true;
+        throw new Error("runtime filesystem does not support lock claims");
+      }
+    }
   } catch (error) {
     await operations.close(handle).catch(() => undefined);
     if (acquired !== undefined) {
-      if (recoveryClaimHeld || blockedByRecovery) {
+      if (recoveryClaimHeld || blockedByRecovery || claimSupportFailed) {
         await removeDirectOwnedLockPath(path, operations, acquired);
       } else {
         await removeOwnedLockPath(path, operations, acquired);
@@ -246,7 +286,19 @@ export async function acquireProfileLock(
       }
       closed = true;
     }
-    const result = await removeOwnedLockPath(path, operations, acquired);
+    const result = await removeOwnedLockPath(
+      path,
+      operations,
+      acquired,
+      false,
+      {
+        timeoutMs: environment.claimWaitTimeoutMs ?? 5000,
+        wait:
+          environment.wait ??
+          ((milliseconds) =>
+            new Promise((resolve) => setTimeout(resolve, milliseconds)))
+      }
+    );
     if (!result.released) return result;
     released = true;
     return { released: true };
@@ -262,6 +314,29 @@ export async function acquireProfileLock(
       return releaseInFlight;
     }
   };
+}
+
+async function verifyLockClaimSupport(
+  path: string,
+  instanceToken: string,
+  operations: LockOperations,
+  acquired: Stats
+): Promise<void> {
+  const probePath = `${path}.probe-${instanceToken}`;
+  let probeCreated = false;
+  try {
+    await operations.link(path, probePath);
+    probeCreated = true;
+    const probe = await operations.stat(probePath);
+    if (!sameFile(probe, acquired)) throw new Error("invalid lock claim");
+    await operations.unlink(probePath);
+    probeCreated = false;
+  } catch (error) {
+    if (probeCreated) {
+      await operations.unlink(probePath).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 async function claimStaleLock(

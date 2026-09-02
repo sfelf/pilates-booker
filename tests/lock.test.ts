@@ -202,7 +202,7 @@ describe("acquireProfileLock", () => {
       { released: true },
       { released: true }
     ]);
-    expect(unlinkCalls).toBe(2);
+    expect(unlinkCalls).toBe(3);
   });
 
   test.each([
@@ -218,7 +218,11 @@ describe("acquireProfileLock", () => {
     [
       "unlink",
       operations({
-        unlink: async () => {
+        unlink: async (removedPath) => {
+          if (removedPath.includes(".probe-")) {
+            await unlink(removedPath);
+            return;
+          }
           throw filesystemError("EPERM");
         }
       })
@@ -264,6 +268,61 @@ describe("acquireProfileLock", () => {
       released: false,
       stage: "stat"
     });
+    expect(await readdir(directory)).toEqual(["run.lock"]);
+  });
+
+  test("release waits for a concurrent live-owner claim without deleting it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const owner = await acquireProfileLock(
+      path,
+      ensureDirectory,
+      operations(),
+      environment()
+    );
+    let claimCreated!: () => void;
+    const claimReady = new Promise<void>((resolve) => {
+      claimCreated = resolve;
+    });
+    let continueProbe!: () => void;
+    const probeGate = new Promise<void>((resolve) => {
+      continueProbe = resolve;
+    });
+    const contender = acquireProfileLock(
+      path,
+      ensureDirectory,
+      operations({
+        link: async (source, destination) => {
+          await link(source, destination);
+          if (destination.endsWith(".recovery")) {
+            claimCreated();
+            await probeGate;
+          }
+        }
+      }),
+      environment({
+        pid: 77,
+        createToken: () => otherToken,
+        processIdentity: {
+          identify: async (pid) =>
+            pid === 77
+              ? { kind: "found", identity: "linux:50" }
+              : { kind: "found", identity: "linux:100" }
+        }
+      })
+    );
+    await claimReady;
+
+    const releasing = owner.release();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect((await readdir(directory)).sort()).toEqual([
+      "run.lock",
+      "run.lock.recovery"
+    ]);
+    continueProbe();
+    await expect(contender).rejects.toBeInstanceOf(LockUnavailableError);
+    await expect(releasing).resolves.toEqual({ released: true });
+    expect(await readdir(directory)).toEqual([]);
   });
 
   test("treats only an ENOENT stat failure as an already absent pathname", async () => {
@@ -273,7 +332,11 @@ describe("acquireProfileLock", () => {
       path,
       ensureDirectory,
       operations({
-        link: async () => {
+        link: async (source, destination) => {
+          if (destination.includes(".probe-")) {
+            await link(source, destination);
+            return;
+          }
           throw filesystemError("ENOENT");
         }
       }),
@@ -291,7 +354,11 @@ describe("acquireProfileLock", () => {
       path,
       ensureDirectory,
       operations({
-        unlink: async () => {
+        unlink: async (removedPath) => {
+          if (removedPath.includes(".probe-")) {
+            await unlink(removedPath);
+            return;
+          }
           throw filesystemError("ENOENT");
         }
       }),
@@ -599,5 +666,24 @@ describe("acquireProfileLock", () => {
       )
     ).rejects.toThrow("current process identity is unavailable");
     await expect(readFile(path, "utf8")).rejects.toThrow();
+  });
+
+  test("rejects a fresh runtime without hard-link support before returning a lock", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectory,
+        operations({
+          link: async () => {
+            throw filesystemError("ENOTSUP");
+          }
+        }),
+        environment()
+      )
+    ).rejects.toThrow("runtime filesystem does not support lock claims");
+    expect(await readdir(directory)).toEqual([]);
   });
 });
