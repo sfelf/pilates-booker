@@ -11,6 +11,7 @@ import type {
   ObservedClass,
   PermittedAction
 } from "./contracts.js";
+import type { DebugData } from "./debug-log.js";
 import {
   decidePackage,
   normalizePackageNameForComparison,
@@ -22,7 +23,7 @@ export type ExecutionContext = Readonly<{
   input: BookingInput;
   profileDir: string;
   advance(stage: ExecutionStage): Promise<void>;
-  log(event: string, data?: Readonly<Record<string, unknown>>): Promise<void>;
+  log(event: string, data?: DebugData): Promise<void>;
 }>;
 
 export type AuthorizedBooking = Readonly<{

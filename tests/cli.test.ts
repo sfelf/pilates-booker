@@ -7,6 +7,7 @@ import { expect, it, vi } from "vitest";
 import { runCli, type ExecutionContext } from "../src/cli.js";
 import type { CommandArguments } from "../src/command-arguments.js";
 import type { BookingResult, ExecutionStage } from "../src/contracts.js";
+import type { DebugEvent, DebugLogger } from "../src/debug-log.js";
 
 const args: CommandArguments = {
   input: {
@@ -185,17 +186,143 @@ it("downgrades a confirmed result to uncertainty when lock release fails", async
 
 it("returns the fixed transport failure when stdout cannot accept the result", async () => {
   const reportDiagnostic = vi.fn();
+  const events: DebugEvent[] = [];
   expect(
-    await runCli(args, {
-      execute: async () => result,
-      acquireLock: async () => ({
-        release: async () => ({ released: true as const })
-      }),
-      emitResult: async () => {
-        throw new Error("stdout failed");
-      },
-      reportDiagnostic
-    })
+    await runCli(
+      { ...args, debug: true },
+      {
+        execute: async () => result,
+        acquireLock: async () => ({
+          release: async () => ({ released: true as const })
+        }),
+        emitResult: async () => {
+          throw new Error("stdout failed");
+        },
+        createLogger: async () => ({
+          append: async (event) => {
+            events.push(event);
+          }
+        }),
+        reportDiagnostic
+      }
+    )
   ).toBe(30);
   expect(reportDiagnostic).toHaveBeenCalledWith("Booking command failed.");
+  expect(events.at(-1)).toMatchObject({ response_emitted: false });
+});
+
+it("does not initialize or touch the debug logger when debug is disabled", async () => {
+  const createLogger = vi.fn<() => Promise<DebugLogger>>();
+  expect(
+    await runCli(args, {
+      ...dependencies(async () => result),
+      createLogger
+    })
+  ).toBe(20);
+  expect(createLogger).not.toHaveBeenCalled();
+});
+
+it("initializes requested logging before lock or browser work and records validated arguments", async () => {
+  const calls: string[] = [];
+  const events: DebugEvent[] = [];
+  const createLogger = vi.fn(async () => ({
+    append: async (event: DebugEvent) => {
+      events.push(event);
+    }
+  }));
+  expect(
+    await runCli(
+      { ...args, debug: true },
+      {
+        createLogger,
+        acquireLock: async () => {
+          calls.push("lock");
+          return { release: async () => ({ released: true as const }) };
+        },
+        execute: async () => {
+          calls.push("browser");
+          return result;
+        },
+        emitResult: async () => undefined
+      }
+    )
+  ).toBe(20);
+  expect(createLogger).toHaveBeenCalledOnce();
+  expect(calls).toEqual(["lock", "browser"]);
+  expect(events[0]).toMatchObject({
+    event: "command.started",
+    stage: "STARTING",
+    submission_started: false,
+    response_emitted: false,
+    data: {
+      arguments: {
+        booking_url: args.input.booking_url,
+        allowed_packages: ["Synthetic Pack"],
+        runtime: "/private/runtime",
+        debug: true
+      }
+    }
+  });
+  expect(events.at(-1)).toMatchObject({ response_emitted: true });
+});
+
+it("prevents lock and browser work when requested log initialization fails", async () => {
+  const acquireLock = vi.fn();
+  const execute = vi.fn();
+  const emitResult = vi.fn(async () => undefined);
+  expect(
+    await runCli(
+      { ...args, debug: true },
+      {
+        createLogger: async () => {
+          throw new Error("log initialization failed");
+        },
+        acquireLock,
+        execute,
+        emitResult
+      }
+    )
+  ).toBe(30);
+  expect(acquireLock).not.toHaveBeenCalled();
+  expect(execute).not.toHaveBeenCalled();
+  expect(
+    JSON.parse((emitResult.mock.calls as unknown as [[string]])[0][0])
+  ).toMatchObject({
+    outcome: "TECHNICAL_FAILURE",
+    action_submitted: false
+  });
+});
+
+it("classifies a submission-stage logging failure as uncertain without retrying", async () => {
+  const execute = vi.fn(async (context: ExecutionContext) => {
+    await context.advance("VALIDATED");
+    await context.advance("READY_TO_SUBMIT");
+    await context.advance("SUBMITTING");
+    throw new Error("unreachable");
+  });
+  const emitResult = vi.fn(async () => undefined);
+  expect(
+    await runCli(
+      { ...args, debug: true },
+      {
+        createLogger: async () => ({
+          append: async (event) => {
+            if (event.stage === "SUBMITTING") throw new Error("log failed");
+          }
+        }),
+        execute,
+        acquireLock: async () => ({
+          release: async () => ({ released: true as const })
+        }),
+        emitResult
+      }
+    )
+  ).toBe(40);
+  expect(execute).toHaveBeenCalledOnce();
+  expect(
+    JSON.parse((emitResult.mock.calls as unknown as [[string]])[0][0])
+  ).toMatchObject({
+    outcome: "CONFIRMATION_UNCERTAIN",
+    action_submitted: true
+  });
 });

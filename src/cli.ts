@@ -2,16 +2,23 @@ import type { BookingBrowser } from "./booking-page.js";
 import { executeBookingWorkflow } from "./booking-workflow.js";
 import type { CommandArguments } from "./command-arguments.js";
 import type { BookingResult, ExecutionStage } from "./contracts.js";
+import {
+  createDebugLogger,
+  NOOP_DEBUG_LOGGER,
+  type DebugData,
+  type DebugLogger,
+  type DebugMetadata
+} from "./debug-log.js";
 import { acquireProfileLock, type ProfileLock } from "./lock.js";
 import { validateResultForInput } from "./result-validator.js";
 import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
-import { resolveRuntimePaths } from "./runtime-paths.js";
+import { resolveRuntimePaths, type RuntimePathsV2 } from "./runtime-paths.js";
 
 export type ExecutionContext = Readonly<{
   input: CommandArguments["input"];
   profileDir: string;
   advance(stage: ExecutionStage): Promise<void>;
-  log(event: string, data?: Readonly<Record<string, unknown>>): Promise<void>;
+  log(event: string, data?: DebugData): Promise<void>;
 }>;
 
 export type CliExecutor = (context: ExecutionContext) => Promise<BookingResult>;
@@ -24,6 +31,10 @@ export type CliDependencies = Readonly<{
   bookingBrowser?: BookingBrowser;
   acquireLock?(path: string): Promise<ProfileLock>;
   emitResult?: ResultEmitter;
+  createLogger?(
+    paths: RuntimePathsV2,
+    metadata: DebugMetadata
+  ): Promise<DebugLogger>;
   reportDiagnostic?(diagnostic: CliDiagnostic): void;
 }>;
 
@@ -88,12 +99,53 @@ export async function runCli(
     return reportCliFailure(dependencies);
   }
 
+  let logger = NOOP_DEBUG_LOGGER;
+  if (args.debug) {
+    try {
+      logger = await (dependencies.createLogger ?? createDebugLogger)(paths, {
+        now: () => new Date(),
+        pid: process.pid,
+        version: "0.2.0"
+      });
+      await logger.append({
+        event: "command.started",
+        stage: "STARTING",
+        submission_started: false,
+        response_emitted: false,
+        data: {
+          arguments: {
+            booking_url: args.input.booking_url,
+            allowed_packages: args.input.allowed_packages,
+            permitted_actions: args.input.permitted_actions,
+            dry_run: args.input.dry_run,
+            runtime: paths.baseDir,
+            debug: true
+          }
+        }
+      });
+    } catch {
+      return emitFreshResult(
+        failureResult("STARTING"),
+        args,
+        dependencies,
+        NOOP_DEBUG_LOGGER,
+        "STARTING"
+      );
+    }
+  }
+
   const acquireLock = dependencies.acquireLock ?? acquireProfileLock;
   let lock: ProfileLock;
   try {
     lock = await acquireLock(paths.lockFile);
   } catch {
-    return emitFreshResult(failureResult("STARTING"), args, dependencies);
+    return emitFreshResult(
+      failureResult("STARTING"),
+      args,
+      dependencies,
+      logger,
+      "STARTING"
+    );
   }
 
   let stage: ExecutionStage = "STARTING";
@@ -104,8 +156,9 @@ export async function runCli(
       if (transitions[stage] !== next)
         throw new Error("invalid execution stage");
       stage = next;
+      await appendEvent(logger, "stage.advanced", stage);
     },
-    log: async () => undefined
+    log: (event, data) => appendEvent(logger, event, stage, data)
   };
   const execute: CliExecutor =
     dependencies.execute ??
@@ -117,6 +170,7 @@ export async function runCli(
     result = await execute(context);
     if (!validateResultForInput(result, args.input))
       throw new Error("invalid result");
+    await appendEvent(logger, "workflow.completed", stage, resultData(result));
   } catch {
     result = failureResult(stage);
   }
@@ -127,23 +181,82 @@ export async function runCli(
   } catch {
     result = failureResult(stage);
   }
-  return emitFreshResult(result, args, dependencies);
+  return emitFreshResult(result, args, dependencies, logger, stage);
 }
 
 async function emitFreshResult(
   result: BookingResult,
   args: CommandArguments,
-  dependencies: CliDependencies
+  dependencies: CliDependencies,
+  logger: DebugLogger = NOOP_DEBUG_LOGGER,
+  stage: ExecutionStage = "STARTING"
 ): Promise<number> {
   if (!validateResultForInput(result, args.input)) {
     return reportCliFailure(dependencies);
   }
+  let selected = result;
   try {
-    await (dependencies.emitResult ?? writeResultToStdout)(
-      `${JSON.stringify(result)}\n`
-    );
+    await appendEvent(logger, "response.pending", stage);
   } catch {
+    selected = failureResult(stage);
+    if (!validateResultForInput(selected, args.input)) {
+      return reportCliFailure(dependencies);
+    }
+  }
+  const bytes = `${JSON.stringify(selected)}\n`;
+  try {
+    await (dependencies.emitResult ?? writeResultToStdout)(bytes);
+  } catch {
+    try {
+      await appendEvent(logger, "response.failed", stage);
+    } catch {
+      // The fixed diagnostic remains the only available transport.
+    }
     return reportCliFailure(dependencies);
   }
-  return result.exit_code;
+  try {
+    await logger.append({
+      event: "response.emitted",
+      stage,
+      submission_started: submissionStarted(stage),
+      response_emitted: true
+    });
+  } catch {
+    // Complete stdout is already authoritative for this invocation.
+  }
+  return selected.exit_code;
+}
+
+function appendEvent(
+  logger: DebugLogger,
+  event: string,
+  stage: ExecutionStage,
+  data?: DebugData
+): Promise<void> {
+  return logger.append({
+    event,
+    stage,
+    submission_started: submissionStarted(stage),
+    response_emitted: false,
+    ...(data === undefined ? {} : { data })
+  });
+}
+
+function submissionStarted(stage: ExecutionStage): boolean {
+  return stage === "SUBMITTING" || stage === "CONFIRMED";
+}
+
+function resultData(result: BookingResult): DebugData {
+  return {
+    ...(result.observed_class === undefined
+      ? {}
+      : { observed_class: result.observed_class }),
+    ...(result.package_selected === undefined
+      ? {}
+      : { package_selected: result.package_selected }),
+    ...(result.packages_before === undefined
+      ? {}
+      : { packages_before: result.packages_before }),
+    decision: result.outcome
+  };
 }
