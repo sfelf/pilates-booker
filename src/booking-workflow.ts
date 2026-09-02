@@ -206,6 +206,17 @@ function projectPageException(error: unknown): {
   message?: string;
   stack?: string;
 } {
+  if (
+    error instanceof Error &&
+    (error.name === "BookingPageError" ||
+      error.name === "BookingPageControlError")
+  ) {
+    return {
+      name: error.name,
+      message: error.message,
+      ...(error.stack === undefined ? {} : { stack: error.stack })
+    };
+  }
   if (error instanceof Error && error.cause instanceof Error) {
     return projectPageException(error.cause);
   }

@@ -36,6 +36,13 @@ npx playwright open --user-data-dir "$HOME/Library/Application Support/Pilates B
 
 On Linux or Windows, substitute the platform default shown above. Complete login and MFA, verify the session, and close Chromium before booking.
 
+When using a custom runtime, sign in with that exact runtime's profile before passing the same path to the booking command:
+
+```sh
+npx playwright open --user-data-dir "/absolute/private/path/Profile" "https://app.arketa.co"
+node dist/main.js --runtime "/absolute/private/path" --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack" --dry-run
+```
+
 ## Command
 
 Start with a dry run:

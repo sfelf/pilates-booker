@@ -146,6 +146,38 @@ it.each(["read", "controls"] as const)(
   }
 );
 
+it("excludes raw page-control causes when logging a safe stop", async () => {
+  const privateCause =
+    'locator.fill: <input aria-label="Do you have any injuries?" value="private injury answer">';
+  const pageError = new Error("Booking page control is unavailable.", {
+    cause: new Error(privateCause)
+  });
+  pageError.name = "BookingPageControlError";
+  const events: unknown[] = [];
+  const page = pageFor(state("book"));
+
+  const result = await prepareBookingWorkflow(
+    {
+      input: { ...input, dry_run: false },
+      profileDir: "/private/runtime/Profile",
+      advance: async () => undefined,
+      log: async (event, data) => {
+        events.push({ event, data });
+      }
+    },
+    {
+      ...page,
+      selectMyself: async () => Promise.reject(pageError)
+    }
+  );
+
+  expect(result).toMatchObject({ outcome: "SAFE_STOP", exit_code: 20 });
+  const diagnostic = JSON.stringify(events);
+  expect(diagnostic).toContain("Booking page control is unavailable.");
+  expect(diagnostic).not.toContain(privateCause);
+  expect(diagnostic).not.toContain("private injury answer");
+});
+
 it.each([
   ["already_booked", "ALREADY_BOOKED"],
   ["already_waitlisted", "ALREADY_WAITLISTED"]

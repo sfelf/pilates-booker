@@ -266,6 +266,29 @@ describe("acquireProfileLock", () => {
     expect(await readFile(path, "utf8")).toBe(oversized);
   });
 
+  test("preserves metadata when a read returns only a valid JSON prefix", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+    const path = join(directory, "run.lock");
+    const prefix = lockContents();
+    const contents = `${prefix}trailing malformed content`;
+    await writeFile(path, contents, "utf8");
+
+    await expect(
+      acquireProfileLock(
+        path,
+        ensureDirectory,
+        operations({
+          read: async (_handle, buffer) => {
+            buffer.write(prefix, 0, "utf8");
+            return Buffer.byteLength(prefix);
+          }
+        }),
+        environment()
+      )
+    ).rejects.toBeInstanceOf(LockUnavailableError);
+    expect(await readFile(path, "utf8")).toBe(contents);
+  });
+
   test("bounds the revalidation read when the lock grows after inspection", async () => {
     const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
     const path = join(directory, "run.lock");

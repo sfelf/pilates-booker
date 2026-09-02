@@ -227,7 +227,9 @@ async function inspectLock(
     }
     const buffer = Buffer.alloc(MAX_LOCK_METADATA_BYTES + 1);
     const bytesRead = await operations.read(handle, buffer);
-    if (bytesRead > MAX_LOCK_METADATA_BYTES) return undefined;
+    if (bytesRead > MAX_LOCK_METADATA_BYTES || bytesRead !== opened.size) {
+      return undefined;
+    }
     inspected = {
       contents: buffer.subarray(0, bytesRead).toString("utf8"),
       identity
