@@ -193,7 +193,8 @@ async function removeConclusiveStaleLock(
     if (
       second === undefined ||
       second.pid !== first.pid ||
-      !sameFile(current.identity, inspected.identity)
+      !sameFile(current.identity, inspected.identity) ||
+      environment.probePid(second.pid) !== "absent"
     ) {
       return false;
     }

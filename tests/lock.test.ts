@@ -111,6 +111,32 @@ describe("acquireProfileLock", () => {
     await lock.release();
   });
 
+  test.each(["active", "indeterminate"] as const)(
+    "preserves a stale candidate whose PID becomes %s before removal",
+    async (finalState) => {
+      const directory = await mkdtemp(join(tmpdir(), "arketa-lock-"));
+      const path = join(directory, "run.lock");
+      const contents = lockContents();
+      await writeFile(path, contents, "utf8");
+      const probePid = vi
+        .fn<LockEnvironment["probePid"]>()
+        .mockReturnValueOnce("absent")
+        .mockReturnValueOnce(finalState);
+
+      await expect(
+        acquireProfileLock(
+          path,
+          ensureDirectory,
+          operations(),
+          environment({ probePid })
+        )
+      ).rejects.toBeInstanceOf(LockUnavailableError);
+      expect(probePid).toHaveBeenNthCalledWith(1, 77);
+      expect(probePid).toHaveBeenNthCalledWith(2, 77);
+      expect(await readFile(path, "utf8")).toBe(contents);
+    }
+  );
+
   test.each([
     '{"version":1}\n',
     "",
