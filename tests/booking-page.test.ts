@@ -1811,6 +1811,9 @@ describe("BookingBrowser lifecycle", () => {
 
     expect(String(error)).toContain("Booking browser readiness failed.");
     expect(String(error)).not.toContain(privateFailure);
+    expect((error as Error).cause).toEqual(
+      expect.objectContaining({ message: privateFailure })
+    );
     expect(harness.callbacks).toEqual([]);
     expect(harness.closeCount()).toBe(1);
   });
@@ -1872,6 +1875,9 @@ describe("BookingBrowser lifecycle", () => {
 
     expect(String(error)).toContain("Booking browser navigation failed.");
     expect(String(error)).not.toContain(unsafe);
+    expect((error as Error).cause).toEqual(
+      expect.objectContaining({ message: "Invalid Arketa checkout URL." })
+    );
     expect(harness.closeCount()).toBe(1);
   });
 
