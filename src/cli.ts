@@ -187,13 +187,7 @@ export async function runCli(
     result = failureResult(stage);
   }
 
-  try {
-    const released = await lock.release();
-    if (!released.released) result = failureResult(stage);
-  } catch {
-    result = failureResult(stage);
-  }
-  return emitFreshResult(result, args, dependencies, logger, stage);
+  return emitFreshResult(result, args, dependencies, logger, stage, lock);
 }
 
 async function emitFreshResult(
@@ -201,7 +195,8 @@ async function emitFreshResult(
   args: CommandArguments,
   dependencies: CliDependencies,
   logger: DebugLogger = NOOP_DEBUG_LOGGER,
-  stage: ExecutionStage = "STARTING"
+  stage: ExecutionStage = "STARTING",
+  lock?: ProfileLock
 ): Promise<number> {
   if (!validateResultForInput(result, args.input)) {
     return reportCliFailure(dependencies);
@@ -224,6 +219,11 @@ async function emitFreshResult(
     } catch {
       // The fixed diagnostic remains the only available transport.
     }
+    try {
+      await lock?.release();
+    } catch {
+      // Preserve the exact stale lock for manual recovery.
+    }
     return reportCliFailure(dependencies);
   }
   try {
@@ -235,6 +235,11 @@ async function emitFreshResult(
     });
   } catch {
     // Complete stdout is already authoritative for this invocation.
+  }
+  try {
+    await lock?.release();
+  } catch {
+    // Output is already complete; leave the exact stale lock for manual recovery.
   }
   return selected.exit_code;
 }
@@ -274,6 +279,9 @@ function resultData(result: BookingResult): DebugData {
 }
 
 function projectException(error: unknown): NonNullable<DebugData["exception"]> {
+  if (error instanceof Error && error.cause instanceof Error) {
+    return projectException(error.cause);
+  }
   if (!(error instanceof Error)) return { name: "Error" };
   return {
     name: error.name,

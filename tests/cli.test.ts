@@ -133,7 +133,7 @@ it("emits a technical failure when lock acquisition fails", async () => {
   ).toMatchObject({ outcome: "TECHNICAL_FAILURE" });
 });
 
-it("downgrades a confirmed result to uncertainty when lock release fails", async () => {
+it("does not replace complete stdout when final lock release fails", async () => {
   const booked: BookingResult = {
     schema_version: 2,
     outcome: "BOOKED",
@@ -178,10 +178,10 @@ it("downgrades a confirmed result to uncertainty when lock release fails", async
       }),
       emitResult
     })
-  ).toBe(40);
+  ).toBe(0);
   expect(
     JSON.parse((emitResult.mock.calls as unknown as [[string]])[0][0])
-  ).toMatchObject({ outcome: "CONFIRMATION_UNCERTAIN" });
+  ).toMatchObject({ outcome: "BOOKED" });
 });
 
 it("returns the fixed transport failure when stdout cannot accept the result", async () => {
@@ -312,7 +312,7 @@ it("records a projected workflow exception event when debug is enabled", async (
         acquireLock: async () => ({
           release: async () => ({ released: true as const })
         }),
-        execute: async () => {
+        bookingBrowser: async () => {
           throw new Error("synthetic browser failure");
         },
         emitResult

@@ -50,8 +50,8 @@ export type BookingPreparation = TerminalBookingPreparation | AuthorizedBooking;
 export class BookingWorkflowError extends Error {
   readonly code = "BOOKING_WORKFLOW_FAILED";
 
-  constructor() {
-    super("Booking workflow failed.");
+  constructor(cause?: unknown) {
+    super("Booking workflow failed.", { cause });
     this.name = "BookingWorkflowError";
   }
 }
@@ -102,8 +102,8 @@ export async function executeBookingWorkflow(
         return confirmedResult(preparation, confirmation);
       }
     );
-  } catch {
-    throw new BookingWorkflowError();
+  } catch (error) {
+    throw new BookingWorkflowError(error);
   }
 }
 
