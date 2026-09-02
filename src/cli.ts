@@ -13,6 +13,7 @@ import {
   type DebugLogger,
   type DebugMetadata
 } from "./debug-log.js";
+import { projectDebugException } from "./debug-exception.js";
 import { acquireProfileLock, type ProfileLock } from "./lock.js";
 import { validateResultForInput } from "./result-validator.js";
 import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
@@ -188,7 +189,7 @@ export async function runCli(
   } catch (error) {
     try {
       await appendEvent(logger, "workflow.failed", stage, {
-        exception: projectException(error)
+        exception: projectDebugException(error)
       });
     } catch {
       // The execution stage still determines the safe result.
@@ -319,17 +320,5 @@ function resultData(result: BookingResult): DebugData {
       ? {}
       : { packages_before: result.packages_before }),
     decision: result.outcome
-  };
-}
-
-function projectException(error: unknown): NonNullable<DebugData["exception"]> {
-  if (error instanceof Error && error.cause instanceof Error) {
-    return projectException(error.cause);
-  }
-  if (!(error instanceof Error)) return { name: "Error" };
-  return {
-    name: error.name,
-    message: error.message,
-    ...(error.stack === undefined ? {} : { stack: error.stack })
   };
 }

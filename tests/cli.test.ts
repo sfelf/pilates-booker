@@ -583,6 +583,44 @@ it("records a projected workflow exception event when debug is enabled", async (
   );
 });
 
+it("stops cause projection at a page-control boundary after submission", async () => {
+  const privateCause =
+    'locator.click: <button value="private checkout state">Complete booking</button>';
+  const pageError = new Error("Booking page control is unavailable.", {
+    cause: new Error(privateCause)
+  });
+  pageError.name = "BookingPageControlError";
+  const events: DebugEvent[] = [];
+
+  expect(
+    await runCli(
+      { ...args, debug: true },
+      {
+        createLogger: async () => ({
+          append: async (event) => {
+            events.push(event);
+          }
+        }),
+        acquireLock: async () => ({
+          release: async () => ({ released: true as const })
+        }),
+        execute: async (context) => {
+          await context.advance("VALIDATED");
+          await context.advance("READY_TO_SUBMIT");
+          await context.advance("SUBMITTING");
+          throw pageError;
+        },
+        emitResult: async () => undefined
+      }
+    )
+  ).toBe(40);
+
+  const diagnostic = JSON.stringify(events);
+  expect(diagnostic).toContain("Booking page control is unavailable.");
+  expect(diagnostic).not.toContain(privateCause);
+  expect(diagnostic).not.toContain("private checkout state");
+});
+
 it("classifies a submission-stage logging failure as uncertain without retrying", async () => {
   const execute = vi.fn(async (context: ExecutionContext) => {
     await context.advance("VALIDATED");
