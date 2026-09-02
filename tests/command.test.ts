@@ -1,9 +1,18 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, it, vi } from "vitest";
 
 import { COMMAND_FAILURE_DIAGNOSTIC, runCommand } from "../src/command.js";
 
 const checkoutUrl =
   "https://app.arketa.co/iframe/synthetic/calendar/checkout/command";
+
+it("builds the public executable before the test suite", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8")
+  ) as { scripts?: Record<string, string> };
+  expect(packageJson.scripts?.pretest).toBe("npm run build");
+});
 
 it("passes the validated public arguments to one workflow invocation", async () => {
   const execute = vi.fn(

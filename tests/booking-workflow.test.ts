@@ -105,6 +105,47 @@ it("stops waitlist availability when the caller permits booking only", async () 
   expect(result).toMatchObject({ outcome: "SAFE_STOP", exit_code: 20 });
 });
 
+it.each(["read", "controls"] as const)(
+  "logs the %s exception before converting it to a safe stop",
+  async (failureStage) => {
+    const events: unknown[] = [];
+    const syntheticFailure = new Error(`synthetic ${failureStage} failure`);
+    const wrappedFailure = new Error("fixed page wrapper", {
+      cause: syntheticFailure
+    });
+    const page = pageFor(state("book"));
+    const failingPage: BookingPage = {
+      ...page,
+      ...(failureStage === "read"
+        ? { read: async () => Promise.reject(wrappedFailure) }
+        : { selectMyself: async () => Promise.reject(wrappedFailure) })
+    };
+
+    const result = await prepareBookingWorkflow(
+      {
+        input: { ...input, dry_run: false },
+        profileDir: "/private/runtime/Profile",
+        advance: async () => undefined,
+        log: async (event, data) => {
+          events.push({ event, data });
+        }
+      },
+      failingPage
+    );
+
+    expect(result).toMatchObject({ outcome: "SAFE_STOP", exit_code: 20 });
+    expect(events).toContainEqual({
+      event: "workflow.page_failed",
+      data: {
+        exception: expect.objectContaining({
+          name: "Error",
+          message: syntheticFailure.message
+        })
+      }
+    });
+  }
+);
+
 it.each([
   ["already_booked", "ALREADY_BOOKED"],
   ["already_waitlisted", "ALREADY_WAITLISTED"]

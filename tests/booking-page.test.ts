@@ -582,6 +582,8 @@ describe("BookingPage read boundary", () => {
     );
     expect(String(injuryError)).not.toContain(privateLabel);
     expect(String(cancellationError)).not.toContain(privateLabel);
+    expect((injuryError as Error).cause).toBeInstanceOf(Error);
+    expect((cancellationError as Error).cause).toBeInstanceOf(Error);
     await page.close();
   });
 
@@ -639,6 +641,7 @@ describe("BookingPage read boundary", () => {
 
       expect(String(error)).toContain("Booking page could not be read.");
       expect(String(error)).not.toContain(privateValue);
+      expect((error as Error).cause).toBeInstanceOf(Error);
       await page.close();
     }
   );

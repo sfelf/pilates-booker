@@ -26,7 +26,7 @@ The default private runtime is platform-specific:
 | Linux    | `${XDG_STATE_HOME:-$HOME/.local/state}/pilates-booker` |
 | Windows  | `$env:LOCALAPPDATA\Pilates Booker`                     |
 
-Use `--runtime` with an absolute path to override the default. Keep every runtime outside the repository checkout so authenticated profile data and debug logs cannot be added to Git. On macOS and Linux, protect a custom runtime with mode `700`. The runtime contains `Profile/`, the exclusive `run.lock`, and opt-in debug logs only. A current lock contains versioned metadata with only the owner PID.
+Use `--runtime` with an absolute path to override the default. Keep every runtime outside the repository checkout so authenticated profile data and debug logs cannot be added to Git. On macOS and Linux, protect a custom runtime with mode `700`. On Windows, verify that Windows inherited ACLs restrict the runtime to the current account. The runtime contains `Profile/`, the exclusive `run.lock`, and opt-in debug logs only. A current lock contains versioned metadata with only the owner PID.
 
 Sign in manually using the same profile before running the utility:
 

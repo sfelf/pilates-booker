@@ -108,7 +108,8 @@ export async function prepareBookingWorkflow(
   let initial: BookingPageState;
   try {
     initial = await page.read();
-  } catch {
+  } catch (error) {
+    await logPageFailure(context, error);
     return safeStop();
   }
 
@@ -165,7 +166,8 @@ export async function prepareBookingWorkflow(
     await page.selectPackage(selection.option.row);
     await page.acceptCancellationPolicy();
     finalState = await page.read();
-  } catch {
+  } catch (error) {
+    await logPageFailure(context, error);
     return safeStop();
   }
 
@@ -183,6 +185,35 @@ export async function prepareBookingWorkflow(
       no_charge: true,
       cancellation_policy_accepted: true
     }
+  };
+}
+
+async function logPageFailure(
+  context: ExecutionContext,
+  error: unknown
+): Promise<void> {
+  try {
+    await context.log("workflow.page_failed", {
+      exception: projectPageException(error)
+    });
+  } catch {
+    // Diagnostic failure must not change the safe-stop decision.
+  }
+}
+
+function projectPageException(error: unknown): {
+  name?: string;
+  message?: string;
+  stack?: string;
+} {
+  if (error instanceof Error && error.cause instanceof Error) {
+    return projectPageException(error.cause);
+  }
+  if (!(error instanceof Error)) return { name: "Error" };
+  return {
+    name: error.name,
+    message: error.message,
+    ...(error.stack === undefined ? {} : { stack: error.stack })
   };
 }
 
