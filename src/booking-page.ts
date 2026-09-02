@@ -992,14 +992,9 @@ async function readLiveBookingPage(
     };
   });
   const { dateTimeText, instructorText } = metadata;
-  const timezone =
-    options.timezone ??
-    (await page.evaluate(
-      () => Intl.DateTimeFormat().resolvedOptions().timeZone
-    ));
   const parsed = parseLiveDateTime(
     dateTimeText,
-    timezone,
+    options.timezone,
     options.now ?? new Date()
   );
   if (!instructorText.startsWith("with ")) throw new Error("incomplete class");
@@ -1009,7 +1004,7 @@ async function readLiveBookingPage(
     date: parsed.date,
     start_time: parsed.start,
     end_time: parsed.end,
-    timezone
+    timezone: options.timezone ?? parsed.timezone
   };
   const enrollment = await readLiveEnrollment(page);
   if (enrollment !== undefined) {
@@ -1267,9 +1262,9 @@ async function readConfirmationCounts(
 
 function parseLiveDateTime(
   value: string,
-  timezone: string,
+  timezone: string | undefined,
   now: Date
-): Readonly<{ date: string; start: string; end: string }> {
+): Readonly<{ date: string; start: string; end: string; timezone: string }> {
   const match = value.match(
     /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12][0-9]|3[01]) • (0?[1-9]|1[0-2]):([0-5][0-9]) (AM|PM) - (0?[1-9]|1[0-2]):([0-5][0-9]) (AM|PM) ((?:[A-Z]{2,5}|GMT[+-](?:[0-9]|1[0-4])(?::[0-5][0-9])?))$/u
   );
@@ -1284,13 +1279,17 @@ function parseLiveDateTime(
     match[1]!,
     match[2]!,
     Number(match[3]!),
-    timezone,
+    timezone ?? "UTC",
     now
   );
-  if (!zoneNamesForLocalDateTime(date, start, timezone).has(match[10]!)) {
+  const displayedTimezone = match[10]!;
+  if (
+    timezone !== undefined &&
+    !zoneNamesForLocalDateTime(date, start, timezone).has(displayedTimezone)
+  ) {
     throw new Error("class timezone mismatch");
   }
-  return { date, start, end };
+  return { date, start, end, timezone: displayedTimezone };
 }
 
 function inferUpcomingDate(
@@ -1322,16 +1321,9 @@ function inferUpcomingDate(
       timeZone: timezone
     }).format(now)
   );
-  const todayParts = new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    timeZone: timezone
-  }).formatToParts(now);
-  const todayValue = (type: Intl.DateTimeFormatPartTypes): string =>
-    todayParts.find((part) => part.type === type)?.value ?? "";
-  const today = `${todayValue("year")}-${todayValue("month")}-${todayValue("day")}`;
-  for (const year of [currentYear, currentYear + 1]) {
+  const candidates: ReadonlyArray<
+    Readonly<{ date: string; distance: number }>
+  > = [currentYear - 1, currentYear, currentYear + 1].flatMap((year) => {
     const candidate = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const instant = new Date(`${candidate}T12:00:00Z`);
     const prefix = new Intl.DateTimeFormat("en-US", {
@@ -1340,11 +1332,20 @@ function inferUpcomingDate(
       day: "numeric",
       timeZone: "UTC"
     }).format(instant);
-    if (candidate >= today && prefix === `${weekday}, ${month} ${day}`) {
-      return candidate;
-    }
-  }
-  throw new Error("invalid class date");
+    return prefix === `${weekday}, ${month} ${day}`
+      ? [
+          {
+            date: candidate,
+            distance: Math.abs(instant.getTime() - now.getTime())
+          }
+        ]
+      : [];
+  });
+  const closest = [...candidates].sort(
+    (left, right) => left.distance - right.distance
+  )[0];
+  if (closest === undefined) throw new Error("invalid class date");
+  return closest.date;
 }
 
 function zoneNamesForLocalDateTime(
