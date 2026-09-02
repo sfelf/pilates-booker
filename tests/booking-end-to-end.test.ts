@@ -1,8 +1,16 @@
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+  vi
+} from "vitest";
 import { createBookingPage, type BookingBrowser } from "../src/booking-page.js";
 import { runCommand } from "../src/command.js";
 import type { BookingResult } from "../src/contracts.js";
@@ -16,6 +24,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await browser.close();
 });
+afterEach(() => vi.restoreAllMocks());
 
 const checkoutUrl =
   "https://app.arketa.co/iframe/synthetic/calendar/checkout/e2e";
@@ -212,4 +221,123 @@ test("debug is opt-in and writes only the bounded runtime log", async () => {
   });
   expect(await readdir(runtime)).not.toContain("journals");
   expect(await readdir(runtime)).not.toContain("results");
+});
+
+test("public command recovers a lock whose PID is conclusively absent", async () => {
+  const runtime = await mkdtemp(join(tmpdir(), "pilates-stale-e2e-"));
+  const lockPath = join(runtime, "run.lock");
+  const staleLock = `${JSON.stringify({ version: 2, pid: 77 })}\n`;
+  await writeFile(lockPath, staleLock, "utf8");
+  vi.spyOn(process, "kill").mockImplementation(() => {
+    throw Object.assign(new Error("synthetic private process message"), {
+      code: "ESRCH"
+    });
+  });
+  let browserInvocations = 0;
+  const bookingBrowser: BookingBrowser = async (_profile, _url, use) => {
+    browserInvocations += 1;
+    const page = await browser.newPage();
+    try {
+      await page.setContent(bookingPageHtml({ action: "already_booked" }));
+      return await use(createBookingPage(page));
+    } finally {
+      await page.close();
+    }
+  };
+  let stdout = "";
+
+  const exit = await runCommand(
+    [
+      "--booking-url",
+      checkoutUrl,
+      "--allow-package",
+      "Studio / 10-Class Pack",
+      "--runtime",
+      runtime
+    ],
+    {
+      bookingBrowser,
+      emitResult: async (bytes) => {
+        stdout += bytes;
+      }
+    }
+  );
+
+  const expected: BookingResult = {
+    schema_version: 2,
+    outcome: "ALREADY_BOOKED",
+    exit_code: 0,
+    action_submitted: false,
+    confirmation_verified: true,
+    observed_class: observedClass,
+    safety_checks: {
+      approved_package_verified: false,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: "Existing booking confirmed."
+  };
+  expect(exit).toBe(0);
+  expect(stdout).toBe(`${JSON.stringify(expected)}\n`);
+  expect(validateResult(JSON.parse(stdout))).toBe(true);
+  expect(browserInvocations).toBe(1);
+  expect(await readdir(runtime)).toEqual([]);
+  expect(stdout).not.toContain(staleLock.trim());
+});
+
+test("public command preserves an ambiguous PID lock before browser and debug work", async () => {
+  const runtime = await mkdtemp(join(tmpdir(), "pilates-lock-e2e-"));
+  const lockPath = join(runtime, "run.lock");
+  const ambiguousLock = `${JSON.stringify({ version: 2, pid: 77 })}\n`;
+  await writeFile(lockPath, ambiguousLock, "utf8");
+  vi.spyOn(process, "kill").mockImplementation(() => {
+    throw Object.assign(new Error("synthetic private process message"), {
+      code: "EPERM"
+    });
+  });
+  let browserInvocations = 0;
+  const bookingBrowser: BookingBrowser = async () => {
+    browserInvocations += 1;
+    throw new Error("browser must not open while the runtime lock is held");
+  };
+  let stdout = "";
+
+  const exit = await runCommand(
+    [
+      "--booking-url",
+      checkoutUrl,
+      "--allow-package",
+      "Studio / 10-Class Pack",
+      "--runtime",
+      runtime,
+      "--debug"
+    ],
+    {
+      bookingBrowser,
+      emitResult: async (bytes) => {
+        stdout += bytes;
+      }
+    }
+  );
+
+  const expected: BookingResult = {
+    schema_version: 2,
+    outcome: "TECHNICAL_FAILURE",
+    exit_code: 30,
+    action_submitted: false,
+    confirmation_verified: false,
+    safety_checks: {
+      approved_package_verified: false,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: "Runtime operation failed."
+  };
+  expect(exit).toBe(30);
+  expect(stdout).toBe(`${JSON.stringify(expected)}\n`);
+  expect(validateResult(JSON.parse(stdout))).toBe(true);
+  expect(browserInvocations).toBe(0);
+  expect(await readdir(runtime)).toEqual(["run.lock"]);
+  expect(await readFile(lockPath, "utf8")).toBe(ambiguousLock);
+  expect(stdout).not.toContain(ambiguousLock.trim());
 });
