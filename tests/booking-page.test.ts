@@ -1018,10 +1018,18 @@ describe("BookingPage confirmation boundary", () => {
     });
     await booking.read();
     await booking.submit("book");
-    const reveal = Promise.all([
-      revealConfirmation(page, "confirmation-booked"),
-      revealConfirmation(page, "confirmation-waitlisted")
-    ]);
+    const reveal = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await page
+        .locator(
+          '[data-testid="confirmation-booked"], [data-testid="confirmation-waitlisted"]'
+        )
+        .evaluateAll((elements) => {
+          for (const element of elements) {
+            (element as HTMLElement).hidden = false;
+          }
+        });
+    })();
 
     await expect(booking.waitForConfirmation("book")).resolves.toEqual({
       kind: "UNKNOWN"
