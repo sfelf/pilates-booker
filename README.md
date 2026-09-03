@@ -1,12 +1,12 @@
 # pilates-booker
 
-[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Release: v0.2.0](https://img.shields.io/badge/release-v0.2.0-blue)](https://github.com/sfelf/pilates-booker/releases/tag/v0.2.0) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js >=22.12.0](https://img.shields.io/badge/Node.js-%3E%3D22.12.0-339933?logo=nodedotjs&logoColor=white)](package.json)
+[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Release: v0.2.0](https://img.shields.io/badge/release-v0.2.0-blue)](https://github.com/sfelf/pilates-booker/releases/tag/v0.2.0) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js 22.13–22.x or >=24](https://img.shields.io/badge/Node.js-22.13%E2%80%9322.x_or_%3E%3D24-339933?logo=nodedotjs&logoColor=white)](package.json)
 
 Pilates Booker inspects or submits one Arketa booking or waitlist attempt from command-line arguments. Arketa is authoritative for enrollment state. The utility does not discover classes, schedule runs, automate login, or retry automatically.
 
 ## Install
 
-Install Node.js `>=22.12.0`, clone this repository into a private location, and run:
+Install Node.js `^22.13.0 || >=24.0.0`, clone this repository into a private location, and run:
 
 ```sh
 npm ci
