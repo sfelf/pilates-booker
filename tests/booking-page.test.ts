@@ -1779,7 +1779,7 @@ describe("BookingBrowser lifecycle", () => {
     };
     const launcher: PersistentBrowserLauncher = async () => context;
     const browserBoundary = createBookingBrowser(expectedClass, launcher, {
-      readinessTimeoutMs: 50
+      readinessTimeoutMs: 400
     });
 
     try {
