@@ -2,14 +2,24 @@ import { readFile } from "node:fs/promises";
 
 import { expect, test } from "vitest";
 
-test("documents only the executable CLI-only v0.2.0 operating model", async () => {
-  const [readme, packageJson] = await Promise.all([
+import { APPLICATION_VERSION } from "../src/version.js";
+
+test("documents only the executable CLI-only v0.2.1 operating model", async () => {
+  const [readme, architecture, packageJson, packageLock] = await Promise.all([
     readFile(new URL("../README.md", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8")
+    readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../package-lock.json", import.meta.url), "utf8")
   ]);
   expect(JSON.parse(packageJson)).toMatchObject({
+    version: APPLICATION_VERSION,
     engines: { node: "^22.13.0 || >=24.0.0" }
   });
+  expect(JSON.parse(packageLock)).toMatchObject({
+    version: APPLICATION_VERSION,
+    packages: { "": { version: APPLICATION_VERSION } }
+  });
+  expect(architecture).toContain(`Pilates Booker v${APPLICATION_VERSION}`);
   for (const required of [
     "--booking-url",
     "--allow-package",
@@ -17,6 +27,8 @@ test("documents only the executable CLI-only v0.2.0 operating model", async () =
     "--dry-run",
     "--debug",
     "Node.js 22.13–22.x or >=24",
+    "Release: v0.2.1",
+    "releases/tag/v0.2.1",
     "Install Node.js `^22.13.0 || >=24.0.0`",
     "pilates-booker.log.1",
     "outside the repository checkout",
@@ -45,7 +57,7 @@ test("documents only the executable CLI-only v0.2.0 operating model", async () =
     expect(readme).toContain(required);
   }
   expect(readme).not.toMatch(
-    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0/iu
+    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|Release: v0\.2\.0|releases\/tag\/v0\.2\.0/iu
   );
   expect(readme).toMatch(/\| Symptom or exit\s+\| Meaning and action\s+\|/u);
   expect(readme.trimEnd()).toMatch(
