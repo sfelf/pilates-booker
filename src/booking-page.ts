@@ -1073,7 +1073,7 @@ async function readLiveBookingPage(
     }
     const balanceMatch = (await balances.innerText())
       .trim()
-      .match(/^(0|[1-9][0-9]*) remaining$/u);
+      .match(/^(0|[1-9][0-9]*) remaining/u);
     if (balanceMatch?.[1] === undefined) throw new Error("invalid package");
     const remaining = Number(balanceMatch[1]);
     if (!Number.isSafeInteger(remaining)) throw new Error("invalid package");
