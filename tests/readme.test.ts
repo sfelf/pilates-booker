@@ -3,16 +3,21 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "vitest";
 
 test("documents only the executable CLI-only v0.2.0 operating model", async () => {
-  const readme = await readFile(
-    new URL("../README.md", import.meta.url),
-    "utf8"
-  );
+  const [readme, packageJson] = await Promise.all([
+    readFile(new URL("../README.md", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8")
+  ]);
+  expect(JSON.parse(packageJson)).toMatchObject({
+    engines: { node: "^22.13.0 || >=24.0.0" }
+  });
   for (const required of [
     "--booking-url",
     "--allow-package",
     "--book-only",
     "--dry-run",
     "--debug",
+    "Node.js 22.13–22.x or >=24",
+    "Install Node.js `^22.13.0 || >=24.0.0`",
     "pilates-booker.log.1",
     "outside the repository checkout",
     "Windows inherited ACLs restrict the runtime to the current account",
@@ -40,7 +45,7 @@ test("documents only the executable CLI-only v0.2.0 operating model", async () =
     expect(readme).toContain(required);
   }
   expect(readme).not.toMatch(
-    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file/iu
+    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0/iu
   );
   expect(readme).toMatch(/\| Symptom or exit\s+\| Meaning and action\s+\|/u);
   expect(readme.trimEnd()).toMatch(
