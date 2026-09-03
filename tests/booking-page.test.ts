@@ -130,7 +130,9 @@ describe("BookingPage read boundary", () => {
     "03 remaining • Renews October 01, 2026",
     "-1 remaining • Renews October 01, 2026",
     "remaining 3",
-    "3remaining"
+    "3remaining",
+    "3 remainingly",
+    "3 remaining-payments"
   ])(
     "rejects an invalid leading package balance in %s",
     async (balanceText) => {
