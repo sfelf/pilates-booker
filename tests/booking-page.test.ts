@@ -111,6 +111,42 @@ describe("BookingPage read boundary", () => {
     await page.close();
   });
 
+  it.each([
+    "3 remaining • Renews October 01, 2026",
+    "3 remaining arbitrary future package metadata"
+  ])("uses the leading package balance from %s", async (balanceText) => {
+    const page = await syntheticPage(
+      liveBookingPageHtml().replace("3 remaining", balanceText)
+    );
+
+    const state = await createBookingPage(page, expectedClass).read();
+
+    expect(state.packages[0]?.remaining).toBe(3);
+    expect(state.observation.packages[0]?.remaining).toBe(3);
+    await page.close();
+  });
+
+  it.each([
+    "03 remaining • Renews October 01, 2026",
+    "-1 remaining • Renews October 01, 2026",
+    "remaining 3",
+    "3remaining",
+    "3 remainingly",
+    "3 remaining-payments"
+  ])(
+    "rejects an invalid leading package balance in %s",
+    async (balanceText) => {
+      const page = await syntheticPage(
+        liveBookingPageHtml().replace("3 remaining", balanceText)
+      );
+
+      await expect(
+        createBookingPage(page, expectedClass).read()
+      ).rejects.toThrow("Booking page could not be read.");
+      await page.close();
+    }
+  );
+
   it("uses the checkout-displayed timezone when the browser runs in UTC", async () => {
     const context = await browser.newContext({ timezoneId: "UTC" });
     const page = await context.newPage();
@@ -1745,7 +1781,7 @@ describe("BookingBrowser lifecycle", () => {
     };
     const launcher: PersistentBrowserLauncher = async () => context;
     const browserBoundary = createBookingBrowser(expectedClass, launcher, {
-      readinessTimeoutMs: 50
+      readinessTimeoutMs: 400
     });
 
     try {
