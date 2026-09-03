@@ -18,6 +18,7 @@ import { acquireProfileLock, type ProfileLock } from "./lock.js";
 import { validateResultForInput } from "./result-validator.js";
 import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
 import { resolveRuntimePaths, type RuntimePathsV2 } from "./runtime-paths.js";
+import { APPLICATION_VERSION } from "./version.js";
 
 export type ExecutionContext = Readonly<{
   input: CommandArguments["input"];
@@ -124,7 +125,7 @@ export async function runCli(
       logger = await (dependencies.createLogger ?? createDebugLogger)(paths, {
         now: () => new Date(),
         pid: process.pid,
-        version: "0.2.0"
+        version: APPLICATION_VERSION
       });
       await logger.append({
         event: "command.started",
