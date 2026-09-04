@@ -1,0 +1,52 @@
+name: Feature request
+description: Submit a synthetic, privacy-conscious feature request only.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not include booking URLs, checkout URLs, class details, package names or
+        details, logs containing private values, request or policy contents, cookies,
+        tokens, authenticated captures, browser profiles, injury information, real
+        customer data, or unsafe diagnostics. Use only synthetic information. Report
+        vulnerabilities privately at https://github.com/sfelf/pilates-booker/security/advisories/new.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the improvement using synthetic information only.
+      placeholder: Describe the proposed improvement.
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: Describe the expected product outcome using synthetic information only.
+      placeholder: State the expected outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Current behavior
+      description: Describe the current product outcome using synthetic information only.
+      placeholder: State the current outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Synthetic reproduction steps
+      description: Provide minimal steps that illustrate the behavior using synthetic information only.
+      placeholder: List numbered synthetic steps.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Identify the operating system and application version using synthetic information only.
+      placeholder: "Example: macOS 15, Pilates Booker v0.2.1"
+    validations:
+      required: true
