@@ -2,6 +2,12 @@
   "name": "pilates-booker",
   "private": true,
   "version": "0.2.1",
+  "description": "A command-line assistant to book or waitlist a Pilates class.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sfelf/pilates-booker.git"
+  },
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": "^22.13.0 || >=24.0.0"

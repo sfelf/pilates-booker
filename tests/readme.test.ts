@@ -12,12 +12,25 @@ test("documents only the executable CLI-only v0.2.1 operating model", async () =
     readFile(new URL("../package-lock.json", import.meta.url), "utf8")
   ]);
   expect(JSON.parse(packageJson)).toMatchObject({
+    description:
+      "A command-line assistant to book or waitlist a Pilates class.",
+    repository: {
+      type: "git",
+      url: "git+https://github.com/sfelf/pilates-booker.git"
+    },
+    license: "AGPL-3.0-or-later",
+    private: true,
     version: APPLICATION_VERSION,
     engines: { node: "^22.13.0 || >=24.0.0" }
   });
   expect(JSON.parse(packageLock)).toMatchObject({
     version: APPLICATION_VERSION,
-    packages: { "": { version: APPLICATION_VERSION } }
+    packages: {
+      "": {
+        license: "AGPL-3.0-or-later",
+        version: APPLICATION_VERSION
+      }
+    }
   });
   expect(architecture).toContain(`Pilates Booker v${APPLICATION_VERSION}`);
   for (const required of [
@@ -38,6 +51,8 @@ test("documents only the executable CLI-only v0.2.1 operating model", async () =
     "verify that `observed_class` matches the class you intend to book",
     "debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE`",
     "Arketa is authoritative",
+    "Pilates Booker is an independent project and is not affiliated with or endorsed by Arketa.",
+    "You are responsible for ensuring your use complies with applicable platform terms and studio policies.",
     "recorded PID is conclusively absent",
     "legacy, malformed, unreadable, active, or indeterminate",
     "PID reuse",
@@ -57,7 +72,7 @@ test("documents only the executable CLI-only v0.2.1 operating model", async () =
     expect(readme).toContain(required);
   }
   expect(readme).not.toMatch(
-    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|Release: v0\.2\.0|releases\/tag\/v0\.2\.0/iu
+    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|Release: v0\.2\.0|releases\/tag\/v0\.2\.0|logo=nodedotjs|logoColor=/iu
   );
   expect(readme).toMatch(/\| Symptom or exit\s+\| Meaning and action\s+\|/u);
   expect(readme.trimEnd()).toMatch(
