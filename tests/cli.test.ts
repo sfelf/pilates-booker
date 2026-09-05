@@ -502,7 +502,7 @@ it("initializes requested logging under the lock before browser work and records
   expect(createLogger).toHaveBeenCalledOnce();
   expect(createLogger).toHaveBeenCalledWith(
     expect.any(Object),
-    expect.objectContaining({ version: "0.2.1" })
+    expect.objectContaining({ version: "0.2.2" })
   );
   expect(calls).toEqual(["lock", "logger", "browser"]);
   expect(events[0]).toMatchObject({
