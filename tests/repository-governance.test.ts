@@ -217,6 +217,11 @@ test("routes public issue forms through fixed privacy warnings", async () => {
     const form = parse(source) as unknown;
     requireIssueForm(form);
     assertSafeIssueForm(form);
+    expect(
+      fieldText(
+        (form.body ?? []).find((field) => field.id === "environment") ?? {}
+      )
+    ).toContain("Pilates Booker v0.2.2");
   }
 });
 
