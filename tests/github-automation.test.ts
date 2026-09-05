@@ -9,9 +9,19 @@ const SETUP_NODE_ACTION =
   "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
 const DEPENDENCY_REVIEW_ACTION =
   "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294";
+const CODEQL_INIT_ACTION =
+  "github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938";
+const CODEQL_ANALYZE_ACTION =
+  "github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938";
 const READ_ONLY_PERMISSIONS = { contents: "read" };
+const CODEQL_PERMISSIONS = {
+  contents: "read",
+  packages: "read",
+  "security-events": "write"
+};
 const WORKFLOW_PERMISSION_PROFILES: Record<string, Record<string, string>> = {
   "ci.yml": READ_ONLY_PERMISSIONS,
+  "codeql.yml": CODEQL_PERMISSIONS,
   "dependency-review.yml": READ_ONLY_PERMISSIONS
 };
 const ACTION_REFERENCE =
@@ -25,6 +35,7 @@ type Job = {
 };
 
 type Workflow = {
+  concurrency?: unknown;
   jobs?: Record<string, Job>;
   on?: unknown;
   permissions?: unknown;
@@ -68,6 +79,7 @@ const dependencyReviewFile = new URL(
   "../.github/workflows/dependency-review.yml",
   import.meta.url
 );
+const codeqlFile = new URL("../.github/workflows/codeql.yml", import.meta.url);
 
 function workflowFileNames(entries: readonly string[]): string[] {
   return [
@@ -437,4 +449,57 @@ test("runs high-severity dependency review only for public pull requests", async
   expect(dependencyReview?.steps?.[0]?.with).toEqual({
     "fail-on-severity": "high"
   });
+});
+
+test("runs JavaScript and TypeScript CodeQL only for public repository events", async () => {
+  const source = await readFile(codeqlFile, "utf8");
+  const workflow = parse(source) as Workflow;
+  const jobs = workflow.jobs ?? {};
+  const codeql = jobs.codeql;
+
+  expect(eventNames(workflow.on)).toEqual(["pull_request", "push", "schedule"]);
+  expect(workflow.on).toEqual({
+    pull_request: null,
+    push: { branches: ["main"] },
+    schedule: [{ cron: "17 3 * * 5" }]
+  });
+  expect(workflow.concurrency).toEqual({
+    group: "codeql-${{ github.workflow }}-${{ github.ref }}",
+    "cancel-in-progress": true
+  });
+  assertExactWorkflowPermissions(workflow, CODEQL_PERMISSIONS);
+  expect(Object.keys(jobs)).toEqual(["codeql"]);
+  expect(codeql?.if).toBe(
+    "${{ github.event.repository.visibility == 'public' }}"
+  );
+  expect((codeql as { "runs-on"?: unknown } | undefined)?.["runs-on"]).toBe(
+    "ubuntu-latest"
+  );
+  expect(actionReferences(codeql)).toEqual([
+    CHECKOUT_ACTION,
+    CODEQL_INIT_ACTION,
+    CODEQL_ANALYZE_ACTION
+  ]);
+  expect(codeql?.steps).toHaveLength(3);
+  expect(actionOccurrences(source)).toEqual([
+    {
+      line: 26,
+      reference: CHECKOUT_ACTION,
+      versionComment: "# v7"
+    },
+    {
+      line: 28,
+      reference: CODEQL_INIT_ACTION,
+      versionComment: "# v4.37.9"
+    },
+    {
+      line: 32,
+      reference: CODEQL_ANALYZE_ACTION,
+      versionComment: "# v4.37.9"
+    }
+  ]);
+  expect(codeql?.steps?.[1]?.with).toEqual({
+    languages: "javascript-typescript"
+  });
+  expect(codeql?.steps?.[2]?.with).toBeUndefined();
 });
