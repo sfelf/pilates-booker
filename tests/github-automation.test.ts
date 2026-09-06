@@ -16,13 +16,14 @@ const CODEQL_ANALYZE_ACTION =
 const CODECOV_ACTION =
   "codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f";
 const READ_ONLY_PERMISSIONS = { contents: "read" };
+const CI_PERMISSIONS = { contents: "read", "id-token": "write" };
 const CODEQL_PERMISSIONS = {
   contents: "read",
   packages: "read",
   "security-events": "write"
 };
 const WORKFLOW_PERMISSION_PROFILES: Record<string, Record<string, string>> = {
-  "ci.yml": READ_ONLY_PERMISSIONS,
+  "ci.yml": CI_PERMISSIONS,
   "codeql.yml": CODEQL_PERMISSIONS,
   "dependency-review.yml": READ_ONLY_PERMISSIONS
 };
@@ -367,12 +368,12 @@ test("rejects a job-level contents: write permission override", () => {
   ).toThrow();
 });
 
-test("keeps CI read-only and uses the approved v7 action commits", async () => {
+test("limits CI permissions to source reads and Codecov OIDC", async () => {
   const source = await readFile(ciFile, "utf8");
   const ci = parse(source) as Workflow;
   const references = actionReferences(ci);
 
-  assertExactWorkflowPermissions(ci, READ_ONLY_PERMISSIONS);
+  assertExactWorkflowPermissions(ci, CI_PERMISSIONS);
   expect(references).toEqual([
     CHECKOUT_ACTION,
     SETUP_NODE_ACTION,
@@ -380,17 +381,17 @@ test("keeps CI read-only and uses the approved v7 action commits", async () => {
   ]);
   expect(actionOccurrences(source)).toEqual([
     {
-      line: 16,
+      line: 17,
       reference: CHECKOUT_ACTION,
       versionComment: "# v7"
     },
     {
-      line: 17,
+      line: 18,
       reference: SETUP_NODE_ACTION,
       versionComment: "# v7"
     },
     {
-      line: 29,
+      line: 30,
       reference: CODECOV_ACTION,
       versionComment: "# v7.0.0"
     }
@@ -422,7 +423,8 @@ test("runs explicit V8 coverage and fails CI when the public Codecov upload fail
     with: {
       disable_search: true,
       fail_ci_if_error: true,
-      files: "./coverage/lcov.info"
+      files: "./coverage/lcov.info",
+      use_oidc: true
     }
   });
 });
