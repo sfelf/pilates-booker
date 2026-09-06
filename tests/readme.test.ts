@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 
 import { APPLICATION_VERSION } from "../src/version.js";
 
-test("documents only the executable CLI-only v0.2.2 operating model", async () => {
+test("documents only the executable CLI-only operating model", async () => {
   const [readme, architecture, packageJson, packageLock] = await Promise.all([
     readFile(new URL("../README.md", import.meta.url), "utf8"),
     readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
@@ -32,8 +32,13 @@ test("documents only the executable CLI-only v0.2.2 operating model", async () =
       }
     }
   });
-  expect(APPLICATION_VERSION).toBe("0.2.2");
-  expect(architecture).toContain(`Pilates Booker v${APPLICATION_VERSION}`);
+  expect(APPLICATION_VERSION).toBe("0.2.3");
+  expect(architecture).toContain(
+    "Pilates Booker is one independent command invocation."
+  );
+  expect(architecture).not.toMatch(
+    /Pilates Booker v\d+\.\d+\.\d+ is one independent command invocation\./u
+  );
   for (const required of [
     "--booking-url",
     "--allow-package",
@@ -41,8 +46,6 @@ test("documents only the executable CLI-only v0.2.2 operating model", async () =
     "--dry-run",
     "--debug",
     "Node.js 22.13–22.x or >=24",
-    "Release: v0.2.2",
-    "releases/tag/v0.2.2",
     "Install Node.js `^22.13.0 || >=24.0.0`",
     "pilates-booker.log.1",
     "outside the repository checkout",
@@ -73,12 +76,17 @@ test("documents only the executable CLI-only v0.2.2 operating model", async () =
     expect(readme).toContain(required);
   }
   expect(readme).not.toMatch(
-    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|Release: v0\.2\.0|releases\/tag\/v0\.2\.0|Release: v0\.2\.1|releases\/tag\/v0\.2\.1|logo=nodedotjs|logoColor=/iu
+    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|img\.shields\.io\/badge\/release-|releases\/tag\/v\d|logo=nodedotjs|logoColor=/iu
   );
   expect(readme).toMatch(/\| Symptom or exit\s+\| Meaning and action\s+\|/u);
   expect(
     readme.match(
       /\[!\[Codecov coverage\]\(https:\/\/codecov\.io\/gh\/sfelf\/pilates-booker\/branch\/main\/graph\/badge\.svg\)\]\(https:\/\/app\.codecov\.io\/gh\/sfelf\/pilates-booker\)/gu
+    )
+  ).toHaveLength(1);
+  expect(
+    readme.match(
+      /\[!\[Latest release\]\(https:\/\/img\.shields\.io\/github\/v\/release\/sfelf\/pilates-booker\?display_name=tag&label=release\)\]\(https:\/\/github\.com\/sfelf\/pilates-booker\/releases\/latest\)/gu
     )
   ).toHaveLength(1);
   expect(readme.trimEnd()).toMatch(
