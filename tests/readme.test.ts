@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 
 import { APPLICATION_VERSION } from "../src/version.js";
 
-test("documents only the executable CLI-only v0.2.3 operating model", async () => {
+test("documents only the executable CLI-only operating model", async () => {
   const [readme, architecture, packageJson, packageLock] = await Promise.all([
     readFile(new URL("../README.md", import.meta.url), "utf8"),
     readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
@@ -33,7 +33,12 @@ test("documents only the executable CLI-only v0.2.3 operating model", async () =
     }
   });
   expect(APPLICATION_VERSION).toBe("0.2.3");
-  expect(architecture).toContain(`Pilates Booker v${APPLICATION_VERSION}`);
+  expect(architecture).toContain(
+    "Pilates Booker is one independent command invocation."
+  );
+  expect(architecture).not.toMatch(
+    /Pilates Booker v\d+\.\d+\.\d+ is one independent command invocation\./u
+  );
   for (const required of [
     "--booking-url",
     "--allow-package",

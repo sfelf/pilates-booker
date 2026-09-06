@@ -1,6 +1,6 @@
 # Architecture
 
-Pilates Booker v0.2.3 is one independent command invocation. It parses validated CLI values, resolves one private runtime, acquires the exclusive profile lock, optionally initializes debug logging, inspects one Arketa checkout, optionally submits once, emits one schema-v2 result, and releases the lock.
+Pilates Booker is one independent command invocation. It parses validated CLI values, resolves one private runtime, acquires the exclusive profile lock, optionally initializes debug logging, inspects one Arketa checkout, optionally submits once, emits one schema-v2 result, and releases the lock.
 
 ## Component ownership
 

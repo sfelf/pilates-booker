@@ -221,7 +221,10 @@ test("routes public issue forms through fixed privacy warnings", async () => {
       (field) => field.id === "environment"
     );
     expect(environment?.attributes?.placeholder).toContain(
-      "Pilates Booker v0.2.3"
+      "Pilates Booker vX.Y.Z"
+    );
+    expect(environment?.attributes?.placeholder).not.toMatch(
+      /Pilates Booker v\d+\.\d+\.\d+/u
     );
   }
 });
