@@ -410,8 +410,9 @@ test("runs explicit V8 coverage and fails CI when the public Codecov upload fail
   };
   const steps = ci.jobs?.validate?.steps ?? [];
 
+  expect(packageJson.scripts?.["pretest:coverage"]).toBe("npm run build");
   expect(packageJson.scripts?.["test:coverage"]).toBe(
-    "vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --coverage.reporter=lcov"
+    "vitest run --coverage.enabled --coverage.provider=v8 --coverage.include=src --coverage.reporter=text --coverage.reporter=lcov"
   );
   expect(packageJson.devDependencies?.["@vitest/coverage-v8"]).toBe("^3.2.7");
   expect(steps.map(({ run }) => run).filter(Boolean)).toContain(
