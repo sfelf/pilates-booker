@@ -5,12 +5,14 @@ import { expect, test } from "vitest";
 import { APPLICATION_VERSION } from "../src/version.js";
 
 test("documents only the executable CLI-only operating model", async () => {
-  const [readme, architecture, packageJson, packageLock] = await Promise.all([
-    readFile(new URL("../README.md", import.meta.url), "utf8"),
-    readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../package-lock.json", import.meta.url), "utf8")
-  ]);
+  const [readme, architecture, packageJson, packageLock, versionSource] =
+    await Promise.all([
+      readFile(new URL("../README.md", import.meta.url), "utf8"),
+      readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
+      readFile(new URL("../package.json", import.meta.url), "utf8"),
+      readFile(new URL("../package-lock.json", import.meta.url), "utf8"),
+      readFile(new URL("../src/version.ts", import.meta.url), "utf8")
+    ]);
   expect(JSON.parse(packageJson)).toMatchObject({
     description:
       "A command-line assistant to book or waitlist a Pilates class.",
@@ -32,7 +34,12 @@ test("documents only the executable CLI-only operating model", async () => {
       }
     }
   });
-  expect(APPLICATION_VERSION).toBe("0.2.4");
+  expect(APPLICATION_VERSION).toMatch(
+    /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u
+  );
+  expect(versionSource).not.toMatch(
+    /APPLICATION_VERSION\s*=\s*["']\d+\.\d+\.\d+/u
+  );
   expect(architecture).toContain(
     "Pilates Booker is one independent command invocation."
   );

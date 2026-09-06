@@ -12,6 +12,7 @@ import type {
   Outcome
 } from "../src/contracts.js";
 import type { DebugEvent, DebugLogger } from "../src/debug-log.js";
+import { APPLICATION_VERSION } from "../src/version.js";
 
 const args: CommandArguments = {
   input: {
@@ -502,7 +503,7 @@ it("initializes requested logging under the lock before browser work and records
   expect(createLogger).toHaveBeenCalledOnce();
   expect(createLogger).toHaveBeenCalledWith(
     expect.any(Object),
-    expect.objectContaining({ version: "0.2.4" })
+    expect.objectContaining({ version: APPLICATION_VERSION })
   );
   expect(calls).toEqual(["lock", "logger", "browser"]);
   expect(events[0]).toMatchObject({
