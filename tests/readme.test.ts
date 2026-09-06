@@ -76,6 +76,11 @@ test("documents only the executable CLI-only v0.2.2 operating model", async () =
     /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|Release: v0\.2\.0|releases\/tag\/v0\.2\.0|Release: v0\.2\.1|releases\/tag\/v0\.2\.1|logo=nodedotjs|logoColor=/iu
   );
   expect(readme).toMatch(/\| Symptom or exit\s+\| Meaning and action\s+\|/u);
+  expect(
+    readme.match(
+      /\[!\[Codecov coverage\]\(https:\/\/codecov\.io\/gh\/sfelf\/pilates-booker\/branch\/main\/graph\/badge\.svg\)\]\(https:\/\/app\.codecov\.io\/gh\/sfelf\/pilates-booker\)/gu
+    )
+  ).toHaveLength(1);
   expect(readme.trimEnd()).toMatch(
     /## License\n\nPilates Booker is licensed under the \[GNU Affero General Public License v3\.0 or later\]\(LICENSE\) \(`AGPL-3\.0-or-later`\); see \[LICENSE\]\(LICENSE\)\.$/u
   );
