@@ -123,10 +123,3 @@ export function decidePackage(
 
   return { balances, selection: null };
 }
-
-export function choosePackage(
-  policy: PackagePolicy,
-  options: readonly PackageOption[]
-): PackageSelection | undefined {
-  return decidePackage(policy, options)?.selection ?? undefined;
-}

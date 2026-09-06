@@ -54,12 +54,6 @@ export const RESULT_DETAILS = {
   CONFIRMATION_UNCERTAIN: "Booking confirmation is uncertain."
 } as const satisfies Readonly<Record<Outcome, string>>;
 
-export type DryRunAvailability =
-  | "BOOKING_AVAILABLE"
-  | "WAITLIST_AVAILABLE"
-  | "ALREADY_BOOKED"
-  | "ALREADY_WAITLISTED";
-
 export type PackageBalance = Readonly<{
   name: string;
   remaining: number;

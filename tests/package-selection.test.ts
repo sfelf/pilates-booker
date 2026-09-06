@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  choosePackage,
   decidePackage,
   normalizePackageNameForComparison,
   type PackageOption
@@ -44,7 +43,7 @@ describe("normalizePackageNameForComparison", () => {
   );
 });
 
-describe("choosePackage", () => {
+describe("decidePackage", () => {
   it("projects canonical positive balances in page order before choosing by policy priority", () => {
     const decision = decidePackage(
       {
@@ -93,10 +92,10 @@ describe("choosePackage", () => {
       selection: null
     });
     expect(
-      choosePackage(policy, [
+      decidePackage(policy, [
         option({ name: "Founder's Other Pack", remaining: 2 })
-      ])
-    ).toBeUndefined();
+      ])?.selection
+    ).toBeNull();
   });
 
   it.each([
@@ -131,7 +130,7 @@ describe("choosePackage", () => {
       option({ row: 2, name: "✨ 5 Reformer Classes", remaining: 4 })
     ];
 
-    expect(choosePackage(policy, options)).toMatchObject({
+    expect(decidePackage(policy, options)?.selection).toMatchObject({
       configuredName: "5 Reformer Classes",
       option: { row: 2, remaining: 4 }
     });
@@ -148,7 +147,7 @@ describe("choosePackage", () => {
       option({ row: 2, name: "5 Reformer Classes", remaining: 1 })
     ];
 
-    expect(choosePackage(policy, options)).toMatchObject({
+    expect(decidePackage(policy, options)?.selection).toMatchObject({
       configuredName: "5 Reformer Classes",
       option: { row: 2, name: "5 Reformer Classes" }
     });
@@ -160,7 +159,9 @@ describe("choosePackage", () => {
       option({ row: 2, name: "10 Reformer Classes", remaining: 2 })
     ];
 
-    expect(choosePackage(policy, options)?.option).toMatchObject({ row: 2 });
+    expect(decidePackage(policy, options)?.selection?.option).toMatchObject({
+      row: 2
+    });
   });
 
   it("does not choose inactive or product offers", () => {
@@ -179,7 +180,7 @@ describe("choosePackage", () => {
       })
     ];
 
-    expect(choosePackage(policy, options)).toBeUndefined();
+    expect(decidePackage(policy, options)?.selection).toBeNull();
   });
 
   it.each([
@@ -210,7 +211,7 @@ describe("choosePackage", () => {
         remaining: 4
       });
 
-      expect(choosePackage(policy, [excluded, selected])).toEqual({
+      expect(decidePackage(policy, [excluded, selected])?.selection).toEqual({
         option: selected,
         configuredName: "5 Reformer Classes",
         balances: [{ name: "5 Reformer Classes", remaining: 4, approved: true }]
@@ -273,7 +274,9 @@ describe("choosePackage", () => {
       control: { visibleCount: 0, selected: true, enabled: false }
     });
 
-    expect(choosePackage(configuredPolicy, [selected, unapproved])).toEqual({
+    expect(
+      decidePackage(configuredPolicy, [selected, unapproved])?.selection
+    ).toEqual({
       option: selected,
       configuredName: "⭐ 5 Reformer Classes",
       balances: [
