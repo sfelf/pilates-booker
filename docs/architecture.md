@@ -36,6 +36,12 @@ The runtime contains the reusable authenticated `Profile/`, an exclusive `run.lo
 
 Only a conclusive absent-PID result authorizes stale-path removal. PID reuse, unreaped zombies, permission restrictions, and ambiguous probes can therefore preserve a stale lock. Portable Node filesystem APIs cannot atomically unlink an exact open inode; PID plus device/inode revalidation narrows but does not eliminate the final check/unlink race. The lock makes no process-start, boot-identity, hard-link, zombie-specific inspection, exact-inode deletion, or power-loss recovery guarantee.
 
+## Coverage attribution
+
+The v0.2.4 release baseline has 526 automated tests, including 93 Playwright tests for `booking-page.ts`. Vitest's V8 provider instruments its Node workers, but callbacks passed to `page.evaluate()` and `page.waitForFunction()` are serialized and execute in Chromium rather than Vitest's instrumented Node workers. The Node-side report therefore attributes `booking-page.ts` at 56.32% line coverage, 79.78% branch coverage, and 93.61% function coverage even though the browser tests exercise supported observation, mutation, confirmation, and lifecycle behavior.
+
+Those figures identify an attribution boundary; they do not prove that every unmeasured browser line is exercised. Browser behavior remains subject to automated tests, and all source files remain in the coverage denominator. v0.2.4 intentionally does not merge Chromium coverage and does not enforce a coverage threshold.
+
 ## Result model
 
 The only public result contract is schema version 2. It contains outcome/exit coherence, submission and confirmation booleans, safety checks, observed class and package evidence when applicable, optional same-class Google Calendar metadata, and fixed details. One compact object plus one newline is written to stdout.

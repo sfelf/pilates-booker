@@ -40,6 +40,20 @@ test("documents only the executable CLI-only operating model", async () => {
     /Pilates Booker v\d+\.\d+\.\d+ is one independent command invocation\./u
   );
   for (const required of [
+    "page.evaluate()",
+    "page.waitForFunction()",
+    "Chromium",
+    "Vitest's instrumented Node workers",
+    "93 Playwright tests",
+    "56.32% line coverage",
+    "79.78% branch coverage",
+    "93.61% function coverage",
+    "does not merge Chromium coverage",
+    "does not enforce a coverage threshold"
+  ]) {
+    expect(architecture).toContain(required);
+  }
+  for (const required of [
     "--booking-url",
     "--allow-package",
     "--book-only",
