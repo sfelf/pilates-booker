@@ -13,14 +13,17 @@ const CODEQL_INIT_ACTION =
   "github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938";
 const CODEQL_ANALYZE_ACTION =
   "github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938";
+const CODECOV_ACTION =
+  "codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f";
 const READ_ONLY_PERMISSIONS = { contents: "read" };
+const CI_PERMISSIONS = { contents: "read", "id-token": "write" };
 const CODEQL_PERMISSIONS = {
   contents: "read",
   packages: "read",
   "security-events": "write"
 };
 const WORKFLOW_PERMISSION_PROFILES: Record<string, Record<string, string>> = {
-  "ci.yml": READ_ONLY_PERMISSIONS,
+  "ci.yml": CI_PERMISSIONS,
   "codeql.yml": CODEQL_PERMISSIONS,
   "dependency-review.yml": READ_ONLY_PERMISSIONS
 };
@@ -31,7 +34,7 @@ const VERSION_COMMENT = /^#\s+v\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.-]+)?$/u;
 type Job = {
   if?: unknown;
   permissions?: unknown;
-  steps?: { uses?: unknown; with?: unknown }[];
+  steps?: { name?: unknown; run?: unknown; uses?: unknown; with?: unknown }[];
 };
 
 type Workflow = {
@@ -365,25 +368,66 @@ test("rejects a job-level contents: write permission override", () => {
   ).toThrow();
 });
 
-test("keeps CI read-only and uses the approved v7 action commits", async () => {
+test("limits CI permissions to source reads and Codecov OIDC", async () => {
   const source = await readFile(ciFile, "utf8");
   const ci = parse(source) as Workflow;
   const references = actionReferences(ci);
 
-  assertExactWorkflowPermissions(ci, READ_ONLY_PERMISSIONS);
-  expect(references).toEqual([CHECKOUT_ACTION, SETUP_NODE_ACTION]);
+  assertExactWorkflowPermissions(ci, CI_PERMISSIONS);
+  expect(references).toEqual([
+    CHECKOUT_ACTION,
+    SETUP_NODE_ACTION,
+    CODECOV_ACTION
+  ]);
   expect(actionOccurrences(source)).toEqual([
     {
-      line: 16,
+      line: 17,
       reference: CHECKOUT_ACTION,
       versionComment: "# v7"
     },
     {
-      line: 17,
+      line: 18,
       reference: SETUP_NODE_ACTION,
       versionComment: "# v7"
+    },
+    {
+      line: 30,
+      reference: CODECOV_ACTION,
+      versionComment: "# v7.0.0"
     }
   ]);
+});
+
+test("runs explicit V8 coverage and fails CI when the public Codecov upload fails", async () => {
+  const [source, packageSource] = await Promise.all([
+    readFile(ciFile, "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8")
+  ]);
+  const ci = parse(source) as Workflow;
+  const packageJson = JSON.parse(packageSource) as {
+    devDependencies?: Record<string, unknown>;
+    scripts?: Record<string, unknown>;
+  };
+  const steps = ci.jobs?.validate?.steps ?? [];
+
+  expect(packageJson.scripts?.["pretest:coverage"]).toBe("npm run build");
+  expect(packageJson.scripts?.["test:coverage"]).toBe(
+    "vitest run --coverage.enabled --coverage.provider=v8 --coverage.include=src --coverage.reporter=text --coverage.reporter=lcov"
+  );
+  expect(packageJson.devDependencies?.["@vitest/coverage-v8"]).toBe("^3.2.7");
+  expect(steps.map(({ run }) => run).filter(Boolean)).toContain(
+    "npm run test:coverage"
+  );
+  expect(steps.find(({ uses }) => uses === CODECOV_ACTION)).toEqual({
+    name: "Upload coverage to Codecov",
+    uses: CODECOV_ACTION,
+    with: {
+      disable_search: true,
+      fail_ci_if_error: true,
+      files: "./coverage/lcov.info",
+      use_oidc: true
+    }
+  });
 });
 
 test("groups weekly npm and GitHub Actions Dependabot updates without private registries", async () => {
