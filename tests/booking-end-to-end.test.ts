@@ -205,6 +205,61 @@ const scenarios: readonly Scenario[] = [
   }
 ];
 
+test("public command reports a fixed diagnostic when bootstrap import fails", async () => {
+  const fixtureDirectory = await mkdtemp(
+    join(tmpdir(), "pilates-bootstrap-failure-e2e-")
+  );
+  const markerPath = join(fixtureDirectory, "loader-fired");
+  const registerPath = fileURLToPath(
+    new URL(
+      "./fixtures/built-command-bootstrap-failure-register.mjs",
+      import.meta.url
+    )
+  );
+  const mainPath = fileURLToPath(new URL("../dist/main.js", import.meta.url));
+  const child = spawn(process.execPath, ["--import", registerPath, mainPath], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: {
+      ...process.env,
+      PILATES_BOOKER_BOOTSTRAP_FAILURE_MARKER: markerPath
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const exitCode = await new Promise<number | null>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error("bootstrap failure child process timed out"));
+    }, 5_000);
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("close", (code) => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
+
+  expect(exitCode).toBe(30);
+  expect(stdout).toBe("");
+  expect(stderr).toBe("Booking command failed.\n");
+  expect(stderr).not.toContain("synthetic private bootstrap failure");
+  expect(stderr).not.toContain("built-command-bootstrap-failure-loader.mjs");
+  expect(stderr).not.toContain(registerPath);
+  expect(stderr).not.toContain(mainPath);
+  expect(await readFile(markerPath, "utf8")).toBe("injected\n");
+});
+
 describe.each(scenarios)("public command: $name", (scenario) => {
   test("executes dist/main.js and emits one exact result with bounded mutation", async () => {
     const runtime = await mkdtemp(join(tmpdir(), "pilates-e2e-"));
