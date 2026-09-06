@@ -206,6 +206,10 @@ const scenarios: readonly Scenario[] = [
 ];
 
 test("public command reports a fixed diagnostic when bootstrap import fails", async () => {
+  const fixtureDirectory = await mkdtemp(
+    join(tmpdir(), "pilates-bootstrap-failure-e2e-")
+  );
+  const markerPath = join(fixtureDirectory, "loader-fired");
   const registerPath = fileURLToPath(
     new URL(
       "./fixtures/built-command-bootstrap-failure-register.mjs",
@@ -215,6 +219,10 @@ test("public command reports a fixed diagnostic when bootstrap import fails", as
   const mainPath = fileURLToPath(new URL("../dist/main.js", import.meta.url));
   const child = spawn(process.execPath, ["--import", registerPath, mainPath], {
     cwd: fileURLToPath(new URL("..", import.meta.url)),
+    env: {
+      ...process.env,
+      PILATES_BOOKER_BOOTSTRAP_FAILURE_MARKER: markerPath
+    },
     stdio: ["ignore", "pipe", "pipe"]
   });
   let stdout = "";
@@ -249,6 +257,7 @@ test("public command reports a fixed diagnostic when bootstrap import fails", as
   expect(stderr).not.toContain("built-command-bootstrap-failure-loader.mjs");
   expect(stderr).not.toContain(registerPath);
   expect(stderr).not.toContain(mainPath);
+  expect(await readFile(markerPath, "utf8")).toBe("injected\n");
 });
 
 describe.each(scenarios)("public command: $name", (scenario) => {
