@@ -32,7 +32,7 @@ test("documents only the executable CLI-only operating model", async () => {
       }
     }
   });
-  expect(APPLICATION_VERSION).toBe("0.2.3");
+  expect(APPLICATION_VERSION).toBe("0.2.4");
   expect(architecture).toContain(
     "Pilates Booker is one independent command invocation."
   );
