@@ -221,7 +221,7 @@ test("routes public issue forms through fixed privacy warnings", async () => {
       (field) => field.id === "environment"
     );
     expect(environment?.attributes?.placeholder).toContain(
-      "Pilates Booker v0.2.2"
+      "Pilates Booker v0.2.3"
     );
   }
 });

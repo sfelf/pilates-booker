@@ -47,6 +47,6 @@ body:
     attributes:
       label: Environment
       description: Identify the operating system and application version using synthetic information only.
-      placeholder: "Example: macOS 15, Pilates Booker v0.2.2"
+      placeholder: "Example: macOS 15, Pilates Booker v0.2.3"
     validations:
       required: true

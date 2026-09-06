@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 
 import { APPLICATION_VERSION } from "../src/version.js";
 
-test("documents only the executable CLI-only v0.2.2 operating model", async () => {
+test("documents only the executable CLI-only v0.2.3 operating model", async () => {
   const [readme, architecture, packageJson, packageLock] = await Promise.all([
     readFile(new URL("../README.md", import.meta.url), "utf8"),
     readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
@@ -32,7 +32,7 @@ test("documents only the executable CLI-only v0.2.2 operating model", async () =
       }
     }
   });
-  expect(APPLICATION_VERSION).toBe("0.2.2");
+  expect(APPLICATION_VERSION).toBe("0.2.3");
   expect(architecture).toContain(`Pilates Booker v${APPLICATION_VERSION}`);
   for (const required of [
     "--booking-url",
@@ -41,8 +41,8 @@ test("documents only the executable CLI-only v0.2.2 operating model", async () =
     "--dry-run",
     "--debug",
     "Node.js 22.13–22.x or >=24",
-    "Release: v0.2.2",
-    "releases/tag/v0.2.2",
+    "Release: v0.2.3",
+    "releases/tag/v0.2.3",
     "Install Node.js `^22.13.0 || >=24.0.0`",
     "pilates-booker.log.1",
     "outside the repository checkout",
@@ -73,7 +73,7 @@ test("documents only the executable CLI-only v0.2.2 operating model", async () =
     expect(readme).toContain(required);
   }
   expect(readme).not.toMatch(
-    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|Release: v0\.2\.0|releases\/tag\/v0\.2\.0|Release: v0\.2\.1|releases\/tag\/v0\.2\.1|logo=nodedotjs|logoColor=/iu
+    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|Release: v0\.2\.0|releases\/tag\/v0\.2\.0|Release: v0\.2\.1|releases\/tag\/v0\.2\.1|Release: v0\.2\.2|releases\/tag\/v0\.2\.2|logo=nodedotjs|logoColor=/iu
   );
   expect(readme).toMatch(/\| Symptom or exit\s+\| Meaning and action\s+\|/u);
   expect(
