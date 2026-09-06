@@ -1,7 +1,7 @@
 {
   "name": "pilates-booker",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "A command-line assistant to book or waitlist a Pilates class.",
   "repository": {
     "type": "git",
