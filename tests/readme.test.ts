@@ -53,6 +53,10 @@ test("documents only the executable CLI-only operating model", async () => {
   ]) {
     expect(architecture).toContain(required);
   }
+  expect(architecture).toContain(
+    "The maintenance baseline after the targeted cleanup and fallback tests"
+  );
+  expect(architecture).not.toContain("The v0.2.4 release baseline");
   for (const required of [
     "--booking-url",
     "--allow-package",
