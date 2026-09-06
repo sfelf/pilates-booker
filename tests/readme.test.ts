@@ -40,6 +40,25 @@ test("documents only the executable CLI-only operating model", async () => {
     /Pilates Booker v\d+\.\d+\.\d+ is one independent command invocation\./u
   );
   for (const required of [
+    "page.evaluate()",
+    "page.waitForFunction()",
+    "Chromium",
+    "Vitest's instrumented Node workers",
+    "booking-page Playwright suite",
+    "live Codecov report",
+    "does not merge Chromium coverage",
+    "does not enforce a coverage threshold"
+  ]) {
+    expect(architecture).toContain(required);
+  }
+  expect(architecture).toContain("../tests/booking-page.test.ts");
+  expect(architecture).toContain(
+    "https://app.codecov.io/gh/sfelf/pilates-booker"
+  );
+  expect(architecture).not.toMatch(
+    /\d+(?:\.\d+)?% (?:line|branch|function) coverage|\d+ (?:automated|Playwright) tests|v\d+\.\d+\.\d+ release baseline/u
+  );
+  for (const required of [
     "--booking-url",
     "--allow-package",
     "--book-only",
