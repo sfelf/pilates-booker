@@ -44,19 +44,20 @@ test("documents only the executable CLI-only operating model", async () => {
     "page.waitForFunction()",
     "Chromium",
     "Vitest's instrumented Node workers",
-    "93 Playwright tests",
-    "56.32% line coverage",
-    "79.78% branch coverage",
-    "93.61% function coverage",
+    "booking-page Playwright suite",
+    "live Codecov report",
     "does not merge Chromium coverage",
     "does not enforce a coverage threshold"
   ]) {
     expect(architecture).toContain(required);
   }
+  expect(architecture).toContain("../tests/booking-page.test.ts");
   expect(architecture).toContain(
-    "The maintenance baseline after the targeted cleanup and fallback tests"
+    "https://app.codecov.io/gh/sfelf/pilates-booker"
   );
-  expect(architecture).not.toContain("The v0.2.4 release baseline");
+  expect(architecture).not.toMatch(
+    /\d+(?:\.\d+)?% (?:line|branch|function) coverage|\d+ (?:automated|Playwright) tests|v\d+\.\d+\.\d+ release baseline/u
+  );
   for (const required of [
     "--booking-url",
     "--allow-package",

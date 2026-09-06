@@ -38,9 +38,9 @@ Only a conclusive absent-PID result authorizes stale-path removal. PID reuse, un
 
 ## Coverage attribution
 
-The maintenance baseline after the targeted cleanup and fallback tests has 526 automated tests, including 93 Playwright tests for `booking-page.ts`. Vitest's V8 provider instruments its Node workers, but callbacks passed to `page.evaluate()` and `page.waitForFunction()` are serialized and execute in Chromium rather than Vitest's instrumented Node workers. The Node-side report therefore attributes `booking-page.ts` at 56.32% line coverage, 79.78% branch coverage, and 93.61% function coverage even though the browser tests exercise supported observation, mutation, confirmation, and lifecycle behavior.
+Vitest's V8 provider instruments its Node workers, but callbacks passed to `page.evaluate()` and `page.waitForFunction()` are serialized and execute in Chromium rather than Vitest's instrumented Node workers. The Node-side report therefore under-attributes `booking-page.ts` even though the browser tests exercise supported observation, mutation, confirmation, and lifecycle behavior. See the [booking-page Playwright suite](../tests/booking-page.test.ts) for behavioral evidence and the [live Codecov report](https://app.codecov.io/gh/sfelf/pilates-booker) for current measurements.
 
-Those figures identify an attribution boundary; they do not prove that every unmeasured browser line is exercised. Browser behavior remains subject to automated tests, and all source files remain in the coverage denominator. The coverage workflow intentionally does not merge Chromium coverage and does not enforce a coverage threshold.
+That gap is an attribution boundary; it does not prove that every unmeasured browser line is exercised. Browser behavior remains subject to automated tests, and all source files remain in the coverage denominator. The coverage workflow intentionally does not merge Chromium coverage and does not enforce a coverage threshold.
 
 ## Result model
 
