@@ -20,7 +20,7 @@ const asWritable = (
 describe("createStreamOutputWrite", () => {
   test("resolves when the one stream write completes synchronously", async () => {
     const bytes = '{ "outcome": "SAFE_STOP" }\n';
-    const write = vi.fn((chunk: string, callback: WriteCallback) => {
+    const write = vi.fn((_chunk: string, callback: WriteCallback) => {
       callback();
       return true;
     });

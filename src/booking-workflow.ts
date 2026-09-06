@@ -116,13 +116,13 @@ export async function prepareBookingWorkflow(
 
   if (initial.observation.action === "already_booked") {
     return context.input.dry_run
-      ? existingDryRun(context, initial, "ALREADY_BOOKED")
-      : existingEnrollment(context, initial, "ALREADY_BOOKED");
+      ? existingDryRun(initial, "ALREADY_BOOKED")
+      : existingEnrollment(initial, "ALREADY_BOOKED");
   }
   if (initial.observation.action === "already_waitlisted") {
     return context.input.dry_run
-      ? existingDryRun(context, initial, "ALREADY_WAITLISTED")
-      : existingEnrollment(context, initial, "ALREADY_WAITLISTED");
+      ? existingDryRun(initial, "ALREADY_WAITLISTED")
+      : existingEnrollment(initial, "ALREADY_WAITLISTED");
   }
 
   const action = initial.observation.action;
@@ -151,7 +151,7 @@ export async function prepareBookingWorkflow(
     if (!hasUsableDryRunControls(initial, action, selection)) {
       return safeStop();
     }
-    return actionableDryRun(context, initial, action, selection);
+    return actionableDryRun(initial, action, selection);
   }
 
   if (!hasUsableInitialControls(initial, selection)) {
@@ -277,7 +277,6 @@ function isFullyAuthorized(
 }
 
 function existingEnrollment(
-  context: ExecutionContext,
   state: BookingPageState,
   outcome: "ALREADY_BOOKED" | "ALREADY_WAITLISTED"
 ): TerminalBookingPreparation {
@@ -303,7 +302,6 @@ function existingEnrollment(
 }
 
 function actionableDryRun(
-  context: ExecutionContext,
   state: BookingPageState,
   action: PermittedAction,
   selection: PackageSelection
@@ -328,7 +326,6 @@ function actionableDryRun(
 }
 
 function existingDryRun(
-  context: ExecutionContext,
   state: BookingPageState,
   availability: "ALREADY_BOOKED" | "ALREADY_WAITLISTED"
 ): TerminalBookingPreparation {
