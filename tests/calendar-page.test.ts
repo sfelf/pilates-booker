@@ -37,7 +37,13 @@ afterAll(async () => {
 
 async function syntheticPage(options: CalendarFixtureOptions): Promise<Page> {
   const page = await browser.newPage();
-  await page.setContent(calendarPageHtml(options));
+  await page.route("**/*", async (route) => {
+    await route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      body: calendarPageHtml(options)
+    });
+  });
+  await page.goto(calendarUrl.href);
   return page;
 }
 
@@ -71,7 +77,6 @@ describe("CalendarPage read-only discovery boundary", () => {
         }
       ]
     });
-
     await expect(
       createCalendarPage(page, calendarUrl).select(request)
     ).resolves.toEqual({
@@ -110,6 +115,73 @@ describe("CalendarPage read-only discovery boundary", () => {
         classTime: "09:30"
       }
     });
+    expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
+    await page.close();
+  });
+
+  it.each([
+    ["noon", "12:00 PM", "12:00"],
+    ["midnight", "12:00 AM", "00:00"],
+    ["24-hour time", "18:45", "18:45"]
+  ])(
+    "matches rendered %s only against canonical %s",
+    async (_label, renderedTime, canonicalTime) => {
+      const page = await syntheticPage({
+        classes: [
+          {
+            name: "Reformer – Début ✨",
+            date: "2026-09-09",
+            time: renderedTime,
+            href: "calendar/checkout/SYNTHETIC_CLASS"
+          }
+        ]
+      });
+
+      await expect(
+        createCalendarPage(page, calendarUrl).select({
+          ...request,
+          class_time: canonicalTime
+        })
+      ).resolves.toEqual({
+        status: "selected",
+        target: {
+          checkoutUrl,
+          className: "Reformer – Début ✨",
+          classDate: "2026-09-09",
+          classTime: canonicalTime
+        }
+      });
+      expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
+      await page.close();
+    }
+  );
+
+  it("fails closed when the calendar route redirects before inspection", async () => {
+    const redirectedUrl =
+      "https://app.arketa.co/iframe/synthetic-studio/redirected-calendar";
+    const page = await browser.newPage();
+    await page.route("**/*", async (route) => {
+      await route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: calendarPageHtml({
+          classes: [
+            {
+              name: "Reformer – Début ✨",
+              date: "2026-09-09",
+              time: "9:30 AM",
+              href: "calendar/checkout/SYNTHETIC_CLASS"
+            }
+          ]
+        })
+      });
+    });
+    await page.goto(calendarUrl.href);
+    await page.goto(redirectedUrl);
+
+    expect(page.url()).toBe(redirectedUrl);
+    await expect(
+      createCalendarPage(page, calendarUrl).select(request)
+    ).rejects.toThrow("Calendar page could not be read.");
     expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
     await page.close();
   });

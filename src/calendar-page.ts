@@ -2,7 +2,10 @@ import type { Page } from "playwright";
 
 import type { DiscoveryBookingInput } from "./contracts.js";
 import { normalizePackageNameForComparison } from "./package-selection.js";
-import { validateCheckoutUrlForCalendar } from "./url-policy.js";
+import {
+  validateCalendarPageUrl,
+  validateCheckoutUrlForCalendar
+} from "./url-policy.js";
 
 export type DiscoveryTarget = Readonly<{
   checkoutUrl: string;
@@ -45,6 +48,7 @@ export function createCalendarPage(
 }> {
   return {
     select: async (request) => {
+      const validatedCalendarUrl = assertCalendarIdentity(page, calendarUrl);
       let calendar = await readCalendarWeek(page, request.class_date);
       const targetWeekOffset = calculateWeekOffset(
         calendar.startDate,
@@ -61,6 +65,7 @@ export function createCalendarPage(
       for (let offset = 0; offset < targetWeekOffset; offset += 1) {
         const expectedWeekStart = addDays(calendar.startDate, 7);
         await advanceToNextWeek(page, expectedWeekStart);
+        assertCalendarIdentity(page, validatedCalendarUrl);
         calendar = await readCalendarWeek(page, request.class_date);
         if (calendar.startDate !== expectedWeekStart) {
           throw new CalendarPageError();
@@ -106,6 +111,19 @@ export function createCalendarPage(
       }
     }
   };
+}
+
+function assertCalendarIdentity(page: Page, calendarUrl: URL): URL {
+  try {
+    const validatedCalendarUrl = validateCalendarPageUrl(calendarUrl.href);
+    if (page.url() !== validatedCalendarUrl.href) {
+      throw new CalendarPageError();
+    }
+    return validatedCalendarUrl;
+  } catch (error) {
+    if (error instanceof CalendarPageError) throw error;
+    throw new CalendarPageError();
+  }
 }
 
 async function advanceToNextWeek(
