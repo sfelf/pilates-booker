@@ -11,14 +11,28 @@ import { projectDebugText } from "./safe-text.js";
 
 const MAX_LOG_BYTES = 1024 * 1024;
 
-export type DebugArguments = Readonly<{
-  booking_url: string;
+type SharedDebugArguments = Readonly<{
   allowed_packages: readonly string[];
   permitted_actions: PermittedActions;
   dry_run: boolean;
   runtime: string;
   debug: true;
 }>;
+
+type DirectDebugArguments = SharedDebugArguments &
+  Readonly<{
+    booking_url: string;
+  }>;
+
+type DiscoveryDebugArguments = SharedDebugArguments &
+  Readonly<{
+    calendar_url: string;
+    class_name: string;
+    class_date: string;
+    class_time: string;
+  }>;
+
+export type DebugArguments = DirectDebugArguments | DiscoveryDebugArguments;
 
 export type DebugException = Readonly<{
   name?: string;
@@ -126,15 +140,7 @@ function projectData(data: DebugData): DebugData {
     ...(data.arguments === undefined
       ? {}
       : {
-          arguments: {
-            booking_url: projectDebugText(data.arguments.booking_url),
-            allowed_packages:
-              data.arguments.allowed_packages.map(projectDebugText),
-            permitted_actions: data.arguments.permitted_actions,
-            dry_run: data.arguments.dry_run,
-            runtime: projectDebugText(data.arguments.runtime),
-            debug: true as const
-          }
+          arguments: projectArguments(data.arguments)
         }),
     ...(data.observed_class === undefined
       ? {}
@@ -180,6 +186,29 @@ function projectData(data: DebugData): DebugData {
               : { stack: projectDebugText(data.exception.stack) })
           }
         })
+  };
+}
+
+function projectArguments(arguments_: DebugArguments): DebugArguments {
+  const shared = {
+    allowed_packages: arguments_.allowed_packages.map(projectDebugText),
+    permitted_actions: arguments_.permitted_actions,
+    dry_run: arguments_.dry_run,
+    runtime: projectDebugText(arguments_.runtime),
+    debug: true as const
+  };
+  if ("booking_url" in arguments_) {
+    return {
+      booking_url: projectDebugText(arguments_.booking_url),
+      ...shared
+    };
+  }
+  return {
+    calendar_url: projectDebugText(arguments_.calendar_url),
+    class_name: projectDebugText(arguments_.class_name),
+    class_date: projectDebugText(arguments_.class_date),
+    class_time: projectDebugText(arguments_.class_time),
+    ...shared
   };
 }
 
