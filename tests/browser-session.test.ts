@@ -1,11 +1,13 @@
 import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 
+import { createBookingBrowser } from "../src/booking-page.js";
 import {
   withPersistentBrowser,
   type BrowserContextLike,
   type PersistentBrowserLauncher
 } from "../src/browser-session.js";
+import type { BookingInput } from "../src/contracts.js";
 
 function recordingLauncher() {
   const launches: { profileDir: string; options: unknown }[] = [];
@@ -48,6 +50,50 @@ describe("withPersistentBrowser", () => {
       { profileDir, options: { headless: false } }
     ]);
     expect(recording.closes).toBe(1);
+  });
+
+  it("keeps direct checkout resolution on one existing context page", async () => {
+    const checkoutUrl =
+      "https://app.arketa.co/iframe/synthetic/calendar/checkout/ONE_SESSION";
+    const input: BookingInput = {
+      entry_mode: "checkout",
+      booking_url: checkoutUrl,
+      allowed_packages: ["Synthetic Pack"],
+      permitted_actions: ["book", "waitlist"],
+      dry_run: true
+    };
+    const navigations: string[] = [];
+    let newPages = 0;
+    let closes = 0;
+    const page = {
+      goto: async (url: string) => {
+        navigations.push(url);
+      },
+      url: () => checkoutUrl,
+      waitForFunction: async () => undefined
+    } as unknown as Page;
+    const context: BrowserContextLike = {
+      pages: () => [page],
+      newPage: async () => {
+        newPages += 1;
+        return page;
+      },
+      close: async () => {
+        closes += 1;
+      }
+    };
+    const bookingBrowser = createBookingBrowser(async () => context);
+
+    const resolved = await bookingBrowser(
+      "/tmp/profile",
+      input,
+      async (_bookingPage, evidence) => evidence
+    );
+
+    expect(resolved).toEqual({ checkoutUrl });
+    expect(navigations).toEqual([checkoutUrl]);
+    expect(newPages).toBe(0);
+    expect(closes).toBe(1);
   });
 
   it("closes the context when the callback fails", async () => {

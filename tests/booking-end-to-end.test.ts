@@ -373,11 +373,13 @@ async function runBuiltCommand(
 
 test("debug is opt-in and writes only the bounded runtime log", async () => {
   const runtime = await mkdtemp(join(tmpdir(), "pilates-debug-e2e-"));
-  const bookingBrowser: BookingBrowser = async (_profile, _url, use) => {
+  const bookingBrowser: BookingBrowser = async (_profile, input, use) => {
     const page = await browser.newPage();
     try {
       await page.setContent(bookingPageHtml({ action: "already_booked" }));
-      return await use(createBookingPage(page));
+      return await use(createBookingPage(page), {
+        checkoutUrl: input.entry_mode === "checkout" ? input.booking_url : ""
+      });
     } finally {
       await page.close();
     }
@@ -430,12 +432,14 @@ test("public command recovers a lock whose PID is conclusively absent", async ()
     });
   });
   let browserInvocations = 0;
-  const bookingBrowser: BookingBrowser = async (_profile, _url, use) => {
+  const bookingBrowser: BookingBrowser = async (_profile, input, use) => {
     browserInvocations += 1;
     const page = await browser.newPage();
     try {
       await page.setContent(bookingPageHtml({ action: "already_booked" }));
-      return await use(createBookingPage(page));
+      return await use(createBookingPage(page), {
+        checkoutUrl: input.entry_mode === "checkout" ? input.booking_url : ""
+      });
     } finally {
       await page.close();
     }

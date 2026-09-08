@@ -22,8 +22,10 @@ export const validateResult = (value: unknown): value is BookingResult =>
 
 export function validateResultForInput(
   value: unknown,
-  input: BookingInput
+  input: BookingInput,
+  _resolvedCheckoutUrl?: string
 ): value is BookingResult {
+  void _resolvedCheckoutUrl;
   if (!validateResult(value)) return false;
   if (!hasPermittedAction(value, input)) return false;
   if (!hasPolicyBoundPackageEvidence(value, input)) return false;

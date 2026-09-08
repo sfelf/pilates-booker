@@ -9,9 +9,14 @@ import {
   inspectCheckoutSnapshot,
   type RawCheckoutSnapshot
 } from "./checkout-inspection.js";
-import type { CheckoutObservation, PermittedAction } from "./contracts.js";
+import { createCalendarPage } from "./calendar-page.js";
+import type {
+  BookingInput,
+  CheckoutObservation,
+  PermittedAction
+} from "./contracts.js";
 import type { PackageOption } from "./package-selection.js";
-import { validateCheckoutUrl } from "./url-policy.js";
+import { validateCalendarPageUrl, validateCheckoutUrl } from "./url-policy.js";
 
 export type BookingPageState = Readonly<{
   observation: Extract<CheckoutObservation, { status: "observed" }>;
@@ -59,10 +64,19 @@ export type BookingPage = Readonly<{
   waitForConfirmation(action: PermittedAction): Promise<BookingConfirmation>;
 }>;
 
+export type ResolvedCheckout = Readonly<{
+  checkoutUrl: string;
+  expectedClass?: Readonly<{
+    name: string;
+    date: string;
+    start_time: string;
+  }>;
+}>;
+
 export type BookingBrowser = <T>(
   profileDir: string,
-  checkoutUrl: string,
-  use: (page: BookingPage) => Promise<T>
+  input: BookingInput,
+  use: (page: BookingPage, resolved: ResolvedCheckout) => Promise<T>
 ) => Promise<T>;
 
 export type BookingPageOptions = Readonly<{
@@ -141,6 +155,15 @@ class BookingBrowserReadinessError extends Error {
   }
 }
 
+export class BookingCheckoutNotSelectedError extends Error {
+  readonly code = "BOOKING_CHECKOUT_NOT_SELECTED";
+
+  constructor() {
+    super("Booking checkout was not selected.");
+    this.name = "BookingCheckoutNotSelectedError";
+  }
+}
+
 export function createBookingPage(
   page: Page,
   hintOrOptions: ObservedClassHint | BookingPageOptions = {},
@@ -207,10 +230,10 @@ export function createBookingBrowser(
     typeof launcherOrOptions === "object" && hint === undefined
       ? launcherOrOptions
       : additionalOptions;
-  return (profileDir, checkoutUrl, use) =>
+  return (profileDir, input, use) =>
     openBookingBrowser(
       profileDir,
-      checkoutUrl,
+      input,
       use,
       launcher,
       options.readinessTimeoutMs ?? 30_000,
@@ -220,41 +243,77 @@ export function createBookingBrowser(
 
 async function openBookingBrowser<T>(
   profileDir: string,
-  checkoutUrl: string,
-  use: (page: BookingPage) => Promise<T>,
+  input: BookingInput,
+  use: (page: BookingPage, resolved: ResolvedCheckout) => Promise<T>,
   launcher: PersistentBrowserLauncher | undefined,
   readinessTimeoutMs: number,
   hint: ObservedClassHint | undefined
 ): Promise<T> {
-  const validatedCheckoutUrl = validateCheckoutUrl(checkoutUrl);
-  const validatedUrl = validatedCheckoutUrl.href;
+  const entryUrl =
+    input.entry_mode === "checkout"
+      ? validateCheckoutUrl(input.booking_url)
+      : validateCalendarPageUrl(input.calendar_url);
   const inContext = async (context: BrowserContextLike): Promise<T> => {
     const page = context.pages()[0] ?? (await context.newPage());
-    try {
-      await page.goto(validatedUrl, { waitUntil: "domcontentloaded" });
-      if (validateCheckoutUrl(page.url()).href !== validatedUrl) {
-        throw new Error("redirected");
+    let resolved: ResolvedCheckout;
+    if (input.entry_mode === "checkout") {
+      resolved = { checkoutUrl: entryUrl.href };
+    } else {
+      await navigateExactly(page, entryUrl, validateCalendarPageUrl);
+      const selection = await createCalendarPage(page, entryUrl).select(input);
+      if (selection.status === "not_selected") {
+        throw new BookingCheckoutNotSelectedError();
       }
-    } catch (error) {
-      throw new BookingBrowserError(error);
+      resolved = {
+        checkoutUrl: selection.target.checkoutUrl,
+        expectedClass: {
+          name: selection.target.className,
+          date: selection.target.classDate,
+          start_time: selection.target.classTime
+        }
+      };
     }
+
+    const validatedCheckoutUrl = validateCheckoutUrl(resolved.checkoutUrl);
+    await navigateExactly(page, validatedCheckoutUrl, validateCheckoutUrl);
     try {
       await waitForBookingReady(page, readinessTimeoutMs);
     } catch (error) {
       throw new BookingBrowserReadinessError(error);
     }
     const classId = validatedCheckoutUrl.pathname.split("/")[5];
-    const pageOptions = classId === undefined ? {} : { classId };
+    const pageOptions: BookingPageOptions = {
+      ...(classId === undefined ? {} : { classId }),
+      ...(resolved.expectedClass === undefined
+        ? {}
+        : { now: new Date(`${resolved.expectedClass.date}T00:00:00Z`) })
+    };
     return use(
       hint === undefined
         ? createBookingPage(page, pageOptions)
-        : createBookingPage(page, hint, pageOptions)
+        : createBookingPage(page, hint, pageOptions),
+      resolved
     );
   };
 
   return launcher === undefined
     ? withPersistentBrowser(profileDir, inContext)
     : withPersistentBrowser(profileDir, inContext, launcher);
+}
+
+async function navigateExactly(
+  page: Page,
+  expected: URL,
+  validate: (raw: string) => URL
+): Promise<void> {
+  try {
+    await page.goto(expected.href, { waitUntil: "domcontentloaded" });
+    if (validate(page.url()).href !== expected.href) {
+      throw new Error("redirected");
+    }
+  } catch (error) {
+    throw new BookingBrowserError(error);
+  }
 }
 
 export async function waitForBookingReady(

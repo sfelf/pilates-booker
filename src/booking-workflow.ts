@@ -1,8 +1,10 @@
 import {
+  BookingCheckoutNotSelectedError,
   createBookingBrowser,
   type BookingBrowser,
   type BookingPage,
-  type BookingPageState
+  type BookingPageState,
+  type ResolvedCheckout
 } from "./booking-page.js";
 import { RESULT_DETAILS } from "./contracts.js";
 import type {
@@ -26,6 +28,7 @@ export type ExecutionContext = Readonly<{
   profileDir: string;
   advance(stage: ExecutionStage): Promise<void>;
   log(event: string, data?: DebugData): Promise<void>;
+  resolveCheckout(url: string): void;
 }>;
 
 export type AuthorizedBooking = Readonly<{
@@ -69,35 +72,50 @@ export async function executeBookingWorkflow(
   browser: BookingBrowser = createBookingBrowser()
 ): Promise<BookingResult> {
   try {
-    if (context.input.entry_mode !== "checkout") {
-      throw new BookingWorkflowError();
+    await context.advance("VALIDATED");
+    if (context.input.entry_mode === "checkout") {
+      context.resolveCheckout(context.input.booking_url);
     }
-    return await browser(
-      context.profileDir,
-      context.input.booking_url,
-      async (page) => {
-        const preparation = await prepareBookingWorkflow(context, page);
-        if ("outcome" in preparation) return preparation;
+    try {
+      return await browser(
+        context.profileDir,
+        context.input,
+        async (page, resolved) => {
+          if (context.input.entry_mode === "calendar") {
+            context.resolveCheckout(resolved.checkoutUrl);
+          }
+          const preparation = await prepareBookingWorkflow(
+            context,
+            page,
+            resolved.expectedClass
+          );
+          if ("outcome" in preparation) return preparation;
 
-        await context.advance("READY_TO_SUBMIT");
-        await context.advance("SUBMITTING");
-        await page.submit(preparation.action);
-        const confirmation = await page.waitForConfirmation(preparation.action);
-        if (confirmation.kind === "UNKNOWN") {
-          throw new BookingWorkflowError();
-        }
-        if (
-          (preparation.action === "book" && confirmation.kind !== "BOOKED") ||
-          (preparation.action === "waitlist" &&
-            confirmation.kind !== "WAITLISTED")
-        ) {
-          throw new BookingWorkflowError();
-        }
-        await context.advance("CONFIRMED");
+          await context.advance("READY_TO_SUBMIT");
+          await context.advance("SUBMITTING");
+          await page.submit(preparation.action);
+          const confirmation = await page.waitForConfirmation(
+            preparation.action
+          );
+          if (confirmation.kind === "UNKNOWN") {
+            throw new BookingWorkflowError();
+          }
+          if (
+            (preparation.action === "book" && confirmation.kind !== "BOOKED") ||
+            (preparation.action === "waitlist" &&
+              confirmation.kind !== "WAITLISTED")
+          ) {
+            throw new BookingWorkflowError();
+          }
+          await context.advance("CONFIRMED");
 
-        return confirmedResult(preparation, confirmation);
-      }
-    );
+          return confirmedResult(preparation, confirmation);
+        }
+      );
+    } catch (error) {
+      if (error instanceof BookingCheckoutNotSelectedError) return safeStop();
+      throw error;
+    }
   } catch (error) {
     throw new BookingWorkflowError(error);
   }
@@ -105,15 +123,21 @@ export async function executeBookingWorkflow(
 
 export async function prepareBookingWorkflow(
   context: ExecutionContext,
-  page: BookingPage
+  page: BookingPage,
+  expectedClass?: ResolvedCheckout["expectedClass"]
 ): Promise<BookingPreparation> {
-  await context.advance("VALIDATED");
-
   let initial: BookingPageState;
   try {
     initial = await page.read();
   } catch (error) {
     await logPageFailure(context, error);
+    return safeStop();
+  }
+
+  if (
+    expectedClass !== undefined &&
+    !matchesExpectedClass(initial.observation.observed_class, expectedClass)
+  ) {
     return safeStop();
   }
 
@@ -190,6 +214,18 @@ export async function prepareBookingWorkflow(
       cancellation_policy_accepted: true
     }
   };
+}
+
+function matchesExpectedClass(
+  observed: ObservedClass,
+  expected: NonNullable<ResolvedCheckout["expectedClass"]>
+): boolean {
+  return (
+    normalizePackageNameForComparison(observed.name) ===
+      normalizePackageNameForComparison(expected.name) &&
+    observed.date === expected.date &&
+    observed.start_time === expected.start_time
+  );
 }
 
 async function logPageFailure(

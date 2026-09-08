@@ -18,6 +18,7 @@ import { acquireProfileLock, type ProfileLock } from "./lock.js";
 import { validateResultForInput } from "./result-validator.js";
 import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
 import { resolveRuntimePaths, type RuntimePathsV2 } from "./runtime-paths.js";
+import { validateCheckoutUrl } from "./url-policy.js";
 import { APPLICATION_VERSION } from "./version.js";
 
 export type ExecutionContext = Readonly<{
@@ -25,6 +26,7 @@ export type ExecutionContext = Readonly<{
   profileDir: string;
   advance(stage: ExecutionStage): Promise<void>;
   log(event: string, data?: DebugData): Promise<void>;
+  resolveCheckout(url: string): void;
 }>;
 
 export type CliExecutor = (context: ExecutionContext) => Promise<BookingResult>;
@@ -163,6 +165,7 @@ export async function runCli(
   }
 
   let stage: ExecutionStage = "STARTING";
+  let resolvedCheckoutUrl: string | undefined;
   const context: ExecutionContext = {
     input: args.input,
     profileDir: paths.profileDir,
@@ -174,7 +177,20 @@ export async function runCli(
       stage = next;
       await appendEvent(logger, "stage.advanced", stage);
     },
-    log: (event, data) => appendEvent(logger, event, stage, data)
+    log: (event, data) => appendEvent(logger, event, stage, data),
+    resolveCheckout: (url) => {
+      if (stage === "STARTING") {
+        throw new Error("invalid resolved checkout binding");
+      }
+      const validatedUrl = validateCheckoutUrl(url).href;
+      if (
+        resolvedCheckoutUrl !== undefined &&
+        resolvedCheckoutUrl !== validatedUrl
+      ) {
+        throw new Error("invalid resolved checkout binding");
+      }
+      resolvedCheckoutUrl = validatedUrl;
+    }
   };
   const execute: CliExecutor =
     dependencies.execute ??
@@ -185,7 +201,7 @@ export async function runCli(
   try {
     result = await execute(context);
     if (
-      !validateResultForInput(result, args.input) ||
+      !validateResultForInput(result, args.input, resolvedCheckoutUrl) ||
       !resultMatchesStage(result, stage)
     )
       throw new Error("invalid result");
@@ -201,7 +217,15 @@ export async function runCli(
     result = failureResult(stage);
   }
 
-  return emitFreshResult(result, args, dependencies, logger, stage, lock);
+  return emitFreshResult(
+    result,
+    args,
+    dependencies,
+    logger,
+    stage,
+    lock,
+    resolvedCheckoutUrl
+  );
 }
 
 async function emitFreshResult(
@@ -210,10 +234,11 @@ async function emitFreshResult(
   dependencies: CliDependencies,
   logger: DebugLogger = NOOP_DEBUG_LOGGER,
   stage: ExecutionStage = "STARTING",
-  lock?: ProfileLock
+  lock?: ProfileLock,
+  resolvedCheckoutUrl?: string
 ): Promise<number> {
   if (
-    !validateResultForInput(result, args.input) ||
+    !validateResultForInput(result, args.input, resolvedCheckoutUrl) ||
     !resultMatchesStage(result, stage)
   ) {
     return reportCliFailure(dependencies);
@@ -224,7 +249,7 @@ async function emitFreshResult(
   } catch {
     selected = failureResult(stage);
     if (
-      !validateResultForInput(selected, args.input) ||
+      !validateResultForInput(selected, args.input, resolvedCheckoutUrl) ||
       !resultMatchesStage(selected, stage)
     ) {
       return reportCliFailure(dependencies);
