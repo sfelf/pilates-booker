@@ -1,25 +1,32 @@
 # Architecture
 
-Pilates Booker is one independent command invocation. It parses validated CLI values, resolves one private runtime, acquires the exclusive profile lock, optionally initializes debug logging, inspects one Arketa checkout, optionally submits once, emits one schema-v2 result, and releases the lock.
+Pilates Booker is one independent command invocation. It parses validated CLI values for direct checkout and calendar discovery modes, resolves one private runtime, acquires the exclusive profile lock, optionally initializes debug logging, resolves one Arketa checkout, optionally submits once, emits one schema-v2 result, and releases the lock.
 
 ## Component ownership
 
 | Component | Owns |
 | --- | --- |
-| `command-arguments.ts` | Exact public options, strict checkout URL validation, package order, and platform runtime defaults |
+| `command-arguments.ts` | Exact two-mode public options, strict entry validation, package order, and platform runtime defaults |
 | `command.ts` | Parse-failure boundary and fixed fallback diagnostic |
 | `cli.ts` | Runtime paths, optional logger, lock lifecycle, in-memory execution stage, result validation, and stdout |
 | `lock.ts` | Exclusive version-2 PID lock, conservative stale-owner recovery, single acquisition retry, and replacement-safe release checks |
-| `booking-workflow.ts` | Existing-enrollment reconciliation, package authorization, dry run, preparation, one submission, and confirmation |
-| `booking-page.ts` | Narrow supported main-frame/light-DOM observation and mutation boundary |
+| `calendar-page.ts` | Read-only visible-week inspection, bounded forward navigation, exact class selection, and same-studio checkout-link validation |
+| `booking-workflow.ts` | Discovery checkout identity reverification, existing-enrollment reconciliation, package authorization, dry run, preparation, one submission, and confirmation |
+| `booking-page.ts` | One persistent Chromium context and page plus the narrow supported checkout observation and mutation boundary |
 | `result-validator.ts` | Schema, mode, action, package, and calendar URL binding |
 | `debug-log.ts` | Explicit field projection, serialized NDJSON append, restrictive modes, and one-generation rotation |
 
 ## Execution sequence
 
-The command validates all caller input before browser work. It acquires the exclusive runtime lock before requested debug logging is initialized, so shared log initialization, append, and rotation remain serialized across invocations. Each stage transition is appended before execution continues. The allowed transition chain is `STARTING → VALIDATED → READY_TO_SUBMIT → SUBMITTING → CONFIRMED`.
+The command validates all caller input before browser work. It acquires the exclusive runtime lock before requested debug logging is initialized, so browser entry resolution plus shared log initialization, append, and rotation remain serialized across invocations.
 
-A failure before `SUBMITTING` produces `TECHNICAL_FAILURE`; a failure at or after `SUBMITTING` produces `CONFIRMATION_UNCERTAIN`. The executor is never retried. Once stdout has accepted a complete result, a later diagnostic append failure cannot replace that response.
+Direct mode resolves the validated checkout immediately. Discovery mode validates the calendar URL, opens one persistent Chromium context and page, derives the displayed calendar week, navigates forward at most 12 weeks, inspects only the requested date region, and requires exactly one canonical class-name plus exact date/time match. Missing or ambiguous matches and invalid links produce `SAFE_STOP`; navigation, redirect, or readiness failures produce `TECHNICAL_FAILURE`.
+
+The selected discovery link is validated against the same studio path and retained as a private resolved checkout URL. The same page navigates to that checkout. The workflow compares the observed checkout class name canonically and its date/start time exactly with the validated discovery request before any checkout mutation. A mismatch produces `SAFE_STOP`. Direct mode retains caller verification through `observed_class` without a caller-supplied identity comparison.
+
+Each stage transition is appended before execution continues. The allowed transition chain is `STARTING → VALIDATED → READY_TO_SUBMIT → SUBMITTING → CONFIRMED`.
+
+A technical failure before `SUBMITTING` produces `TECHNICAL_FAILURE`; a failure at or after `SUBMITTING` produces `CONFIRMATION_UNCERTAIN`. Evidence-free discovery non-selection and identity mismatch remain `SAFE_STOP`, not technical failure. The executor is never retried. Once stdout has accepted a complete result, a later diagnostic append failure cannot replace that response.
 
 The runtime contains the reusable authenticated `Profile/`, an exclusive `run.lock`, and debug logs only when requested. A current lock contains strict version-2 metadata with only the positive safe-integer owner PID. There is no local transaction replay or durable enrollment record. Repeated invocations inspect Arketa again, and Arketa's existing-enrollment state prevents another enrollment action.
 
@@ -44,6 +51,6 @@ That gap is an attribution boundary; it does not prove that every unmeasured bro
 
 ## Result model
 
-The only public result contract is schema version 2. It contains outcome/exit coherence, submission and confirmation booleans, safety checks, observed class and package evidence when applicable, optional same-class Google Calendar metadata, and fixed details. One compact object plus one newline is written to stdout.
+The only public result contract is schema version 2. It contains outcome/exit coherence, submission and confirmation booleans, safety checks, observed class and package evidence when applicable, optional same-class Google Calendar metadata, and fixed details. One compact object plus one newline is written to stdout. The internally resolved checkout URL binds optional Google Calendar metadata in discovery mode but is not added to the result.
 
 See [Safety boundaries](safety-boundaries.md) for authorization, diagnostics, and explicit non-guarantees.

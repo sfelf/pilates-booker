@@ -5,14 +5,21 @@ import { expect, test } from "vitest";
 import { APPLICATION_VERSION } from "../src/version.js";
 
 test("documents only the executable CLI-only operating model", async () => {
-  const [readme, architecture, packageJson, packageLock, versionSource] =
-    await Promise.all([
-      readFile(new URL("../README.md", import.meta.url), "utf8"),
-      readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
-      readFile(new URL("../package.json", import.meta.url), "utf8"),
-      readFile(new URL("../package-lock.json", import.meta.url), "utf8"),
-      readFile(new URL("../src/version.ts", import.meta.url), "utf8")
-    ]);
+  const [
+    readme,
+    architecture,
+    safetyBoundaries,
+    packageJson,
+    packageLock,
+    versionSource
+  ] = await Promise.all([
+    readFile(new URL("../README.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/safety-boundaries.md", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../package-lock.json", import.meta.url), "utf8"),
+    readFile(new URL("../src/version.ts", import.meta.url), "utf8")
+  ]);
   expect(JSON.parse(packageJson)).toMatchObject({
     description:
       "A command-line assistant to book or waitlist a Pilates class.",
@@ -66,7 +73,41 @@ test("documents only the executable CLI-only operating model", async () => {
     /\d+(?:\.\d+)?% (?:line|branch|function) coverage|\d+ (?:automated|Playwright) tests|v\d+\.\d+\.\d+ release baseline/u
   );
   for (const required of [
+    "direct checkout and calendar discovery modes",
+    "calendar-page.ts",
+    "one persistent Chromium context and page",
+    "resolved checkout URL",
+    "before any checkout mutation",
+    "exactly one",
+    "12 weeks",
+    "TECHNICAL_FAILURE",
+    "SAFE_STOP",
+    "CONFIRMATION_UNCERTAIN"
+  ]) {
+    expect(architecture).toContain(required);
+  }
+  for (const required of [
+    "Calendar URL and requested class identity",
+    "Displayed calendar week and listings",
+    "Discovered checkout URL",
+    "exactly one visible class",
+    "same studio",
+    "before any checkout mutation",
+    "12-week",
+    "does not provide scheduling",
+    "automatic login",
+    "booking retry",
+    "private Arketa API access",
+    "fuzzy class matching"
+  ]) {
+    expect(safetyBoundaries).toContain(required);
+  }
+  for (const required of [
     "--booking-url",
+    "--calendar-url",
+    "--class-name",
+    "--class-date",
+    "--class-time",
     "--allow-package",
     "--book-only",
     "--dry-run",
@@ -79,6 +120,19 @@ test("documents only the executable CLI-only operating model", async () => {
     '--user-data-dir "/absolute/private/path/Profile"',
     "Omitting `--dry-run` permits one live",
     "verify that `observed_class` matches the class you intend to book",
+    "Direct checkout mode",
+    "Calendar discovery mode",
+    "exactly one entry mode",
+    "all four discovery arguments together",
+    "studio-local",
+    "exactly one visible class",
+    "next 12 weeks",
+    "surrounding whitespace",
+    "edge decoration",
+    "internal whitespace",
+    "preserving case, punctuation, numbers, Unicode, and substantive text",
+    "reverifies the class name, date, and start time",
+    "does not use instructor, duration, fuzzy matching, scheduling, automatic login, automatic retries, or private Arketa APIs",
     "debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE`",
     "Arketa is authoritative",
     "Pilates Booker is an independent project and is not affiliated with or endorsed by Arketa.",
@@ -102,7 +156,7 @@ test("documents only the executable CLI-only operating model", async () => {
     expect(readme).toContain(required);
   }
   expect(readme).not.toMatch(
-    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|img\.shields\.io\/badge\/release-|releases\/tag\/v\d|logo=nodedotjs|logoColor=/iu
+    /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|img\.shields\.io\/badge\/release-|releases\/tag\/v\d|logo=nodedotjs|logoColor=|does not discover classes/iu
   );
   expect(readme).toMatch(/\| Symptom or exit\s+\| Meaning and action\s+\|/u);
   expect(

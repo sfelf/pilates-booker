@@ -6,7 +6,10 @@ Pilates Booker is a reliable personal tool for a private, single-user runtime. I
 
 | Data | Source and trust | Runtime use | Result/debug policy |
 | --- | --- | --- | --- |
-| Parsed options and booking URL | Caller; untrusted until strict parsing | Select checkout and behavior | Preserve validated values; reject invalid input |
+| Parsed options and booking URL | Caller; untrusted until strict parsing | Select direct checkout and behavior | Preserve validated values; reject invalid input |
+| Calendar URL and requested class identity | Caller; untrusted until strict parsing and safe-text validation | Select the studio calendar and exact class | Preserve validated caller values only in private opt-in debug logs; never emit normalized comparison text |
+| Displayed calendar week and listings | Arketa; constrained untrusted page state | Bound forward navigation and select exactly one visible class | Inspection only; exclude raw listings, HTML, rejected values, and normalized forms |
+| Discovered checkout URL | Arketa; untrusted until strict same-studio validation | Navigate internally to the selected checkout and bind result evidence | Keep internal; exclude from results and rejected-value diagnostics |
 | Runtime path | Caller or platform environment; untrusted until resolution | Select private profile, lock, and log locations | Preserve only the resolved absolute path; never derive paths from lock input |
 | Allowed packages | Caller; validated and ordered | Authorize first eligible package | Preserve canonical safe text in preference order |
 | Class/package observations | Arketa; constrained untrusted page text | Drive selection and result evidence | Preserve accepted printable text; never emit decoded inspection forms |
@@ -22,7 +25,9 @@ Pilates Booker is a reliable personal tool for a private, single-user runtime. I
 
 A live click requires one supported action permitted by the invocation, the uniquely selected `Myself` target, a non-empty injury field, accepted cancellation policy, and the first allowed active class package with a positive safe-integer balance. Positive approved balance is the supported no-charge evidence. Missing, disabled, duplicate, contradictory, or unsupported state stops before submission.
 
-The caller selects the class by supplying its checkout URL. The application does not compare Arketa's displayed class to caller-provided date/time/name fields. It returns `observed_class` so the caller can verify the page that was processed.
+In direct mode, the caller selects the class by supplying its checkout URL. The application returns `observed_class` so the caller can verify the page that was processed; direct mode has no caller-provided class identity to compare.
+
+In discovery mode, the target must be in the displayed current week or the following 12-week horizon. Selection requires exactly one visible class whose canonical name and studio-local exact date/start time match the request, with exactly one valid checkout link on the same studio path. The workflow reverifies the checkout's canonical class name and exact date/start time before any checkout mutation. Zero, multiple, out-of-horizon, cross-studio, or mismatched observations stop safely with no mutation or submission.
 
 ## Submission and reconciliation
 
@@ -37,6 +42,8 @@ Debug logging is opt-in, bounded to a 1 MiB current file and one `.1` generation
 ## Guarantees
 
 - strict CLI and Arketa URL validation before browser work;
+- read-only, forward-only, 12-week-bounded calendar discovery with exactly-one selection;
+- one persistent browser context and page from discovery through checkout identity reverification;
 - private reusable browser profile and exclusive process lock;
 - conservative PID-only recovery when a current lock's owner PID is conclusively absent;
 - dry run without booking-field mutation or submission;
@@ -49,4 +56,4 @@ Debug logging is opt-in, bounded to a 1 MiB current file and one `.1` generation
 
 ## Explicit non-guarantees
 
-The utility does not provide class discovery, scheduling, automatic login or booking retry, general stale-lock removal, alternate checkout structures, hostile same-account protection, power-loss durability, filesystem-corruption recovery, adversarial concurrent account access, screenshots, traces, HTML capture, or remote log shipping. Legacy, malformed, unreadable, active, indeterminate, replaced, and retry-race locks are preserved. PID reuse, an unreaped zombie, permission restrictions, or an ambiguous probe can cause false-active preservation and require manual removal. PID plus device/inode revalidation is not an atomic exact-inode deletion guarantee, and the utility does not inspect process-start identity, boot identity, or zombie state. It does not recover Chromium profile locks or use repeated speculative pre-click checks for page changes outside the supported stable-page model.
+The utility does not provide scheduling, automatic login, automatic booking retry, private Arketa API access, fuzzy class matching, instructor or duration selection, backward calendar navigation, tie-breaking, general stale-lock removal, alternate checkout structures, hostile same-account protection, power-loss durability, filesystem-corruption recovery, adversarial concurrent account access, screenshots, traces, HTML capture, or remote log shipping. Legacy, malformed, unreadable, active, indeterminate, replaced, and retry-race locks are preserved. PID reuse, an unreaped zombie, permission restrictions, or an ambiguous probe can cause false-active preservation and require manual removal. PID plus device/inode revalidation is not an atomic exact-inode deletion guarantee, and the utility does not inspect process-start identity, boot identity, or zombie state. It does not recover Chromium profile locks or use repeated speculative pre-click checks for page changes outside the supported stable-page model.

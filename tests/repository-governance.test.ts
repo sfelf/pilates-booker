@@ -308,3 +308,22 @@ test("requires pull requests to preserve the public privacy boundary", async () 
   expect(template).toMatch(/validation/iu);
   expect(template).toMatch(/\[ \]/u);
 });
+
+test("keeps public Arketa command examples on obvious synthetic studios", async () => {
+  const documents = await Promise.all([
+    readFile(new URL("../README.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/architecture.md", import.meta.url), "utf8"),
+    readFile(new URL("../docs/safety-boundaries.md", import.meta.url), "utf8")
+  ]);
+  const studioSegments = documents.flatMap((document) =>
+    [
+      ...document.matchAll(/https:\/\/app\.arketa\.co\/iframe\/([^/\s"']+)/gu)
+    ].map((match) => match[1])
+  );
+
+  expect(studioSegments).not.toHaveLength(0);
+  expect(studioSegments).toEqual(expect.arrayContaining(["synthetic-studio"]));
+  for (const studio of studioSegments) {
+    expect(studio).toMatch(/^(?:synthetic(?:-studio)?|STUDIO)$/u);
+  }
+});
