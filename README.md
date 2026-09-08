@@ -2,7 +2,7 @@
 
 [![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Codecov coverage](https://codecov.io/gh/sfelf/pilates-booker/branch/main/graph/badge.svg)](https://app.codecov.io/gh/sfelf/pilates-booker) [![Latest release](https://img.shields.io/github/v/release/sfelf/pilates-booker?display_name=tag&label=release)](https://github.com/sfelf/pilates-booker/releases/latest) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js 22.13–22.x or >=24](https://img.shields.io/badge/Node.js-22.13%E2%80%9322.x_or_%3E%3D24-339933)](package.json)
 
-Pilates Booker inspects or submits one Arketa booking or waitlist attempt from command-line arguments. Arketa is authoritative for enrollment state. The utility does not discover classes, schedule runs, automate login, or retry automatically.
+Pilates Booker inspects or submits one Arketa booking or waitlist attempt from command-line arguments. It supports direct checkout and exact calendar discovery. Arketa is authoritative for enrollment state. The utility does not schedule runs, automate login, or retry automatically.
 
 Pilates Booker is an independent project and is not affiliated with or endorsed by Arketa. You are responsible for ensuring your use complies with applicable platform terms and studio policies.
 
@@ -61,7 +61,11 @@ node dist/main.js --runtime "/absolute/private/path" --booking-url "https://app.
 
 ## Command
 
-Start with a dry run:
+Choose exactly one entry mode and start with a dry run. Shared options such as `--allow-package`, `--book-only`, `--dry-run`, `--runtime`, and `--debug` work in both modes.
+
+### Direct checkout mode
+
+Use direct checkout mode when you already have the exact supported Arketa checkout URL:
 
 ```text
 node dist/main.js --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack" --allow-package "5-Class Pack" --dry-run
@@ -69,9 +73,23 @@ node dist/main.js --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/ch
 
 The one-line command works in POSIX shells and PowerShell.
 
-`--booking-url` is required and must be a supported Arketa checkout URL. Repeat `--allow-package` in preference order; the first eligible positive-balance class package is selected. The caller is responsible for supplying the intended class URL, while `observed_class` in the result lets the caller verify what Arketa displayed.
+`--booking-url` must be a supported Arketa checkout URL. Repeat `--allow-package` in preference order; the first eligible positive-balance class package is selected. The caller is responsible for supplying the intended class URL, while `observed_class` in the result lets the caller verify what Arketa displayed.
 
 Read the complete dry-run JSON result and verify that `observed_class` matches the class you intend to book, including its name, date, start time, and timezone. Proceed to a live command only after that verification; the application does not independently compare the displayed class with caller-supplied class fields.
+
+### Calendar discovery mode
+
+Use Calendar discovery mode when you know the studio calendar and the exact class identity. Supply all four discovery arguments together: `--calendar-url`, `--class-name`, `--class-date` in `YYYY-MM-DD` form, and `--class-time` in 24-hour `HH:mm` form.
+
+```text
+node dist/main.js --calendar-url "https://app.arketa.co/iframe/STUDIO/calendar" --class-name "CLASS_NAME" --class-date "2026-09-30" --class-time "16:30" --allow-package "10-Class Pack" --dry-run
+```
+
+Discovery uses the studio-local calendar date and start time. It inspects only the target date in the displayed current week or next 12 weeks and requires exactly one visible class matching the canonical class name, exact date, and exact start time. Canonical name comparison trims surrounding whitespace, removes edge decoration, and collapses internal whitespace while preserving case, punctuation, numbers, Unicode, and substantive text. Zero or multiple matches stop safely; the utility does not use instructor, duration, fuzzy matching, scheduling, automatic login, automatic retries, or private Arketa APIs to select or run a class.
+
+The selected checkout link must stay on the same studio path. In the same browser context and page, Pilates Booker navigates to that checkout and reverifies the class name, date, and start time before any checkout mutation. A mismatch stops safely without changing checkout controls or submitting.
+
+`--booking-url` cannot be combined with any discovery argument, and partial discovery input is invalid. Exactly one entry mode is required.
 
 Omitting `--dry-run` permits one live booking or waitlist attempt without another prompt:
 
@@ -85,18 +103,18 @@ By default both booking and waitlisting are allowed. Add `--book-only` to stop s
 
 Every reportable outcome writes one compact schema-version-2 JSON object followed by one newline.
 
-| Outcome                  | Meaning                                                   | Exit |
-| ------------------------ | --------------------------------------------------------- | ---: |
-| `BOOKED`                 | Exact booking confirmation observed                       |    0 |
-| `WAITLISTED`             | Exact waitlist confirmation observed                      |    0 |
-| `ALREADY_BOOKED`         | Arketa showed an existing booking; no submission          |    0 |
-| `ALREADY_WAITLISTED`     | Arketa showed existing waitlist enrollment; no submission |    0 |
-| `DRY_RUN`                | Inspection completed without form mutation or submission  |    0 |
-| `SAFE_STOP`              | A safety condition prevented submission                   |   20 |
-| `TECHNICAL_FAILURE`      | Failure occurred before submission                        |   30 |
-| `CONFIRMATION_UNCERTAIN` | Submission began but confirmation is not dependable       |   40 |
+| Outcome                  | Meaning                                                                     | Exit |
+| ------------------------ | --------------------------------------------------------------------------- | ---: |
+| `BOOKED`                 | Exact booking confirmation observed                                         |    0 |
+| `WAITLISTED`             | Exact waitlist confirmation observed                                        |    0 |
+| `ALREADY_BOOKED`         | Arketa showed an existing booking; no submission                            |    0 |
+| `ALREADY_WAITLISTED`     | Arketa showed existing waitlist enrollment; no submission                   |    0 |
+| `DRY_RUN`                | Inspection completed without form mutation or submission                    |    0 |
+| `SAFE_STOP`              | No unique class/checkout or another safety condition prevented submission   |   20 |
+| `TECHNICAL_FAILURE`      | Launch, navigation, readiness, or another failure escaped before submission |   30 |
+| `CONFIRMATION_UNCERTAIN` | Submission began but confirmation is not dependable                         |   40 |
 
-The result includes `observed_class` when the page could be inspected and includes package evidence where relevant. A missing JSON response cannot be recovered locally. Invoke the command again with the same URL; Arketa's existing-enrollment page is the supported reconciliation mechanism and prevents another enrollment submission.
+The result includes `observed_class` when the page could be inspected and includes package evidence where relevant. A missing JSON response cannot be recovered locally. Invoke the command again with the same validated entry arguments; Arketa's existing-enrollment page is the supported reconciliation mechanism and prevents another enrollment submission.
 
 ## Response object
 
@@ -141,14 +159,15 @@ This synthetic dry-run response is formatted for readability; the command emits 
 
 No debug log is touched unless `--debug` is present. With `--debug`, compact NDJSON records are written to `<runtime>/pilates-booker.log`. Before the current file would exceed 1 MiB it becomes `pilates-booker.log.1`, replacing the previous generation.
 
-The log may contain the validated command arguments, complete booking URL, runtime path, observed class/package evidence, workflow decisions, numeric response status codes, and projected exception messages or stacks. It excludes request/response headers, cookies, tokens, browser storage/profile contents, attendee identity, injury/form values, HTML, screenshots, and traces. Treat the runtime and log as private.
+The log may contain the validated mode-specific command arguments, complete booking or calendar URL, requested discovery class identity, runtime path, observed class/package evidence, workflow decisions, numeric response status codes, and projected exception messages or stacks. It excludes discovered checkout links, raw calendar listings, normalized comparison values, request/response headers, cookies, tokens, browser storage/profile contents, attendee identity, injury/form values, HTML, screenshots, and traces. Treat the runtime and log as private.
 
 ## Troubleshooting
 
 | Symptom or exit                        | Meaning and action                                                                                                                                                                                                                                                                                                                          |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Booking command failed.` with no JSON | Argument parsing, runtime-path resolution, or stdout transport failed. Check argument spelling and the runtime path. When stdout remains available, a debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE` result with exit 30.                                                                              |
-| Exit 20                                | The checkout was unsupported, ambiguous, ineligible, or disallowed by `--book-only`; no submission occurred.                                                                                                                                                                                                                                |
+| Exit 20                                | Discovery found zero or multiple exact matches, exceeded its horizon, rejected a checkout link or identity, or the checkout was unsupported, ambiguous, ineligible, or disallowed by `--book-only`; no submission occurred.                                                                                                                 |
+| Exit 30                                | A browser launch, calendar or checkout navigation/readiness failure, or another failure escaped the workflow before submission; no submission occurred. Checkout inspection and preparation safety failures produce exit 20 instead.                                                                                                        |
 | Exit 40                                | Do not infer failure. Run the utility again and let Arketa report existing enrollment or offer an action.                                                                                                                                                                                                                                   |
 | Lock contention                        | Pilates Booker removes a valid current `run.lock` only when its recorded PID is conclusively absent. It revalidates the PID and device/inode immediately before removal, then retries exclusive acquisition once.                                                                                                                           |
 | Lock remains after the process ended   | A legacy, malformed, unreadable, active, or indeterminate lock is preserved for manual recovery. PID reuse, an unreaped zombie, permission restrictions, or another ambiguous PID probe can make a stale lock appear active. Confirm no Pilates Booker or profile Chromium process is active before removing that exact lock file manually. |

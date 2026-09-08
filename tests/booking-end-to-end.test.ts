@@ -17,6 +17,7 @@ import { createBookingPage, type BookingBrowser } from "../src/booking-page.js";
 import { runCommand } from "../src/command.js";
 import { RESULT_DETAILS, type BookingResult } from "../src/contracts.js";
 import { validateResult } from "../src/result-validator.js";
+import { calendarPageHtml } from "./fixtures/calendar.js";
 import { bookingPageHtml } from "./fixtures/checkout.js";
 
 let browser: Browser;
@@ -30,6 +31,10 @@ afterEach(() => vi.restoreAllMocks());
 
 const checkoutUrl =
   "https://app.arketa.co/iframe/synthetic/calendar/checkout/e2e";
+const discoveryCalendarUrl =
+  "https://app.arketa.co/iframe/synthetic-studio/calendar";
+const discoveryCheckoutUrl =
+  "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/discovery-e2e";
 const observedClass = {
   name: "Reformer – Début ✨",
   instructor: "Ana O’Neil",
@@ -51,6 +56,36 @@ type BuiltCommandObservation = Readonly<{
   selected_package_rows: readonly number[];
   cancellation_accepted: boolean;
   submissions: number;
+  browser_contexts?: number;
+  pages?: number;
+  calendar_navigations?: number;
+  checkout_navigations?: number;
+  calendar_week_clicks?: number;
+  calendar_checkout_clicks?: number;
+  myself_selections?: number;
+  injury_fills?: number;
+  package_selections?: number;
+  cancellation_acceptances?: number;
+}>;
+type DiscoveryFixtureFailure =
+  | "pre_submission"
+  | "post_submit"
+  | "checkout_redirect";
+type DiscoveryScenario = Readonly<{
+  name: string;
+  action: Scenario["action"];
+  dryRun: boolean;
+  startWeek: string;
+  classes: readonly Readonly<{
+    name: string;
+    date: string;
+    time: string;
+    href: string;
+  }>[];
+  checkoutClassName?: string;
+  failure?: DiscoveryFixtureFailure;
+  expected: BookingResult;
+  observation: BuiltCommandObservation;
 }>;
 const packagesBefore = [
   {
@@ -88,6 +123,52 @@ const untouchedObservation = {
   cancellation_accepted: false,
   submissions: 0
 } as const;
+const discoveryUntouchedObservation = {
+  myself_selected: false,
+  injuries_value: "",
+  selected_package_rows: [],
+  cancellation_accepted: false,
+  submissions: 0,
+  browser_contexts: 1,
+  pages: 1,
+  calendar_navigations: 1,
+  checkout_navigations: 1,
+  calendar_week_clicks: 1,
+  calendar_checkout_clicks: 0,
+  myself_selections: 0,
+  injury_fills: 0,
+  package_selections: 0,
+  cancellation_acceptances: 0
+} as const;
+const discoveryLiveObservation = {
+  ...discoveryUntouchedObservation,
+  myself_selected: true,
+  injuries_value: "None",
+  selected_package_rows: [0],
+  cancellation_accepted: true,
+  submissions: 1,
+  myself_selections: 1,
+  injury_fills: 1,
+  package_selections: 1,
+  cancellation_acceptances: 1
+} as const;
+const evidenceFreeSafeStop: BookingResult = {
+  schema_version: 2,
+  outcome: "SAFE_STOP",
+  exit_code: 20,
+  action_submitted: false,
+  confirmation_verified: false,
+  safety_checks: incompleteSafetyChecks,
+  details: RESULT_DETAILS.SAFE_STOP
+};
+const discoveryClasses = [
+  {
+    name: observedClass.name,
+    date: observedClass.date,
+    time: "9:30 AM",
+    href: discoveryCheckoutUrl
+  }
+] as const;
 const scenarios: readonly Scenario[] = [
   {
     name: "confirmed booking",
@@ -102,6 +183,8 @@ const scenarios: readonly Scenario[] = [
       observed_class: observedClass,
       package_selected: "Studio / 10-Class Pack",
       packages_before: packagesBefore,
+      google_calendar_url:
+        "https://app.arketa.co/api/calendar/google?classId=e2e",
       safety_checks: completeSafetyChecks,
       details: RESULT_DETAILS.BOOKED
     },
@@ -205,6 +288,230 @@ const scenarios: readonly Scenario[] = [
   }
 ];
 
+const discoveryScenarios: readonly DiscoveryScenario[] = [
+  {
+    name: "actionable dry run at the twelfth following week",
+    action: "book",
+    dryRun: true,
+    startWeek: "2026-06-08",
+    classes: discoveryClasses,
+    expected: {
+      schema_version: 2,
+      outcome: "DRY_RUN",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: false,
+      availability: "BOOKING_AVAILABLE",
+      observed_class: observedClass,
+      package_selected: "Studio / 10-Class Pack",
+      packages_before: packagesBefore,
+      safety_checks: {
+        approved_package_verified: true,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: RESULT_DETAILS.DRY_RUN
+    },
+    observation: {
+      ...discoveryUntouchedObservation,
+      calendar_week_clicks: 12
+    }
+  },
+  {
+    name: "existing-enrollment dry run",
+    action: "already_booked",
+    dryRun: true,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    expected: {
+      schema_version: 2,
+      outcome: "DRY_RUN",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      availability: "ALREADY_BOOKED",
+      observed_class: observedClass,
+      safety_checks: incompleteSafetyChecks,
+      details: RESULT_DETAILS.DRY_RUN
+    },
+    observation: discoveryUntouchedObservation
+  },
+  {
+    name: "confirmed booking",
+    action: "book",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    expected: {
+      schema_version: 2,
+      outcome: "BOOKED",
+      exit_code: 0,
+      action_submitted: true,
+      confirmation_verified: true,
+      observed_class: observedClass,
+      package_selected: "Studio / 10-Class Pack",
+      packages_before: packagesBefore,
+      google_calendar_url:
+        "https://app.arketa.co/api/calendar/google?classId=discovery-e2e",
+      safety_checks: completeSafetyChecks,
+      details: RESULT_DETAILS.BOOKED
+    },
+    observation: discoveryLiveObservation
+  },
+  {
+    name: "confirmed waitlist",
+    action: "waitlist",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    expected: {
+      schema_version: 2,
+      outcome: "WAITLISTED",
+      exit_code: 0,
+      action_submitted: true,
+      confirmation_verified: true,
+      observed_class: observedClass,
+      package_selected: "Studio / 10-Class Pack",
+      packages_before: packagesBefore,
+      safety_checks: completeSafetyChecks,
+      details: RESULT_DETAILS.WAITLISTED
+    },
+    observation: discoveryLiveObservation
+  },
+  {
+    name: "authoritative existing booking",
+    action: "already_booked",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    expected: {
+      schema_version: 2,
+      outcome: "ALREADY_BOOKED",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      observed_class: observedClass,
+      safety_checks: incompleteSafetyChecks,
+      details: RESULT_DETAILS.ALREADY_BOOKED
+    },
+    observation: discoveryUntouchedObservation
+  },
+  {
+    name: "authoritative existing waitlist",
+    action: "already_waitlisted",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    expected: {
+      schema_version: 2,
+      outcome: "ALREADY_WAITLISTED",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      observed_class: observedClass,
+      safety_checks: incompleteSafetyChecks,
+      details: RESULT_DETAILS.ALREADY_WAITLISTED
+    },
+    observation: discoveryUntouchedObservation
+  },
+  {
+    name: "no exact calendar match",
+    action: "book",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: [
+      {
+        ...discoveryClasses[0],
+        name: "Synthetic Mat Fundamentals"
+      }
+    ],
+    expected: evidenceFreeSafeStop,
+    observation: {
+      ...discoveryUntouchedObservation,
+      checkout_navigations: 0
+    }
+  },
+  {
+    name: "ambiguous exact calendar match",
+    action: "book",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: [...discoveryClasses, ...discoveryClasses],
+    expected: evidenceFreeSafeStop,
+    observation: {
+      ...discoveryUntouchedObservation,
+      checkout_navigations: 0
+    }
+  },
+  {
+    name: "checkout identity mismatch",
+    action: "book",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    checkoutClassName: "Synthetic Mat Fundamentals",
+    expected: evidenceFreeSafeStop,
+    observation: discoveryUntouchedObservation
+  },
+  {
+    name: "pre-submission browser failure",
+    action: "book",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    failure: "pre_submission",
+    expected: {
+      schema_version: 2,
+      outcome: "TECHNICAL_FAILURE",
+      exit_code: 30,
+      action_submitted: false,
+      confirmation_verified: false,
+      safety_checks: incompleteSafetyChecks,
+      details: RESULT_DETAILS.TECHNICAL_FAILURE
+    },
+    observation: {
+      ...discoveryUntouchedObservation,
+      checkout_navigations: 1
+    }
+  },
+  {
+    name: "redirected checkout navigation",
+    action: "book",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    failure: "checkout_redirect",
+    expected: {
+      schema_version: 2,
+      outcome: "TECHNICAL_FAILURE",
+      exit_code: 30,
+      action_submitted: false,
+      confirmation_verified: false,
+      safety_checks: incompleteSafetyChecks,
+      details: RESULT_DETAILS.TECHNICAL_FAILURE
+    },
+    observation: discoveryUntouchedObservation
+  },
+  {
+    name: "post-submit confirmation failure",
+    action: "book",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    failure: "post_submit",
+    expected: {
+      schema_version: 2,
+      outcome: "CONFIRMATION_UNCERTAIN",
+      exit_code: 40,
+      action_submitted: true,
+      confirmation_verified: false,
+      safety_checks: completeSafetyChecks,
+      details: RESULT_DETAILS.CONFIRMATION_UNCERTAIN
+    },
+    observation: discoveryLiveObservation
+  }
+];
+
 test("public command reports a fixed diagnostic when bootstrap import fails", async () => {
   const fixtureDirectory = await mkdtemp(
     join(tmpdir(), "pilates-bootstrap-failure-e2e-")
@@ -288,6 +595,60 @@ describe.each(scenarios)("public command: $name", (scenario) => {
   });
 });
 
+describe.each(discoveryScenarios)(
+  "public discovery command: $name",
+  (scenario) => {
+    test("executes dist/main.js through one bounded synthetic browser session", async () => {
+      const runtime = await mkdtemp(join(tmpdir(), "pilates-discovery-e2e-"));
+      const argv = [
+        "--calendar-url",
+        discoveryCalendarUrl,
+        "--class-name",
+        observedClass.name,
+        "--class-date",
+        observedClass.date,
+        "--class-time",
+        observedClass.start_time,
+        "--allow-package",
+        "Studio / 10-Class Pack",
+        "--runtime",
+        runtime,
+        ...(scenario.dryRun ? ["--dry-run"] : [])
+      ];
+      const checkoutHtml = bookingPageHtml({
+        action: scenario.action,
+        myselfSelected: false,
+        injuries: [""],
+        selectedPackageRows: []
+      }).replaceAll(
+        observedClass.name,
+        scenario.checkoutClassName ?? observedClass.name
+      );
+      const invocation = await runBuiltCommand(argv, scenario.action, {
+        calendarHtml: calendarPageHtml({
+          startWeek: scenario.startWeek,
+          classes: scenario.classes
+        }),
+        checkoutHtml,
+        ...(scenario.failure === undefined ? {} : { failure: scenario.failure })
+      });
+
+      expect(invocation.exitCode).toBe(scenario.expected.exit_code);
+      expect(invocation.stderr).toBe("");
+      const result = JSON.parse(invocation.stdout) as BookingResult;
+      expect(invocation.stdout).toBe(`${JSON.stringify(result)}\n`);
+      expect(validateResult(result)).toBe(true);
+      expect(result).toEqual(scenario.expected);
+      expect(invocation.observation).toEqual(scenario.observation);
+      expect(
+        (await readdir(runtime)).every(
+          (name) => !["journals", "results"].includes(name)
+        )
+      ).toBe(true);
+    });
+  }
+);
+
 test("a repeated built command reconciles through authoritative Arketa evidence", async () => {
   const runtime = await mkdtemp(join(tmpdir(), "pilates-repeat-e2e-"));
   const argv = [
@@ -315,7 +676,12 @@ test("a repeated built command reconciles through authoritative Arketa evidence"
 
 async function runBuiltCommand(
   argv: readonly string[],
-  action: Scenario["action"]
+  action: Scenario["action"],
+  discoveryFixture?: Readonly<{
+    calendarHtml: string;
+    checkoutHtml: string;
+    failure?: DiscoveryFixtureFailure;
+  }>
 ): Promise<{
   exitCode: number | null;
   stdout: string;
@@ -328,12 +694,23 @@ async function runBuiltCommand(
   await writeFile(
     fixturePath,
     JSON.stringify({
-      html: bookingPageHtml({
-        action,
-        myselfSelected: false,
-        injuries: [""],
-        selectedPackageRows: []
-      }),
+      html:
+        discoveryFixture?.checkoutHtml ??
+        bookingPageHtml({
+          action,
+          myselfSelected: false,
+          injuries: [""],
+          selectedPackageRows: []
+        }),
+      ...(discoveryFixture === undefined
+        ? {}
+        : {
+            calendar_html: discoveryFixture.calendarHtml,
+            checkout_html: discoveryFixture.checkoutHtml,
+            ...(discoveryFixture.failure === undefined
+              ? {}
+              : { failure: discoveryFixture.failure })
+          }),
       observation_path: observationPath
     }),
     "utf8"
