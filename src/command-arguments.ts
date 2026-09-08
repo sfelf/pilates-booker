@@ -2,7 +2,7 @@ import { isAbsolute, win32 } from "node:path";
 
 import { normalizePackageNameForComparison } from "./package-selection.js";
 import { projectSafeText } from "./safe-text.js";
-import { validateCalendarUrl, validateCheckoutUrl } from "./url-policy.js";
+import { validateCalendarPageUrl, validateCheckoutUrl } from "./url-policy.js";
 import type { BookingInput } from "./contracts.js";
 import {
   resolveDefaultRuntime,
@@ -154,7 +154,7 @@ export function parseCommandArguments(
         className === undefined ||
         classDate === undefined ||
         classTime === undefined ||
-        validateCalendarUrl(calendarUrl) === undefined ||
+        !validateCalendarPageUrl(calendarUrl) ||
         projectSafeText(className) !== className ||
         normalizePackageNameForComparison(className) === "" ||
         !isValidCalendarDate(classDate) ||

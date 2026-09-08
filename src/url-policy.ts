@@ -100,6 +100,25 @@ function parseArketaUrl(raw: string, kind: ArketaUrlKind): URL | undefined {
   }
 }
 
+export function validateCalendarPageUrl(raw: string): URL {
+  const url = parseArketaUrl(raw, "calendar");
+  const segments = url?.pathname.split("/");
+
+  if (
+    url === undefined ||
+    raw.includes("?") ||
+    url.hash !== "" ||
+    segments?.length !== 4 ||
+    segments[1] !== "iframe" ||
+    !CHECKOUT_SEGMENT.test(segments[2] ?? "") ||
+    segments[3] !== "calendar"
+  ) {
+    throw new Error("Invalid Arketa calendar page URL.");
+  }
+
+  return url;
+}
+
 export function validateCheckoutUrl(raw: string): URL {
   const url = parseArketaUrl(raw, "checkout");
   const segments = url?.pathname.split("/");
@@ -117,6 +136,48 @@ export function validateCheckoutUrl(raw: string): URL {
   }
 
   return url;
+}
+
+export function validateCheckoutUrlForCalendar(
+  rawCheckout: string,
+  calendar: URL
+): URL {
+  const validatedCalendar = validateCalendarPageUrl(calendar.href);
+  const isAbsolute =
+    /^[A-Za-z][A-Za-z\d+.-]*:/u.test(rawCheckout) ||
+    rawCheckout.startsWith("//");
+
+  if (
+    !isAbsolute &&
+    (rawCheckout.length === 0 ||
+      rawCheckout.length > MAX_URL_LENGTH ||
+      rawCheckout.includes("\\") ||
+      MALFORMED_PERCENT_ESCAPE.test(rawCheckout) ||
+      containsUnsafeCodePoint(rawCheckout) ||
+      !hasSafePercentEncodedRepresentations(rawCheckout))
+  ) {
+    throw new Error("Invalid Arketa checkout URL for calendar.");
+  }
+
+  let checkout: URL;
+  try {
+    checkout = validateCheckoutUrl(
+      isAbsolute ? rawCheckout : new URL(rawCheckout, validatedCalendar).href
+    );
+  } catch {
+    throw new Error("Invalid Arketa checkout URL for calendar.");
+  }
+
+  const calendarSegments = validatedCalendar.pathname.split("/");
+  const checkoutSegments = checkout.pathname.split("/");
+  if (
+    checkoutSegments.slice(1, 3).join("/") !==
+    calendarSegments.slice(1, 3).join("/")
+  ) {
+    throw new Error("Invalid Arketa checkout URL for calendar.");
+  }
+
+  return checkout;
 }
 
 export function validateCalendarUrl(raw: string): string | undefined {
