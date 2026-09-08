@@ -31,6 +31,13 @@ export function validateResultForInput(
   if (!hasBoundDiscoverySafeStopEvidence(value, input, resolvedCheckoutUrl)) {
     return false;
   }
+  if (
+    input.entry_mode === "calendar" &&
+    permitsCalendarUrl(value) &&
+    resolvedCheckoutUrl === undefined
+  ) {
+    return false;
+  }
   const calendarUrl = (value as { google_calendar_url?: unknown })
     .google_calendar_url;
   const checkoutUrl =

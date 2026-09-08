@@ -253,7 +253,56 @@ it("preserves direct Google Calendar binding without resolved discovery evidence
   ).toBe(true);
 });
 
-it("accepts discovery outcomes without Google Calendar evidence before checkout resolution", () => {
+it.each([
+  ["booked", booked, discoveryInput],
+  [
+    "already booked",
+    {
+      schema_version: 2,
+      outcome: "ALREADY_BOOKED",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      observed_class: booked.observed_class,
+      safety_checks: {
+        approved_package_verified: false,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: "Existing booking confirmed."
+    } satisfies BookingResult,
+    discoveryInput
+  ],
+  [
+    "existing-booked dry run",
+    {
+      schema_version: 2,
+      outcome: "DRY_RUN",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      availability: "ALREADY_BOOKED",
+      observed_class: booked.observed_class,
+      safety_checks: {
+        approved_package_verified: false,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: "Dry run completed."
+    } satisfies BookingResult,
+    { ...discoveryInput, dry_run: true }
+  ]
+] as const)(
+  "requires resolved checkout evidence for discovery %s without optional Google Calendar metadata",
+  (_name, result, selectedInput) => {
+    expect(validateResultForInput(result, selectedInput)).toBe(false);
+    expect(
+      validateResultForInput(result, selectedInput, resolvedDiscoveryCheckout)
+    ).toBe(true);
+  }
+);
+
+it("accepts discovery outcomes incapable of Google Calendar metadata before checkout resolution", () => {
   const safeStop: BookingResult = {
     schema_version: 2,
     outcome: "SAFE_STOP",
@@ -266,6 +315,19 @@ it("accepts discovery outcomes without Google Calendar evidence before checkout 
       cancellation_policy_accepted: false
     },
     details: "Booking stopped safely."
+  };
+  const technicalFailure: BookingResult = {
+    schema_version: 2,
+    outcome: "TECHNICAL_FAILURE",
+    exit_code: 30,
+    action_submitted: false,
+    confirmation_verified: false,
+    safety_checks: {
+      approved_package_verified: false,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: "Runtime operation failed."
   };
   const waitlisted: BookingResult = {
     schema_version: 2,
@@ -280,9 +342,9 @@ it("accepts discovery outcomes without Google Calendar evidence before checkout 
     details: "Waitlist confirmed."
   };
 
-  expect(validateResultForInput(booked, discoveryInput)).toBe(true);
   expect(validateResultForInput(waitlisted, discoveryInput)).toBe(true);
   expect(validateResultForInput(safeStop, discoveryInput)).toBe(true);
+  expect(validateResultForInput(technicalFailure, discoveryInput)).toBe(true);
 });
 
 it("rejects unbound discovery safe stops with class or package evidence", () => {
@@ -334,10 +396,16 @@ it.each(runtimeDetailCases)(
   (_name, result, selectedInput) => {
     expect(validateResultForInput(result, selectedInput)).toBe(true);
     expect(
-      validateResultForInput(result, {
-        ...discoveryInput,
-        dry_run: selectedInput.dry_run
-      })
+      validateResultForInput(
+        result,
+        {
+          ...discoveryInput,
+          dry_run: selectedInput.dry_run
+        },
+        _name === "booked" || _name === "already booked"
+          ? resolvedDiscoveryCheckout
+          : undefined
+      )
     ).toBe(true);
     for (const details of [
       "",
