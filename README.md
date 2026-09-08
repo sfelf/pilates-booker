@@ -56,7 +56,7 @@ When using a custom runtime, sign in with that exact runtime's profile before pa
 
 ```sh
 npx playwright open --user-data-dir "/absolute/private/path/Profile" "https://app.arketa.co"
-node dist/main.js --runtime "/absolute/private/path" --booking-url "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/synthetic-class" --allow-package "Synthetic 10-Class Pack" --dry-run
+node dist/main.js --runtime "/absolute/private/path" --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack" --dry-run
 ```
 
 ## Command
@@ -68,7 +68,7 @@ Choose exactly one entry mode and start with a dry run. Shared options such as `
 Use direct checkout mode when you already have the exact supported Arketa checkout URL:
 
 ```text
-node dist/main.js --booking-url "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/synthetic-class" --allow-package "Synthetic 10-Class Pack" --allow-package "Synthetic 5-Class Pack" --dry-run
+node dist/main.js --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack" --allow-package "5-Class Pack" --dry-run
 ```
 
 The one-line command works in POSIX shells and PowerShell.
@@ -82,7 +82,7 @@ Read the complete dry-run JSON result and verify that `observed_class` matches t
 Use Calendar discovery mode when you know the studio calendar and the exact class identity. Supply all four discovery arguments together: `--calendar-url`, `--class-name`, `--class-date` in `YYYY-MM-DD` form, and `--class-time` in 24-hour `HH:mm` form.
 
 ```text
-node dist/main.js --calendar-url "https://app.arketa.co/iframe/synthetic-studio/calendar" --class-name "Synthetic Reformer Fundamentals" --class-date "2026-09-30" --class-time "16:30" --allow-package "Synthetic 10-Class Pack" --dry-run
+node dist/main.js --calendar-url "https://app.arketa.co/iframe/STUDIO/calendar" --class-name "CLASS" --class-date "2026-09-30" --class-time "16:30" --allow-package "10-Class Pack" --dry-run
 ```
 
 Discovery uses the studio-local calendar date and start time. It inspects only the target date in the displayed current week or next 12 weeks and requires exactly one visible class matching the canonical class name, exact date, and exact start time. Canonical name comparison trims surrounding whitespace, removes edge decoration, and collapses internal whitespace while preserving case, punctuation, numbers, Unicode, and substantive text. Zero or multiple matches stop safely; the utility does not use instructor, duration, fuzzy matching, scheduling, automatic login, automatic retries, or private Arketa APIs to select or run a class.
@@ -94,7 +94,7 @@ The selected checkout link must stay on the same studio path. In the same browse
 Omitting `--dry-run` permits one live booking or waitlist attempt without another prompt:
 
 ```text
-node dist/main.js --booking-url "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/synthetic-class" --allow-package "Synthetic 10-Class Pack"
+node dist/main.js --booking-url "https://app.arketa.co/iframe/STUDIO/calendar/checkout/CLASS" --allow-package "10-Class Pack"
 ```
 
 By default both booking and waitlisting are allowed. Add `--book-only` to stop safely instead of joining a waitlist. Add `--runtime "/absolute/private/path"` to override the platform default.
