@@ -17,6 +17,7 @@ const observedClass: ObservedClass = {
 };
 
 const input: BookingInput = {
+  entry_mode: "checkout",
   booking_url:
     "https://app.arketa.co/iframe/synthetic/calendar/checkout/workflow",
   allowed_packages: ["Synthetic Pack"],

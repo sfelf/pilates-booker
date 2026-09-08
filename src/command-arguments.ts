@@ -1,7 +1,8 @@
 import { isAbsolute, win32 } from "node:path";
 
 import { normalizePackageNameForComparison } from "./package-selection.js";
-import { validateCheckoutUrl } from "./url-policy.js";
+import { projectSafeText } from "./safe-text.js";
+import { validateCalendarPageUrl, validateCheckoutUrl } from "./url-policy.js";
 import type { BookingInput } from "./contracts.js";
 import {
   resolveDefaultRuntime,
@@ -13,6 +14,22 @@ export type CommandArguments = Readonly<{
   runtimeDir: string;
   debug: boolean;
 }>;
+
+const CALENDAR_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/u;
+const CALENDAR_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/u;
+
+function isValidCalendarDate(value: string): boolean {
+  const match = CALENDAR_DATE_PATTERN.exec(value);
+  if (match === null) return false;
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.getUTCFullYear() === Number(match[1]) &&
+    date.getUTCMonth() + 1 === Number(match[2]) &&
+    date.getUTCDate() === Number(match[3])
+  );
+}
 
 export function parseCommandArguments(
   argv: readonly string[],
@@ -28,6 +45,10 @@ export function parseCommandArguments(
   }
 ): CommandArguments | undefined {
   let bookingUrl: string | undefined;
+  let calendarUrl: string | undefined;
+  let className: string | undefined;
+  let classDate: string | undefined;
+  let classTime: string | undefined;
   const allowedPackages: string[] = [];
   const normalizedPackages = new Set<string>();
   let bookOnly = false;
@@ -58,6 +79,10 @@ export function parseCommandArguments(
 
     if (
       option !== "--booking-url" &&
+      option !== "--calendar-url" &&
+      option !== "--class-name" &&
+      option !== "--class-date" &&
+      option !== "--class-time" &&
       option !== "--allow-package" &&
       option !== "--runtime"
     ) {
@@ -72,6 +97,18 @@ export function parseCommandArguments(
     if (option === "--booking-url") {
       if (bookingUrl !== undefined) return undefined;
       bookingUrl = value;
+    } else if (option === "--calendar-url") {
+      if (calendarUrl !== undefined) return undefined;
+      calendarUrl = value;
+    } else if (option === "--class-name") {
+      if (className !== undefined) return undefined;
+      className = value;
+    } else if (option === "--class-date") {
+      if (classDate !== undefined) return undefined;
+      classDate = value;
+    } else if (option === "--class-time") {
+      if (classTime !== undefined) return undefined;
+      classTime = value;
     } else if (option === "--allow-package") {
       const normalized = normalizePackageNameForComparison(value);
       if (normalized === "" || normalizedPackages.has(normalized)) {
@@ -90,24 +127,57 @@ export function parseCommandArguments(
     }
   }
 
-  if (bookingUrl === undefined || allowedPackages.length === 0) {
+  if (allowedPackages.length === 0) {
     return undefined;
   }
   try {
-    validateCheckoutUrl(bookingUrl);
+    const hasDiscoveryOption =
+      calendarUrl !== undefined ||
+      className !== undefined ||
+      classDate !== undefined ||
+      classTime !== undefined;
+
+    let input: BookingInput;
+    if (bookingUrl !== undefined) {
+      if (hasDiscoveryOption) return undefined;
+      validateCheckoutUrl(bookingUrl);
+      input = {
+        entry_mode: "checkout",
+        booking_url: bookingUrl,
+        allowed_packages: allowedPackages as [string, ...string[]],
+        permitted_actions: bookOnly ? ["book"] : ["book", "waitlist"],
+        dry_run: dryRun
+      };
+    } else {
+      if (
+        calendarUrl === undefined ||
+        className === undefined ||
+        classDate === undefined ||
+        classTime === undefined ||
+        !validateCalendarPageUrl(calendarUrl) ||
+        projectSafeText(className) !== className ||
+        normalizePackageNameForComparison(className) === "" ||
+        !isValidCalendarDate(classDate) ||
+        !CALENDAR_TIME_PATTERN.test(classTime)
+      ) {
+        return undefined;
+      }
+      input = {
+        entry_mode: "calendar",
+        calendar_url: calendarUrl,
+        class_name: className,
+        class_date: classDate,
+        class_time: classTime,
+        allowed_packages: allowedPackages as [string, ...string[]],
+        permitted_actions: bookOnly ? ["book"] : ["book", "waitlist"],
+        dry_run: dryRun
+      };
+    }
+
     runtimeDir ??= resolveDefaultRuntime(environment);
+
+    return { input, runtimeDir, debug };
   } catch {
     return undefined;
   }
-
-  return {
-    input: {
-      booking_url: bookingUrl,
-      allowed_packages: allowedPackages as [string, ...string[]],
-      permitted_actions: bookOnly ? ["book"] : ["book", "waitlist"],
-      dry_run: dryRun
-    },
-    runtimeDir,
-    debug
-  };
 }

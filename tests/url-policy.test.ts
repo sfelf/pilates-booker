@@ -3,7 +3,12 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 import resultSchema from "../schemas/result.schema.json" with { type: "json" };
-import { validateCalendarUrl, validateCheckoutUrl } from "../src/url-policy.js";
+import {
+  validateCalendarPageUrl,
+  validateCalendarUrl,
+  validateCheckoutUrl,
+  validateCheckoutUrlForCalendar
+} from "../src/url-policy.js";
 import { validateCalendarUrlForCheckout } from "../src/result-validator.js";
 
 const require = createRequire(import.meta.url);
@@ -16,6 +21,8 @@ const validateResult = addFormats(
 const checkoutUrl =
   "https://app.arketa.co/iframe/example/calendar/checkout/FAKE_CHECKOUT_ID";
 const calendarOrigin = "https://app.arketa.co";
+const calendarPageUrl =
+  "https://app.arketa.co/iframe/synthetic-studio/calendar";
 
 function resultWithCalendarUrl(googleCalendarUrl: string) {
   return {
@@ -176,6 +183,119 @@ describe("validateCalendarUrl", () => {
       }
     }
   );
+});
+
+describe("validateCalendarPageUrl", () => {
+  it("returns the exact validated Arketa calendar page URL", () => {
+    const validated = validateCalendarPageUrl(calendarPageUrl);
+
+    expect(validated).toBeInstanceOf(URL);
+    expect(validated.href).toBe(calendarPageUrl);
+  });
+
+  it.each([
+    "https://app.arketa.co/iframe/synthetic-studio/calendar?view=week",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar?",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar#private",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar#",
+    "https://user@app.arketa.co/iframe/synthetic-studio/calendar",
+    "https://app.arketa.co:444/iframe/synthetic-studio/calendar",
+    "https://APP.ARKETA.CO/iframe/synthetic-studio/calendar",
+    "https://app.arketa.co/IFRAME/synthetic-studio/calendar",
+    "https://app.arketa.co/iframe/synthetic-studio/Calendar",
+    "https://app.arketa.co/iframe/synthetic-studio/CALENDAR",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar%3Fview=week",
+    "https://app.arketa.co/iframe/synthetic-studio/%63alendar",
+    "https://app.arketa.co/iframe/synthetic-studio/%2563alendar",
+    "https://app.arketa.co/iframe/%73ynthetic-studio/calendar",
+    "https://app.arketa.co/iframe/%2573ynthetic-studio/calendar",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar%2fextra",
+    "https://app.arketa.co/iframe/synthetic-studio",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/extra",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/",
+    "https://app.arketa.co/iframe/synthetic-studio/FAKE%zz/calendar",
+    "https://app.arketa.co/iframe/synthetic-studio/FAKE%0A/calendar",
+    "https://app.arketa.co/iframe/synthetic-studio/FAKE%250A/calendar",
+    "https://app.arketa.co/iframe/synthetic-studio/FAKE|ID/calendar",
+    "https://app.arketa.co/iframe/synthetic-studio/FAKE\nID/calendar",
+    "https://app.arketa.co/iframe/synthetic-studio/FAKE\u2028ID/calendar"
+  ])("rejects unsafe or non-page URL %s", (raw) => {
+    expect(() => validateCalendarPageUrl(raw)).toThrow(/calendar page URL/i);
+  });
+});
+
+describe("validateCheckoutUrlForCalendar", () => {
+  const calendar = validateCalendarPageUrl(calendarPageUrl);
+  const sameStudioCheckoutUrl =
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID";
+
+  it.each([
+    {
+      label: "absolute",
+      raw: sameStudioCheckoutUrl,
+      expected: sameStudioCheckoutUrl
+    },
+    {
+      label: "relative",
+      raw: "calendar/checkout/FAKE_CHECKOUT_ID",
+      expected: sameStudioCheckoutUrl
+    }
+  ])("accepts a $label same-studio checkout URL", ({ raw, expected }) => {
+    expect(validateCheckoutUrlForCalendar(raw, calendar).href).toBe(expected);
+  });
+
+  it.each([
+    ["leading ASCII space", ` ${"calendar/checkout/FAKE_CHECKOUT_ID"}`],
+    ["trailing ASCII space", `${"calendar/checkout/FAKE_CHECKOUT_ID"} `],
+    ["leading ASCII tab", `\t${"calendar/checkout/FAKE_CHECKOUT_ID"}`],
+    ["trailing ASCII tab", `${"calendar/checkout/FAKE_CHECKOUT_ID"}\t`],
+    ["leading ASCII newline", `\n${"calendar/checkout/FAKE_CHECKOUT_ID"}`],
+    ["trailing ASCII newline", `${"calendar/checkout/FAKE_CHECKOUT_ID"}\n`]
+  ])("rejects normalized relative checkout URL with %s", (_label, raw) => {
+    expect(() => validateCheckoutUrlForCalendar(raw, calendar)).toThrow(
+      /checkout URL/i
+    );
+  });
+
+  it.each([
+    "https://app.arketa.co/iframe/other-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "/iframe/other-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "../other-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "calendar/checkout/FAKE_CHECKOUT_ID?mode=book",
+    "calendar/checkout/FAKE_CHECKOUT_ID#step",
+    "http://app.arketa.co/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "https://APP.ARKETA.CO/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "https://user@app.arketa.co/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "https://app.arketa.co:444/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID#step",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID#",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID?mode=book",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID?",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/FAKE/CHECKOUT",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/%63heckout/FAKE_CHECKOUT_ID",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/%2563heckout/FAKE_CHECKOUT_ID",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout%2fFAKE_CHECKOUT_ID",
+    "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout\\FAKE_CHECKOUT_ID",
+    "https:\\app.arketa.co\\iframe\\synthetic-studio\\calendar\\checkout\\FAKE_CHECKOUT_ID",
+    "https://app.arketa.co.evil.example/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "https://app.arketa.co%2eevil.example/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID",
+    "https://app%252earketa.co/iframe/synthetic-studio/calendar/checkout/FAKE_CHECKOUT_ID"
+  ])("rejects cross-studio or invalid checkout URL %s", (raw) => {
+    expect(() => validateCheckoutUrlForCalendar(raw, calendar)).toThrow(
+      /checkout URL/i
+    );
+  });
+
+  it("rejects an unvalidated calendar binding", () => {
+    const invalidCalendar = new URL(
+      "https://app.arketa.co/iframe/other-studio/calendar/extra"
+    );
+
+    expect(() =>
+      validateCheckoutUrlForCalendar(sameStudioCheckoutUrl, invalidCalendar)
+    ).toThrow(/calendar page URL/i);
+  });
 });
 
 describe("validateCalendarUrlForCheckout", () => {

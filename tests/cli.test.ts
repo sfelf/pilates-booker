@@ -8,6 +8,7 @@ import { runCli, type ExecutionContext } from "../src/cli.js";
 import type { CommandArguments } from "../src/command-arguments.js";
 import type {
   BookingResult,
+  DirectBookingInput,
   ExecutionStage,
   Outcome
 } from "../src/contracts.js";
@@ -16,6 +17,7 @@ import { APPLICATION_VERSION } from "../src/version.js";
 
 const args: CommandArguments = {
   input: {
+    entry_mode: "checkout",
     booking_url:
       "https://app.arketa.co/iframe/synthetic/calendar/checkout/coordinator",
     allowed_packages: ["Synthetic Pack"],
@@ -513,7 +515,7 @@ it("initializes requested logging under the lock before browser work and records
     response_emitted: false,
     data: {
       arguments: {
-        booking_url: args.input.booking_url,
+        booking_url: (args.input as DirectBookingInput).booking_url,
         allowed_packages: ["Synthetic Pack"],
         runtime: "/private/runtime",
         debug: true

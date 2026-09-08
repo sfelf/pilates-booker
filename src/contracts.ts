@@ -4,12 +4,25 @@ export type PermittedActions =
   | readonly ["book"]
   | readonly ["book", "waitlist"];
 
-export type BookingInput = Readonly<{
-  booking_url: string;
+type SharedBookingInput = Readonly<{
   allowed_packages: readonly [string, ...string[]];
   permitted_actions: PermittedActions;
   dry_run: boolean;
 }>;
+
+export type DirectBookingInput = SharedBookingInput &
+  Readonly<{ entry_mode: "checkout"; booking_url: string }>;
+
+export type DiscoveryBookingInput = SharedBookingInput &
+  Readonly<{
+    entry_mode: "calendar";
+    calendar_url: string;
+    class_name: string;
+    class_date: string;
+    class_time: string;
+  }>;
+
+export type BookingInput = DirectBookingInput | DiscoveryBookingInput;
 
 export type PackagePolicy = Readonly<{
   allowed_packages: BookingInput["allowed_packages"];
