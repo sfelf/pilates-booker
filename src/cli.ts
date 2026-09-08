@@ -136,10 +136,14 @@ export async function runCli(
         response_emitted: false,
         data: {
           arguments: {
-            booking_url:
-              args.input.entry_mode === "checkout"
-                ? args.input.booking_url
-                : "[calendar discovery]",
+            ...(args.input.entry_mode === "checkout"
+              ? { booking_url: args.input.booking_url }
+              : {
+                  calendar_url: args.input.calendar_url,
+                  class_name: args.input.class_name,
+                  class_date: args.input.class_date,
+                  class_time: args.input.class_time
+                }),
             allowed_packages: args.input.allowed_packages,
             permitted_actions: args.input.permitted_actions,
             dry_run: args.input.dry_run,

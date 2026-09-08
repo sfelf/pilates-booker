@@ -28,6 +28,16 @@ export function validateResultForInput(
   if (!validateResult(value)) return false;
   if (!hasPermittedAction(value, input)) return false;
   if (!hasPolicyBoundPackageEvidence(value, input)) return false;
+  if (!hasBoundDiscoverySafeStopEvidence(value, input, resolvedCheckoutUrl)) {
+    return false;
+  }
+  if (
+    input.entry_mode === "calendar" &&
+    permitsCalendarUrl(value) &&
+    resolvedCheckoutUrl === undefined
+  ) {
+    return false;
+  }
   const calendarUrl = (value as { google_calendar_url?: unknown })
     .google_calendar_url;
   const checkoutUrl =
@@ -134,6 +144,30 @@ function hasPolicyBoundPackageEvidence(
     canonical.get(
       normalizePackageNameForComparison(evidence.package_selected)
     ) === evidence.package_selected
+  );
+}
+
+function hasBoundDiscoverySafeStopEvidence(
+  result: BookingResult,
+  input: BookingInput,
+  resolvedCheckoutUrl: string | undefined
+): boolean {
+  if (
+    input.entry_mode !== "calendar" ||
+    result.outcome !== "SAFE_STOP" ||
+    resolvedCheckoutUrl !== undefined
+  ) {
+    return true;
+  }
+  const evidence = result as {
+    observed_class?: unknown;
+    package_selected?: unknown;
+    packages_before?: unknown;
+  };
+  return (
+    evidence.observed_class === undefined &&
+    evidence.package_selected === undefined &&
+    evidence.packages_before === undefined
   );
 }
 

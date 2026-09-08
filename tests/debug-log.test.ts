@@ -43,10 +43,25 @@ const event: DebugEvent = {
   }
 };
 
+const discoveryArguments = {
+  calendar_url: "https://app.arketa.co/iframe/synthetic/calendar",
+  class_name: "  ⭐ José’s Reformer  ",
+  class_date: "2030-01-16",
+  class_time: "10:30",
+  allowed_packages: ["⭐ 10-Class Pack", "José’s Reformer"],
+  permitted_actions: ["book", "waitlist"],
+  dry_run: true,
+  runtime: "/private/Pilates Booker",
+  debug: true
+} as const;
+
 describe("debug logger", () => {
   it("performs no filesystem access when disabled", async () => {
     const base = await mkdtemp(join(tmpdir(), "pilates-no-debug-"));
-    await NOOP_DEBUG_LOGGER.append(event);
+    await NOOP_DEBUG_LOGGER.append({
+      ...event,
+      data: { arguments: discoveryArguments }
+    });
     await expect(
       readFile(join(base, "pilates-booker.log"))
     ).rejects.toMatchObject({
@@ -145,6 +160,52 @@ describe("debug logger", () => {
       /private-token|private-cookie|Private Person|Private answer|private page/u
     );
     expect(raw).not.toMatch(/headers|cookies|storage|attendee|injury|html/u);
+  });
+
+  it("projects only validated discovery arguments and redacts unsafe raw class names", async () => {
+    const base = await mkdtemp(join(tmpdir(), "pilates-discovery-fields-"));
+    const paths = resolveRuntimePaths(base);
+    const logger = await createDebugLogger(paths, fixedMetadata);
+    await logger.append({
+      ...event,
+      data: {
+        arguments: {
+          ...discoveryArguments,
+          normalized_class_name: "jose s reformer",
+          listings: ["rejected listing"],
+          rejected_link: "https://example.invalid/private-link",
+          html: "<article>private page</article>",
+          headers: { authorization: "Bearer private-token" },
+          cookies: "private-cookie",
+          storage: { secret: true },
+          attendee: "Private Person",
+          injury: "Private answer"
+        } as never
+      }
+    });
+    await logger.append({
+      ...event,
+      data: {
+        arguments: {
+          ...discoveryArguments,
+          class_name: "Unsafe\\u000aClass"
+        } as never
+      }
+    });
+
+    const records = (await readFile(paths.logFile, "utf8"))
+      .trimEnd()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { data: { arguments: unknown } });
+    expect(records[0]!.data.arguments).toEqual(discoveryArguments);
+    expect(records[1]!.data.arguments).toMatchObject({
+      class_name: "[unsafe text omitted]"
+    });
+
+    const raw = await readFile(paths.logFile, "utf8");
+    expect(raw).not.toMatch(
+      /normalized_class_name|rejected listing|private-link|private page|private-token|private-cookie|Private Person|Private answer/u
+    );
   });
 
   it("serializes concurrent appends in invocation order", async () => {

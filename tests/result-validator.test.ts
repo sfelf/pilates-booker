@@ -23,6 +23,9 @@ const discoveryInput: BookingInput = {
   dry_run: false
 };
 
+const resolvedDiscoveryCheckout =
+  "https://app.arketa.co/iframe/synthetic/calendar/checkout/discovery";
+
 const booked: BookingResult = {
   schema_version: 2,
   outcome: "BOOKED",
@@ -196,25 +199,214 @@ it("binds schema-v2 results to input mode, action, package, and checkout", () =>
   ).toBe(false);
 });
 
-it("binds a discovery Google Calendar link to the resolved checkout", () => {
-  const withCalendar = {
-    ...booked,
-    google_calendar_url:
-      "https://app.arketa.co/api/calendar/google?classId=discovery"
+it.each([
+  ["booked", booked],
+  [
+    "already booked",
+    {
+      schema_version: 2,
+      outcome: "ALREADY_BOOKED",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      observed_class: booked.observed_class,
+      safety_checks: {
+        approved_package_verified: false,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: "Existing booking confirmed."
+    } satisfies BookingResult
+  ]
+] as const)(
+  "binds discovery %s Google Calendar evidence to the resolved checkout",
+  (_name, result) => {
+    const withCalendar = {
+      ...result,
+      google_calendar_url:
+        "https://app.arketa.co/api/calendar/google?classId=discovery"
+    };
+    expect(
+      validateResultForInput(
+        withCalendar,
+        discoveryInput,
+        resolvedDiscoveryCheckout
+      )
+    ).toBe(true);
+    expect(validateResultForInput(withCalendar, discoveryInput)).toBe(false);
+    expect(
+      validateResultForInput(withCalendar, discoveryInput, input.booking_url)
+    ).toBe(false);
+  }
+);
+
+it("preserves direct Google Calendar binding without resolved discovery evidence", () => {
+  expect(
+    validateResultForInput(
+      {
+        ...booked,
+        google_calendar_url:
+          "https://app.arketa.co/api/calendar/google?classId=validator"
+      },
+      input
+    )
+  ).toBe(true);
+});
+
+it.each([
+  ["booked", booked, discoveryInput],
+  [
+    "already booked",
+    {
+      schema_version: 2,
+      outcome: "ALREADY_BOOKED",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      observed_class: booked.observed_class,
+      safety_checks: {
+        approved_package_verified: false,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: "Existing booking confirmed."
+    } satisfies BookingResult,
+    discoveryInput
+  ],
+  [
+    "existing-booked dry run",
+    {
+      schema_version: 2,
+      outcome: "DRY_RUN",
+      exit_code: 0,
+      action_submitted: false,
+      confirmation_verified: true,
+      availability: "ALREADY_BOOKED",
+      observed_class: booked.observed_class,
+      safety_checks: {
+        approved_package_verified: false,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: "Dry run completed."
+    } satisfies BookingResult,
+    { ...discoveryInput, dry_run: true }
+  ]
+] as const)(
+  "requires resolved checkout evidence for discovery %s without optional Google Calendar metadata",
+  (_name, result, selectedInput) => {
+    expect(validateResultForInput(result, selectedInput)).toBe(false);
+    expect(
+      validateResultForInput(result, selectedInput, resolvedDiscoveryCheckout)
+    ).toBe(true);
+  }
+);
+
+it("accepts discovery outcomes incapable of Google Calendar metadata before checkout resolution", () => {
+  const safeStop: BookingResult = {
+    schema_version: 2,
+    outcome: "SAFE_STOP",
+    exit_code: 20,
+    action_submitted: false,
+    confirmation_verified: false,
+    safety_checks: {
+      approved_package_verified: false,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: "Booking stopped safely."
   };
-  const resolvedCheckout =
-    "https://app.arketa.co/iframe/synthetic/calendar/checkout/discovery";
+  const technicalFailure: BookingResult = {
+    schema_version: 2,
+    outcome: "TECHNICAL_FAILURE",
+    exit_code: 30,
+    action_submitted: false,
+    confirmation_verified: false,
+    safety_checks: {
+      approved_package_verified: false,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: "Runtime operation failed."
+  };
+  const waitlisted: BookingResult = {
+    schema_version: 2,
+    outcome: "WAITLISTED",
+    exit_code: 0,
+    action_submitted: true,
+    confirmation_verified: true,
+    observed_class: booked.observed_class,
+    package_selected: "Synthetic Pack",
+    packages_before: [{ name: "Synthetic Pack", remaining: 2, approved: true }],
+    safety_checks: booked.safety_checks,
+    details: "Waitlist confirmed."
+  };
+
+  expect(validateResultForInput(waitlisted, discoveryInput)).toBe(true);
+  expect(validateResultForInput(safeStop, discoveryInput)).toBe(true);
+  expect(validateResultForInput(technicalFailure, discoveryInput)).toBe(true);
+});
+
+it("rejects unbound discovery safe stops with class or package evidence", () => {
+  const safeStop = {
+    schema_version: 2,
+    outcome: "SAFE_STOP",
+    exit_code: 20,
+    action_submitted: false,
+    confirmation_verified: false,
+    safety_checks: {
+      approved_package_verified: false,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: "Booking stopped safely."
+  } as const;
 
   expect(
-    validateResultForInput(withCalendar, discoveryInput, resolvedCheckout)
+    validateResultForInput(
+      { ...safeStop, observed_class: booked.observed_class },
+      discoveryInput
+    )
+  ).toBe(false);
+  expect(
+    validateResultForInput(
+      {
+        ...safeStop,
+        package_selected: null,
+        packages_before: [{ name: "other", remaining: 1, approved: false }]
+      },
+      discoveryInput
+    )
+  ).toBe(false);
+  expect(
+    validateResultForInput(
+      {
+        ...safeStop,
+        package_selected: null,
+        packages_before: [{ name: "other", remaining: 1, approved: false }]
+      },
+      discoveryInput,
+      resolvedDiscoveryCheckout
+    )
   ).toBe(true);
-  expect(validateResultForInput(withCalendar, discoveryInput)).toBe(false);
 });
 
 it.each(runtimeDetailCases)(
   "accepts only the fixed details for coherent %s at the runtime boundary",
   (_name, result, selectedInput) => {
     expect(validateResultForInput(result, selectedInput)).toBe(true);
+    expect(
+      validateResultForInput(
+        result,
+        {
+          ...discoveryInput,
+          dry_run: selectedInput.dry_run
+        },
+        _name === "booked" || _name === "already booked"
+          ? resolvedDiscoveryCheckout
+          : undefined
+      )
+    ).toBe(true);
     for (const details of [
       "",
       "Synthetic wrong detail.",
