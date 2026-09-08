@@ -29,11 +29,14 @@ export function validateResultForInput(
   if (!hasPolicyBoundPackageEvidence(value, input)) return false;
   const calendarUrl = (value as { google_calendar_url?: unknown })
     .google_calendar_url;
+  const bookingUrl =
+    input.entry_mode === "checkout" ? input.booking_url : undefined;
   return (
     calendarUrl === undefined ||
     (typeof calendarUrl === "string" &&
       permitsCalendarUrl(value) &&
-      validateCalendarUrlForCheckout(calendarUrl, input.booking_url))
+      bookingUrl !== undefined &&
+      validateCalendarUrlForCheckout(calendarUrl, bookingUrl))
   );
 }
 

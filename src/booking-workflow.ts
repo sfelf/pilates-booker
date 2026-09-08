@@ -69,6 +69,9 @@ export async function executeBookingWorkflow(
   browser: BookingBrowser = createBookingBrowser()
 ): Promise<BookingResult> {
   try {
+    if (context.input.entry_mode !== "checkout") {
+      throw new BookingWorkflowError();
+    }
     return await browser(
       context.profileDir,
       context.input.booking_url,

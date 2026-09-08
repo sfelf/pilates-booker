@@ -4,6 +4,7 @@ import { validateResultForInput } from "../src/result-validator.js";
 import type { BookingInput, BookingResult } from "../src/contracts.js";
 
 const input: BookingInput = {
+  entry_mode: "checkout",
   booking_url:
     "https://app.arketa.co/iframe/synthetic/calendar/checkout/validator",
   allowed_packages: ["Synthetic Pack"],

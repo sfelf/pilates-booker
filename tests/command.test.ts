@@ -81,9 +81,68 @@ it("passes the validated public arguments to one workflow invocation", async () 
     readonly [{ input: unknown }]
   ];
   expect(calls[0][0].input).toEqual({
+    entry_mode: "checkout",
     booking_url: checkoutUrl,
     allowed_packages: ["First Pack", "Second Pack"],
     permitted_actions: ["book"],
+    dry_run: false
+  });
+});
+
+it("passes a validated calendar discovery request to one workflow invocation", async () => {
+  const execute = vi.fn(
+    async (context: { advance(stage: "VALIDATED"): Promise<void> }) => {
+      await context.advance("VALIDATED");
+      return {
+        schema_version: 2 as const,
+        outcome: "SAFE_STOP" as const,
+        exit_code: 20 as const,
+        action_submitted: false as const,
+        confirmation_verified: false as const,
+        safety_checks: {
+          approved_package_verified: false as const,
+          no_charge: false as const,
+          cancellation_policy_accepted: false as const
+        },
+        details: "Booking stopped safely." as const
+      };
+    }
+  );
+  const emitResult = vi.fn(async () => undefined);
+  const acquireLock = vi.fn(async () => ({
+    release: async () => ({ released: true as const })
+  }));
+
+  expect(
+    await runCommand(
+      [
+        "--calendar-url",
+        "https://app.arketa.co/iframe/synthetic/calendar",
+        "--class-name",
+        "Synthetic Reformer",
+        "--class-date",
+        "2026-09-30",
+        "--class-time",
+        "16:30",
+        "--allow-package",
+        "Synthetic Pack"
+      ],
+      { execute, emitResult, acquireLock }
+    )
+  ).toBe(20);
+
+  expect(execute).toHaveBeenCalledOnce();
+  const calls = execute.mock.calls as unknown as readonly [
+    readonly [{ input: unknown }]
+  ];
+  expect(calls[0][0].input).toEqual({
+    entry_mode: "calendar",
+    calendar_url: "https://app.arketa.co/iframe/synthetic/calendar",
+    class_name: "Synthetic Reformer",
+    class_date: "2026-09-30",
+    class_time: "16:30",
+    allowed_packages: ["Synthetic Pack"],
+    permitted_actions: ["book", "waitlist"],
     dry_run: false
   });
 });
@@ -95,6 +154,33 @@ it("rejects invalid arguments before acquiring the runtime lock", async () => {
     await runCommand(["--unknown"], { acquireLock, reportDiagnostic })
   ).toBe(30);
   expect(acquireLock).not.toHaveBeenCalled();
+  expect(reportDiagnostic).toHaveBeenCalledWith(COMMAND_FAILURE_DIAGNOSTIC);
+});
+
+it("rejects invalid discovery arguments before any browser-facing dependency", async () => {
+  const acquireLock = vi.fn();
+  const execute = vi.fn();
+  const reportDiagnostic = vi.fn();
+
+  expect(
+    await runCommand(
+      [
+        "--calendar-url",
+        "https://app.arketa.co/iframe/synthetic/calendar",
+        "--class-name",
+        "Synthetic Reformer",
+        "--class-date",
+        "2026-02-30",
+        "--class-time",
+        "16:30",
+        "--allow-package",
+        "Synthetic Pack"
+      ],
+      { acquireLock, execute, reportDiagnostic }
+    )
+  ).toBe(30);
+  expect(acquireLock).not.toHaveBeenCalled();
+  expect(execute).not.toHaveBeenCalled();
   expect(reportDiagnostic).toHaveBeenCalledWith(COMMAND_FAILURE_DIAGNOSTIC);
 });
 
