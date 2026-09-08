@@ -66,6 +66,28 @@ const brokenNextWeekFixtures: readonly (readonly [
 ];
 
 describe("CalendarPage read-only discovery boundary", () => {
+  it("rejects a request for a different calendar identity", async () => {
+    const page = await syntheticPage({
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+
+    await expect(
+      createCalendarPage(page, calendarUrl).select({
+        ...request,
+        calendar_url:
+          "https://app.arketa.co/iframe/another-synthetic-studio/calendar"
+      })
+    ).rejects.toThrow("Calendar page could not be read.");
+    await page.close();
+  });
+
   it("selects one exact current-week class without activating its checkout link", async () => {
     const page = await syntheticPage({
       classes: [
@@ -116,6 +138,24 @@ describe("CalendarPage read-only discovery boundary", () => {
       }
     });
     expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
+    await page.close();
+  });
+
+  it("rejects unsafe control text in an otherwise matching class name", async () => {
+    const page = await syntheticPage({
+      classes: [
+        {
+          name: "Reformer – Début ✨\n",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+
+    await expect(
+      createCalendarPage(page, calendarUrl).select(request)
+    ).rejects.toThrow("Calendar page could not be read.");
     await page.close();
   });
 
@@ -222,6 +262,26 @@ describe("CalendarPage read-only discovery boundary", () => {
         }
       ]
     });
+
+    await expect(
+      createCalendarPage(page, calendarUrl).select(request)
+    ).resolves.toMatchObject({ status: "selected" });
+    await page.close();
+  });
+
+  it("ignores visible non-day regions outside the calendar week", async () => {
+    const page = await syntheticPage({
+      extraRegion: true,
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+    page.setDefaultTimeout(250);
 
     await expect(
       createCalendarPage(page, calendarUrl).select(request)
@@ -341,6 +401,28 @@ describe("CalendarPage read-only discovery boundary", () => {
 });
 
 describe("CalendarPage bounded weekly navigation", () => {
+  it("waits for day regions to hydrate to the expected week", async () => {
+    const page = await syntheticPage({
+      navigationRegionDelayMs: 40,
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-16",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+
+    await expect(
+      createCalendarPage(page, calendarUrl).select({
+        ...request,
+        class_date: "2026-09-16"
+      })
+    ).resolves.toMatchObject({ status: "selected" });
+    await page.close();
+  });
+
   it.each([
     [1, "2026-09-16", "2026-09-14"],
     [4, "2026-10-07", "2026-10-05"],

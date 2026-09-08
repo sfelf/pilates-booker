@@ -14,6 +14,8 @@ export type CalendarFixtureOptions = Readonly<{
   navigation?: "advances" | "unchanged";
   incompleteWeeks?: readonly number[];
   hydrateAfterMs?: number;
+  extraRegion?: boolean;
+  navigationRegionDelayMs?: number;
 }>;
 
 export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
@@ -23,6 +25,8 @@ export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
   const navigation = options.navigation ?? "advances";
   const incompleteWeeks = new Set(options.incompleteWeeks ?? []);
   const hydrateAfterMs = options.hydrateAfterMs ?? 0;
+  const extraRegion = options.extraRegion ?? false;
+  const navigationRegionDelayMs = options.navigationRegionDelayMs ?? 0;
   const encodedClasses = JSON.stringify(classes).replaceAll("<", "\\u003c");
 
   return `<!doctype html>
@@ -35,6 +39,8 @@ export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
           const navigation = ${JSON.stringify(navigation)};
           const nextControl = ${JSON.stringify(nextControl)};
           const incompleteWeeks = new Set(${JSON.stringify([...incompleteWeeks])});
+          const extraRegion = ${JSON.stringify(extraRegion)};
+          const navigationRegionDelayMs = ${JSON.stringify(navigationRegionDelayMs)};
           let offset = 0;
 
           const escapeHtml = (value) => value
@@ -79,14 +85,21 @@ export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
                 '>Next week</button>'
             ).join("");
             document.querySelector("#calendar").innerHTML =
-              '<h1 id="calendar-week-heading">Week of ' + weekStart + '</h1>' + regions + next;
+              '<h1 id="calendar-week-heading">Week of ' + weekStart + '</h1>' + regions + next +
+              (extraRegion ? '<aside role="region" aria-label="Synthetic notice">Notice</aside>' : '');
             document.querySelectorAll('[aria-label="Next week"]').forEach((button) => {
               button.addEventListener("click", () => {
                 document.body.dataset.calendarNavigationClicks = String(
                   Number(document.body.dataset.calendarNavigationClicks) + 1
                 );
                 if (navigation === "advances") offset += 1;
-                render();
+                if (navigationRegionDelayMs > 0) {
+                  document.querySelector("#calendar-week-heading").textContent =
+                    "Week of " + addDays(startWeek, offset * 7);
+                  setTimeout(render, navigationRegionDelayMs);
+                } else {
+                  render();
+                }
               });
             });
             document.querySelectorAll("[data-calendar-checkout]").forEach((link) => {

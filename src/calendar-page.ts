@@ -2,6 +2,7 @@ import type { Page } from "playwright";
 
 import type { DiscoveryBookingInput } from "./contracts.js";
 import { normalizePackageNameForComparison } from "./package-selection.js";
+import { projectSafeText } from "./safe-text.js";
 import {
   validateCalendarPageUrl,
   validateCheckoutUrlForCalendar
@@ -48,6 +49,12 @@ export function createCalendarPage(
   return {
     select: async (request) => {
       const validatedCalendarUrl = assertCalendarIdentity(page, calendarUrl);
+      if (
+        validateCalendarPageUrl(request.calendar_url).href !==
+        validatedCalendarUrl.href
+      ) {
+        throw new CalendarPageError();
+      }
       let calendar = await readCalendarWeek(page, request.class_date);
       assertCalendarIdentity(page, validatedCalendarUrl);
       const targetWeekOffset = calculateWeekOffset(
@@ -66,7 +73,11 @@ export function createCalendarPage(
         const expectedWeekStart = addDays(calendar.startDate, 7);
         await advanceToNextWeek(page, expectedWeekStart);
         assertCalendarIdentity(page, validatedCalendarUrl);
-        calendar = await readCalendarWeek(page, request.class_date);
+        calendar = await readCalendarWeek(
+          page,
+          request.class_date,
+          expectedWeekStart
+        );
         assertCalendarIdentity(page, validatedCalendarUrl);
         if (calendar.startDate !== expectedWeekStart) {
           throw new CalendarPageError();
@@ -92,7 +103,7 @@ export function createCalendarPage(
 
       const checkoutUrls = match.hrefs.flatMap((href) => {
         try {
-          return [validateCheckoutUrlForCalendar(href, calendarUrl)];
+          return [validateCheckoutUrlForCalendar(href, validatedCalendarUrl)];
         } catch {
           return [];
         }
@@ -176,10 +187,11 @@ async function advanceToNextWeek(
 
 async function readCalendarWeek(
   page: Page,
-  targetDate: string
+  targetDate: string,
+  expectedWeekStart?: string
 ): Promise<CalendarWeek> {
   try {
-    await page.waitForFunction(() => {
+    await page.waitForFunction((expectedStart) => {
       const isVisible = (element: Element): element is HTMLElement => {
         if (!(element instanceof HTMLElement)) return false;
         const style = getComputedStyle(element);
@@ -193,11 +205,37 @@ async function readCalendarWeek(
       const headings = [
         ...document.querySelectorAll('h1[id="calendar-week-heading"]')
       ].filter(isVisible);
+      const headingMatch = /^Week of (\d{4}-\d{2}-\d{2})$/u.exec(
+        (headings[0]?.textContent ?? "").replace(/\s+/gu, " ").trim()
+      );
       const regions = [
         ...document.querySelectorAll('[role="region"][aria-label]')
-      ].filter(isVisible);
-      return headings.length === 1 && regions.length === 7;
-    });
+      ].filter(
+        (element) =>
+          isVisible(element) &&
+          /^\d{4}-\d{2}-\d{2}$/u.test(element.getAttribute("aria-label") ?? "")
+      );
+      if (
+        headings.length !== 1 ||
+        headingMatch === null ||
+        regions.length !== 7
+      ) {
+        return false;
+      }
+      const weekStart = expectedStart ?? headingMatch[1];
+      if (weekStart === undefined || headingMatch[1] !== weekStart)
+        return false;
+      const date = new Date(`${weekStart}T12:00:00.000Z`);
+      if (Number.isNaN(date.getTime())) return false;
+      return regions.every((region, offset) => {
+        const expectedDate = new Date(date);
+        expectedDate.setUTCDate(expectedDate.getUTCDate() + offset);
+        return (
+          region.getAttribute("aria-label") ===
+          expectedDate.toISOString().slice(0, 10)
+        );
+      });
+    }, expectedWeekStart);
 
     const snapshot = await page.evaluate((requestedDate) => {
       const isVisible = (element: Element): element is HTMLElement => {
@@ -222,7 +260,11 @@ async function readCalendarWeek(
       );
       const regions = [
         ...document.querySelectorAll('[role="region"][aria-label]')
-      ].filter(isVisible);
+      ].filter(
+        (element) =>
+          isVisible(element) &&
+          /^\d{4}-\d{2}-\d{2}$/u.test(element.getAttribute("aria-label") ?? "")
+      );
       const dates = regions.map((region) => region.getAttribute("aria-label"));
       const targetRegion = regions.find(
         (region) => region.getAttribute("aria-label") === requestedDate
@@ -275,6 +317,9 @@ async function readCalendarWeek(
 
     const targetClasses = snapshot.classes.map((candidate) => {
       if (candidate.className === undefined || candidate.time === undefined) {
+        throw new CalendarPageError();
+      }
+      if (projectSafeText(candidate.className) !== candidate.className) {
         throw new CalendarPageError();
       }
       const classTime = parseCalendarTime(candidate.time);
