@@ -21,8 +21,7 @@ export type CalendarSelection =
 type CalendarClass = Readonly<{
   className: string;
   classTime: string;
-  checkoutHref: string | undefined;
-  checkoutLinkCount: number;
+  hrefs: readonly string[];
 }>;
 
 type CalendarWeek = Readonly<{
@@ -50,6 +49,7 @@ export function createCalendarPage(
     select: async (request) => {
       const validatedCalendarUrl = assertCalendarIdentity(page, calendarUrl);
       let calendar = await readCalendarWeek(page, request.class_date);
+      assertCalendarIdentity(page, validatedCalendarUrl);
       const targetWeekOffset = calculateWeekOffset(
         calendar.startDate,
         request.class_date
@@ -67,6 +67,7 @@ export function createCalendarPage(
         await advanceToNextWeek(page, expectedWeekStart);
         assertCalendarIdentity(page, validatedCalendarUrl);
         calendar = await readCalendarWeek(page, request.class_date);
+        assertCalendarIdentity(page, validatedCalendarUrl);
         if (calendar.startDate !== expectedWeekStart) {
           throw new CalendarPageError();
         }
@@ -85,11 +86,18 @@ export function createCalendarPage(
       if (matches.length !== 1) return { status: "not_selected" };
 
       const match = matches[0];
-      if (
-        match === undefined ||
-        match.checkoutLinkCount !== 1 ||
-        match.checkoutHref === undefined
-      ) {
+      if (match === undefined) {
+        return { status: "not_selected" };
+      }
+
+      const checkoutUrls = match.hrefs.flatMap((href) => {
+        try {
+          return [validateCheckoutUrlForCalendar(href, calendarUrl)];
+        } catch {
+          return [];
+        }
+      });
+      if (checkoutUrls.length !== 1 || checkoutUrls[0] === undefined) {
         return { status: "not_selected" };
       }
 
@@ -97,10 +105,7 @@ export function createCalendarPage(
         return {
           status: "selected",
           target: {
-            checkoutUrl: validateCheckoutUrlForCalendar(
-              match.checkoutHref,
-              calendarUrl
-            ).href,
+            checkoutUrl: checkoutUrls[0].href,
             className: match.className,
             classDate: request.class_date,
             classTime: match.classTime
@@ -246,11 +251,10 @@ async function readCalendarWeek(
                     times.length === 1 && times[0] !== undefined
                       ? visibleText(times[0])
                       : undefined,
-                  checkoutHref:
-                    links.length === 1 && links[0] !== undefined
-                      ? (links[0].getAttribute("href") ?? undefined)
-                      : undefined,
-                  checkoutLinkCount: links.length
+                  hrefs: links.flatMap((link) => {
+                    const href = link.getAttribute("href");
+                    return href === null ? [] : [href];
+                  })
                 };
               });
       return { headingStart: headingMatch?.[1], dates, classes };
@@ -278,8 +282,7 @@ async function readCalendarWeek(
       return {
         className: candidate.className,
         classTime,
-        checkoutHref: candidate.checkoutHref,
-        checkoutLinkCount: candidate.checkoutLinkCount
+        hrefs: candidate.hrefs
       };
     });
     return { startDate: snapshot.headingStart, dates, targetClasses };

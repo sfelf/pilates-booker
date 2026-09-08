@@ -186,6 +186,49 @@ describe("CalendarPage read-only discovery boundary", () => {
     await page.close();
   });
 
+  it("fails closed when the calendar route changes during hydration", async () => {
+    const page = await syntheticPage({
+      hydrateAfterMs: 40,
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+    await page.evaluate(() => {
+      setTimeout(() => {
+        window.history.pushState({}, "", "/iframe/synthetic-studio/other");
+      }, 10);
+    });
+
+    await expect(
+      createCalendarPage(page, calendarUrl).select(request)
+    ).rejects.toThrow("Calendar page could not be read.");
+    await page.close();
+  });
+
+  it("selects the only valid checkout link when a class has another direct link", async () => {
+    const page = await syntheticPage({
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS",
+          extraHrefs: ["/iframe/synthetic-studio/instructors/SYNTHETIC"]
+        }
+      ]
+    });
+
+    await expect(
+      createCalendarPage(page, calendarUrl).select(request)
+    ).resolves.toMatchObject({ status: "selected" });
+    await page.close();
+  });
+
   it.each([
     {
       label: "same name at a different time",

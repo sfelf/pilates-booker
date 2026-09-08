@@ -4,6 +4,7 @@ export type CalendarFixtureClass = Readonly<{
   time: string;
   href?: string;
   linkCount?: number;
+  extraHrefs?: readonly string[];
 }>;
 
 export type CalendarFixtureOptions = Readonly<{
@@ -47,10 +48,14 @@ export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
             return date.toISOString().slice(0, 10);
           };
           const checkoutLinks = (entry) => {
-            if (entry.href === undefined) return "";
+            const extraHrefs = entry.extraHrefs ?? [];
+            if (entry.href === undefined && extraHrefs.length === 0) return "";
             const count = entry.linkCount ?? 1;
-            return Array.from({ length: count }, () =>
-              '<a data-calendar-checkout href="' + escapeHtml(entry.href) + '">View class</a>'
+            const hrefs = entry.href === undefined
+              ? extraHrefs
+              : [...Array.from({ length: count }, () => entry.href), ...extraHrefs];
+            return hrefs.map((href) =>
+              '<a data-calendar-checkout href="' + escapeHtml(href) + '">View class</a>'
             ).join("");
           };
           const render = () => {
