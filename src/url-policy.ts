@@ -31,6 +31,13 @@ function containsUnsafeCodePoint(raw: string): boolean {
   });
 }
 
+function containsAsciiWhitespace(raw: string): boolean {
+  return Array.from(raw).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return (codePoint >= 0x09 && codePoint <= 0x0d) || codePoint === 0x20;
+  });
+}
+
 function hasSafePercentEncodedRepresentations(raw: string): boolean {
   let inspection = raw;
   for (let layer = 0; layer <= MAX_PERCENT_INSPECTION_LAYERS; layer += 1) {
@@ -154,6 +161,7 @@ export function validateCheckoutUrlForCalendar(
       rawCheckout.includes("\\") ||
       MALFORMED_PERCENT_ESCAPE.test(rawCheckout) ||
       containsUnsafeCodePoint(rawCheckout) ||
+      containsAsciiWhitespace(rawCheckout) ||
       !hasSafePercentEncodedRepresentations(rawCheckout))
   ) {
     throw new Error("Invalid Arketa checkout URL for calendar.");

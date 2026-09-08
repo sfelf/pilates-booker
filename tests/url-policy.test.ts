@@ -245,6 +245,19 @@ describe("validateCheckoutUrlForCalendar", () => {
   });
 
   it.each([
+    ["leading ASCII space", ` ${"calendar/checkout/FAKE_CHECKOUT_ID"}`],
+    ["trailing ASCII space", `${"calendar/checkout/FAKE_CHECKOUT_ID"} `],
+    ["leading ASCII tab", `\t${"calendar/checkout/FAKE_CHECKOUT_ID"}`],
+    ["trailing ASCII tab", `${"calendar/checkout/FAKE_CHECKOUT_ID"}\t`],
+    ["leading ASCII newline", `\n${"calendar/checkout/FAKE_CHECKOUT_ID"}`],
+    ["trailing ASCII newline", `${"calendar/checkout/FAKE_CHECKOUT_ID"}\n`]
+  ])("rejects normalized relative checkout URL with %s", (_label, raw) => {
+    expect(() => validateCheckoutUrlForCalendar(raw, calendar)).toThrow(
+      /checkout URL/i
+    );
+  });
+
+  it.each([
     "https://app.arketa.co/iframe/other-studio/calendar/checkout/FAKE_CHECKOUT_ID",
     "/iframe/other-studio/calendar/checkout/FAKE_CHECKOUT_ID",
     "../other-studio/calendar/checkout/FAKE_CHECKOUT_ID",
