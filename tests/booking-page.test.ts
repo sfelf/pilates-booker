@@ -1295,22 +1295,33 @@ describe("BookingPage confirmation boundary", () => {
 
   it("keeps booked success when navigation interrupts optional Google link hydration", async () => {
     const page = await syntheticPage();
+    const realWaitForFunction = page.waitForFunction.bind(page);
+    let waitForFunctionCalls = 0;
+    let markOptionalHydrationStarted: (() => void) | undefined;
+    const optionalHydrationStarted = new Promise<void>((resolve) => {
+      markOptionalHydrationStarted = resolve;
+    });
+    vi.spyOn(page, "waitForFunction").mockImplementation(
+      async (pageFunction, argument, options) => {
+        waitForFunctionCalls += 1;
+        if (waitForFunctionCalls === 2) markOptionalHydrationStarted?.();
+        return realWaitForFunction(pageFunction, argument, options);
+      }
+    );
     const booking = createBookingPage(page, expectedClass, {
       classId: calendarClassId,
       confirmationTimeoutMs: 200
     });
     await booking.read();
     await booking.submit("book");
-    const navigation = (async () => {
-      await revealConfirmation(page, "confirmation-booked");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      await page.goto("data:text/html,<p>synthetic navigation</p>");
-    })();
+    await revealConfirmation(page, "confirmation-booked");
+    const confirmation = booking.waitForConfirmation("book");
+    await optionalHydrationStarted;
+    await page.goto("data:text/html,<p>synthetic navigation</p>");
 
-    await expect(booking.waitForConfirmation("book")).resolves.toEqual({
+    await expect(confirmation).resolves.toEqual({
       kind: "BOOKED"
     });
-    await navigation;
     await page.close();
   });
 });
