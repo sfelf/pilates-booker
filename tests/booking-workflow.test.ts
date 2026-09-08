@@ -178,22 +178,34 @@ it("maps calendar non-selection to an evidence-free safe stop", async () => {
 });
 
 it.each([
-  ["name", { ...expectedClass, name: "Different Class" }, "already_booked"],
-  ["date", { ...expectedClass, date: "2030-01-17" }, "book"],
-  ["start time", { ...expectedClass, start_time: "10:31" }, "book"],
-  ["case", { ...expectedClass, name: "caller-selected class" }, "book"],
-  ["punctuation", { ...expectedClass, name: "Caller selected class" }, "book"],
-  ["substring", { ...expectedClass, name: "Caller-selected" }, "book"],
-  ["fuzzy name", { ...expectedClass, name: "Caller-selected clas" }, "book"]
+  [
+    "name",
+    { ...discoveryInput, class_name: "Different Class" },
+    "already_booked"
+  ],
+  ["date", { ...discoveryInput, class_date: "2030-01-17" }, "book"],
+  ["start time", { ...discoveryInput, class_time: "10:31" }, "book"],
+  ["case", { ...discoveryInput, class_name: "caller-selected class" }, "book"],
+  [
+    "punctuation",
+    { ...discoveryInput, class_name: "Caller selected class" },
+    "book"
+  ],
+  ["substring", { ...discoveryInput, class_name: "Caller-selected" }, "book"],
+  [
+    "fuzzy name",
+    { ...discoveryInput, class_name: "Caller-selected clas" },
+    "book"
+  ]
 ] as const)(
-  "stops before every checkout mutation when discovery %s differs",
-  async (_field, mismatch, action) => {
+  "stops before every checkout mutation when discovery %s differs and browser evidence is omitted",
+  async (_field, mismatchedInput, action) => {
     const operations: string[] = [];
     const checkoutUrl =
       "https://app.arketa.co/iframe/synthetic/calendar/checkout/workflow";
     const workflowResult = await executeBookingWorkflow(
       {
-        input: discoveryInput,
+        input: mismatchedInput,
         profileDir: "/private/runtime/Profile",
         advance: async () => undefined,
         log: async () => undefined,
@@ -201,8 +213,7 @@ it.each([
       },
       async (_profile, _request, use) =>
         use(trackingPage(state(action), operations), {
-          checkoutUrl,
-          expectedClass: mismatch
+          checkoutUrl
         })
     );
 
@@ -223,12 +234,10 @@ it.each([
   }
 );
 
-it("accepts canonically equivalent discovery class names", async () => {
-  const checkoutUrl =
-    "https://app.arketa.co/iframe/synthetic/calendar/checkout/workflow";
+it("ignores extraneous expected-class evidence in direct mode", async () => {
   const workflowResult = await executeBookingWorkflow(
     {
-      input: { ...discoveryInput, dry_run: true },
+      input,
       profileDir: "/private/runtime/Profile",
       advance: async () => undefined,
       log: async () => undefined,
@@ -236,11 +245,36 @@ it("accepts canonically equivalent discovery class names", async () => {
     },
     async (_profile, _request, use) =>
       use(pageFor(state("book")), {
-        checkoutUrl,
-        expectedClass: {
-          ...expectedClass,
-          name: `✨  ${expectedClass.name.replace(" class", "   class")}  ✨`
-        }
+        checkoutUrl: input.booking_url,
+        expectedClass: { ...expectedClass, name: "Different Class" }
+      })
+  );
+
+  expect(workflowResult).toMatchObject({
+    outcome: "DRY_RUN",
+    observed_class: observedClass,
+    availability: "BOOKING_AVAILABLE"
+  });
+});
+
+it("accepts canonically equivalent discovery class names", async () => {
+  const checkoutUrl =
+    "https://app.arketa.co/iframe/synthetic/calendar/checkout/workflow";
+  const workflowResult = await executeBookingWorkflow(
+    {
+      input: {
+        ...discoveryInput,
+        class_name: `✨  ${expectedClass.name.replace(" class", "   class")}  ✨`,
+        dry_run: true
+      },
+      profileDir: "/private/runtime/Profile",
+      advance: async () => undefined,
+      log: async () => undefined,
+      resolveCheckout: () => undefined
+    },
+    async (_profile, _request, use) =>
+      use(pageFor(state("book")), {
+        checkoutUrl
       })
   );
 

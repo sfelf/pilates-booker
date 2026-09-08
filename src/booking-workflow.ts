@@ -84,10 +84,18 @@ export async function executeBookingWorkflow(
           if (context.input.entry_mode === "calendar") {
             context.resolveCheckout(resolved.checkoutUrl);
           }
+          const expectedClass =
+            context.input.entry_mode === "calendar"
+              ? {
+                  name: context.input.class_name,
+                  date: context.input.class_date,
+                  start_time: context.input.class_time
+                }
+              : undefined;
           const preparation = await prepareBookingWorkflow(
             context,
             page,
-            resolved.expectedClass
+            expectedClass
           );
           if ("outcome" in preparation) return preparation;
 
