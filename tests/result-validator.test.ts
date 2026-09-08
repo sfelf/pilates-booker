@@ -12,6 +12,17 @@ const input: BookingInput = {
   dry_run: false
 };
 
+const discoveryInput: BookingInput = {
+  entry_mode: "calendar",
+  calendar_url: "https://app.arketa.co/iframe/synthetic/calendar",
+  class_name: "Synthetic Class",
+  class_date: "2030-01-16",
+  class_time: "10:30",
+  allowed_packages: ["Synthetic Pack"],
+  permitted_actions: ["book", "waitlist"],
+  dry_run: false
+};
+
 const booked: BookingResult = {
   schema_version: 2,
   outcome: "BOOKED",
@@ -183,6 +194,21 @@ it("binds schema-v2 results to input mode, action, package, and checkout", () =>
       input
     )
   ).toBe(false);
+});
+
+it("binds a discovery Google Calendar link to the resolved checkout", () => {
+  const withCalendar = {
+    ...booked,
+    google_calendar_url:
+      "https://app.arketa.co/api/calendar/google?classId=discovery"
+  };
+  const resolvedCheckout =
+    "https://app.arketa.co/iframe/synthetic/calendar/checkout/discovery";
+
+  expect(
+    validateResultForInput(withCalendar, discoveryInput, resolvedCheckout)
+  ).toBe(true);
+  expect(validateResultForInput(withCalendar, discoveryInput)).toBe(false);
 });
 
 it.each(runtimeDetailCases)(

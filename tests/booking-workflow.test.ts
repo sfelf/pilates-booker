@@ -1,6 +1,11 @@
 import { expect, it } from "vitest";
 
-import type { BookingPage, BookingPageState } from "../src/booking-page.js";
+import {
+  BookingCheckoutNotSelectedError,
+  type BookingPage,
+  type BookingPageState,
+  type ResolvedCheckout
+} from "../src/booking-page.js";
 import {
   executeBookingWorkflow,
   prepareBookingWorkflow
@@ -23,6 +28,23 @@ const input: BookingInput = {
   allowed_packages: ["Synthetic Pack"],
   permitted_actions: ["book", "waitlist"],
   dry_run: true
+};
+
+const discoveryInput: BookingInput = {
+  entry_mode: "calendar",
+  calendar_url: "https://app.arketa.co/iframe/synthetic/calendar",
+  class_name: observedClass.name,
+  class_date: observedClass.date,
+  class_time: observedClass.start_time,
+  allowed_packages: ["Synthetic Pack"],
+  permitted_actions: ["book", "waitlist"],
+  dry_run: false
+};
+
+const expectedClass: NonNullable<ResolvedCheckout["expectedClass"]> = {
+  name: observedClass.name,
+  date: observedClass.date,
+  start_time: observedClass.start_time
 };
 
 function state(
@@ -68,13 +90,38 @@ function pageFor(pageState: BookingPageState): BookingPage {
   };
 }
 
+function trackingPage(
+  pageState: BookingPageState,
+  operations: string[]
+): BookingPage {
+  return {
+    ...pageFor(pageState),
+    selectMyself: async () => {
+      operations.push("myself");
+    },
+    fillInjuriesIfEmpty: async () => {
+      operations.push("injuries");
+    },
+    selectPackage: async () => {
+      operations.push("package");
+    },
+    acceptCancellationPolicy: async () => {
+      operations.push("cancellation");
+    },
+    submit: async () => {
+      operations.push("submit");
+    }
+  };
+}
+
 it("accepts and returns the observed class without caller class comparison", async () => {
   const result = await prepareBookingWorkflow(
     {
       input,
       profileDir: "/private/runtime/Profile",
       advance: async () => undefined,
-      log: async () => undefined
+      log: async () => undefined,
+      resolveCheckout: () => undefined
     },
     pageFor(state("book"))
   );
@@ -92,13 +139,160 @@ it("accepts and returns the observed class without caller class comparison", asy
   });
 });
 
+it("maps calendar non-selection to an evidence-free safe stop", async () => {
+  const stages: string[] = [];
+  const resolved: string[] = [];
+
+  const workflowResult = await executeBookingWorkflow(
+    {
+      input: discoveryInput,
+      profileDir: "/private/runtime/Profile",
+      advance: async (stage) => {
+        stages.push(stage);
+      },
+      log: async () => undefined,
+      resolveCheckout: (url) => {
+        resolved.push(url);
+      }
+    },
+    async () => {
+      throw new BookingCheckoutNotSelectedError();
+    }
+  );
+
+  expect(workflowResult).toEqual({
+    schema_version: 2,
+    outcome: "SAFE_STOP",
+    exit_code: 20,
+    action_submitted: false,
+    confirmation_verified: false,
+    safety_checks: {
+      approved_package_verified: false,
+      no_charge: false,
+      cancellation_policy_accepted: false
+    },
+    details: "Booking stopped safely."
+  });
+  expect(stages).toEqual(["VALIDATED"]);
+  expect(resolved).toEqual([]);
+});
+
+it.each([
+  [
+    "name",
+    { ...discoveryInput, class_name: "Different Class" },
+    "already_booked"
+  ],
+  ["date", { ...discoveryInput, class_date: "2030-01-17" }, "book"],
+  ["start time", { ...discoveryInput, class_time: "10:31" }, "book"],
+  ["case", { ...discoveryInput, class_name: "caller-selected class" }, "book"],
+  [
+    "punctuation",
+    { ...discoveryInput, class_name: "Caller selected class" },
+    "book"
+  ],
+  ["substring", { ...discoveryInput, class_name: "Caller-selected" }, "book"],
+  [
+    "fuzzy name",
+    { ...discoveryInput, class_name: "Caller-selected clas" },
+    "book"
+  ]
+] as const)(
+  "stops before every checkout mutation when discovery %s differs and browser evidence is omitted",
+  async (_field, mismatchedInput, action) => {
+    const operations: string[] = [];
+    const checkoutUrl =
+      "https://app.arketa.co/iframe/synthetic/calendar/checkout/workflow";
+    const workflowResult = await executeBookingWorkflow(
+      {
+        input: mismatchedInput,
+        profileDir: "/private/runtime/Profile",
+        advance: async () => undefined,
+        log: async () => undefined,
+        resolveCheckout: () => undefined
+      },
+      async (_profile, _request, use) =>
+        use(trackingPage(state(action), operations), {
+          checkoutUrl
+        })
+    );
+
+    expect(workflowResult).toEqual({
+      schema_version: 2,
+      outcome: "SAFE_STOP",
+      exit_code: 20,
+      action_submitted: false,
+      confirmation_verified: false,
+      safety_checks: {
+        approved_package_verified: false,
+        no_charge: false,
+        cancellation_policy_accepted: false
+      },
+      details: "Booking stopped safely."
+    });
+    expect(operations).toEqual([]);
+  }
+);
+
+it("ignores extraneous expected-class evidence in direct mode", async () => {
+  const workflowResult = await executeBookingWorkflow(
+    {
+      input,
+      profileDir: "/private/runtime/Profile",
+      advance: async () => undefined,
+      log: async () => undefined,
+      resolveCheckout: () => undefined
+    },
+    async (_profile, _request, use) =>
+      use(pageFor(state("book")), {
+        checkoutUrl: input.booking_url,
+        expectedClass: { ...expectedClass, name: "Different Class" }
+      })
+  );
+
+  expect(workflowResult).toMatchObject({
+    outcome: "DRY_RUN",
+    observed_class: observedClass,
+    availability: "BOOKING_AVAILABLE"
+  });
+});
+
+it("accepts canonically equivalent discovery class names", async () => {
+  const checkoutUrl =
+    "https://app.arketa.co/iframe/synthetic/calendar/checkout/workflow";
+  const workflowResult = await executeBookingWorkflow(
+    {
+      input: {
+        ...discoveryInput,
+        class_name: `✨  ${expectedClass.name.replace(" class", "   class")}  ✨`,
+        dry_run: true
+      },
+      profileDir: "/private/runtime/Profile",
+      advance: async () => undefined,
+      log: async () => undefined,
+      resolveCheckout: () => undefined
+    },
+    async (_profile, _request, use) =>
+      use(pageFor(state("book")), {
+        checkoutUrl
+      })
+  );
+
+  expect(workflowResult).toMatchObject({
+    outcome: "DRY_RUN",
+    observed_class: observedClass,
+    availability: "BOOKING_AVAILABLE"
+  });
+});
+
 it("stops waitlist availability when the caller permits booking only", async () => {
   const result = await prepareBookingWorkflow(
     {
       input: { ...input, permitted_actions: ["book"] },
       profileDir: "/private/runtime/Profile",
       advance: async () => undefined,
-      log: async () => undefined
+      log: async () => undefined,
+      resolveCheckout: () => undefined
     },
     pageFor(state("waitlist"))
   );
@@ -129,7 +323,8 @@ it.each(["read", "controls"] as const)(
         advance: async () => undefined,
         log: async (event, data) => {
           events.push({ event, data });
-        }
+        },
+        resolveCheckout: () => undefined
       },
       failingPage
     );
@@ -164,7 +359,8 @@ it("excludes raw page-control causes when logging a safe stop", async () => {
       advance: async () => undefined,
       log: async (event, data) => {
         events.push({ event, data });
-      }
+      },
+      resolveCheckout: () => undefined
     },
     {
       ...page,
@@ -190,7 +386,8 @@ it.each([
         input: { ...input, dry_run: false },
         profileDir: "/private/runtime/Profile",
         advance: async () => undefined,
-        log: async () => undefined
+        log: async () => undefined,
+        resolveCheckout: () => undefined
       },
       pageFor(state(action))
     );
@@ -229,7 +426,8 @@ it("allows waitlisting by default during a zero-mutation dry run", async () => {
       input,
       profileDir: "/private/runtime/Profile",
       advance: async () => undefined,
-      log: async () => undefined
+      log: async () => undefined,
+      resolveCheckout: () => undefined
     },
     trackingPage
   );
@@ -284,7 +482,8 @@ it.each([
       input,
       profileDir: "/private/runtime/Profile",
       advance: async () => undefined,
-      log: async () => undefined
+      log: async () => undefined,
+      resolveCheckout: () => undefined
     },
     page
   );
@@ -342,9 +541,14 @@ it("uses the final observed class and submits exactly once without comparing met
       advance: async (stage) => {
         stages.push(stage);
       },
-      log: async () => undefined
+      log: async () => undefined,
+      resolveCheckout: () => undefined
     },
-    async (_profile, _url, use) => use(page)
+    async (_profile, request, use) =>
+      use(page, {
+        checkoutUrl:
+          request.entry_mode === "checkout" ? request.booking_url : ""
+      })
   );
 
   expect(result).toMatchObject({

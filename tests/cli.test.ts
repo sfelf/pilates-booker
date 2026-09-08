@@ -279,6 +279,27 @@ it("executes identical invocations independently instead of replaying local stat
   expect(first.release).toHaveBeenCalledOnce();
 });
 
+it("binds one validated checkout only after the validated stage", async () => {
+  const replacementUrl =
+    "https://app.arketa.co/iframe/synthetic/calendar/checkout/replacement";
+  const deps = dependencies(async (context) => {
+    const checkoutUrl = (args.input as DirectBookingInput).booking_url;
+    expect(() => context.resolveCheckout(checkoutUrl)).toThrow(
+      "invalid resolved checkout binding"
+    );
+    await context.advance("VALIDATED");
+    expect(() => context.resolveCheckout(checkoutUrl)).not.toThrow();
+    expect(() => context.resolveCheckout(checkoutUrl)).not.toThrow();
+    expect(() => context.resolveCheckout(replacementUrl)).toThrow(
+      "invalid resolved checkout binding"
+    );
+    return result;
+  });
+
+  expect(await runCli(args, deps)).toBe(20);
+  expect(deps.emitResult).toHaveBeenCalledWith(`${JSON.stringify(result)}\n`);
+});
+
 it("creates no journal, result, or UUID artifacts for an invocation", async () => {
   const runtimeDir = await mkdtemp(join(tmpdir(), "pilates-v2-runtime-"));
   expect(

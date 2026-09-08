@@ -22,21 +22,22 @@ export const validateResult = (value: unknown): value is BookingResult =>
 
 export function validateResultForInput(
   value: unknown,
-  input: BookingInput
+  input: BookingInput,
+  resolvedCheckoutUrl?: string
 ): value is BookingResult {
   if (!validateResult(value)) return false;
   if (!hasPermittedAction(value, input)) return false;
   if (!hasPolicyBoundPackageEvidence(value, input)) return false;
   const calendarUrl = (value as { google_calendar_url?: unknown })
     .google_calendar_url;
-  const bookingUrl =
-    input.entry_mode === "checkout" ? input.booking_url : undefined;
+  const checkoutUrl =
+    input.entry_mode === "checkout" ? input.booking_url : resolvedCheckoutUrl;
   return (
     calendarUrl === undefined ||
     (typeof calendarUrl === "string" &&
       permitsCalendarUrl(value) &&
-      bookingUrl !== undefined &&
-      validateCalendarUrlForCheckout(calendarUrl, bookingUrl))
+      checkoutUrl !== undefined &&
+      validateCalendarUrlForCheckout(calendarUrl, checkoutUrl))
   );
 }
 

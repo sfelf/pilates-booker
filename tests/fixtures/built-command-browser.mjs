@@ -9,8 +9,17 @@ if (fixturePath === undefined) {
   throw new Error("PILATES_BOOKER_E2E_FIXTURE is required");
 }
 
+export class BookingCheckoutNotSelectedError extends Error {
+  code = "BOOKING_CHECKOUT_NOT_SELECTED";
+
+  constructor() {
+    super("Booking checkout was not selected.");
+    this.name = "BookingCheckoutNotSelectedError";
+  }
+}
+
 export function createBookingBrowser() {
-  return async (_profileDir, _checkoutUrl, use) => {
+  return async (_profileDir, input, use) => {
     const fixture = JSON.parse(await readFile(fixturePath, "utf8"));
     const browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
@@ -18,20 +27,25 @@ export function createBookingBrowser() {
     try {
       await page.setContent(fixture.html);
       const bookingPage = createBookingPage(page);
-      return await use({
-        ...bookingPage,
-        submit: async (action) => {
-          submissions += 1;
-          await bookingPage.submit(action);
-          const selector =
-            action === "book"
-              ? '[data-testid="confirmation-booked"]'
-              : '[data-testid="confirmation-waitlisted"]';
-          await page
-            .locator(selector)
-            .evaluate((element) => element.removeAttribute("hidden"));
+      return await use(
+        {
+          ...bookingPage,
+          submit: async (action) => {
+            submissions += 1;
+            await bookingPage.submit(action);
+            const selector =
+              action === "book"
+                ? '[data-testid="confirmation-booked"]'
+                : '[data-testid="confirmation-waitlisted"]';
+            await page
+              .locator(selector)
+              .evaluate((element) => element.removeAttribute("hidden"));
+          }
+        },
+        {
+          checkoutUrl: input.entry_mode === "checkout" ? input.booking_url : ""
         }
-      });
+      );
     } finally {
       const observation = {
         myself_selected: await page

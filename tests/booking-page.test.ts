@@ -12,6 +12,7 @@ import type {
   BrowserContextLike,
   PersistentBrowserLauncher
 } from "../src/browser-session.js";
+import type { BookingInput } from "../src/contracts.js";
 type ExpectedClass = Readonly<{
   name: string;
   date: string;
@@ -19,6 +20,7 @@ type ExpectedClass = Readonly<{
   timezone: string;
 }>;
 import { bookingPageHtml, liveBookingPageHtml } from "./fixtures/checkout.js";
+import { calendarPageHtml } from "./fixtures/calendar.js";
 
 const expectedClass: ExpectedClass = {
   name: "Reformer – Début ✨",
@@ -1315,6 +1317,24 @@ describe("BookingPage confirmation boundary", () => {
 
 const checkoutUrl =
   "https://app.arketa.co/iframe/example/calendar/checkout/FAKE_CHECKOUT_ID";
+const directInput: BookingInput = {
+  entry_mode: "checkout",
+  booking_url: checkoutUrl,
+  allowed_packages: ["Synthetic Pack"],
+  permitted_actions: ["book", "waitlist"],
+  dry_run: true
+};
+const discoveryCalendarUrl = "https://app.arketa.co/iframe/example/calendar";
+const discoveryInput: BookingInput = {
+  entry_mode: "calendar",
+  calendar_url: discoveryCalendarUrl,
+  class_name: expectedClass.name,
+  class_date: expectedClass.date,
+  class_time: expectedClass.start_time,
+  allowed_packages: ["Synthetic Pack"],
+  permitted_actions: ["book", "waitlist"],
+  dry_run: true
+};
 
 type ReadinessWait = (options: {
   state: "visible";
@@ -1376,6 +1396,134 @@ function lifecycleHarness(
 }
 
 describe("BookingBrowser lifecycle", () => {
+  it("uses one context and page from calendar selection through checkout", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const navigations: string[] = [];
+    let closes = 0;
+    context.on("close", () => {
+      closes += 1;
+    });
+    await page.route("**/*", async (route) => {
+      const url = route.request().url();
+      navigations.push(url);
+      if (url === discoveryCalendarUrl) {
+        await route.fulfill({
+          contentType: "text/html; charset=utf-8",
+          body: calendarPageHtml({
+            startWeek: "2026-08-31",
+            classes: [
+              {
+                name: expectedClass.name,
+                date: expectedClass.date,
+                time: expectedClass.start_time,
+                href: checkoutUrl
+              }
+            ]
+          })
+        });
+        return;
+      }
+      await route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: bookingPageHtml()
+      });
+    });
+    const launcher = vi.fn(async () => context);
+    const bookingBrowser = createBookingBrowser(expectedClass, launcher, {
+      readinessTimeoutMs: 400
+    });
+
+    const output = await bookingBrowser(
+      "/tmp/profile",
+      discoveryInput,
+      async (bookingPage, resolved) => ({
+        resolved,
+        observation: (await bookingPage.read()).observation,
+        pageCount: context.pages().length
+      })
+    );
+
+    expect(output).toMatchObject({
+      resolved: {
+        checkoutUrl,
+        expectedClass: {
+          name: expectedClass.name,
+          date: expectedClass.date,
+          start_time: expectedClass.start_time
+        }
+      },
+      observation: { status: "observed", action: "book" },
+      pageCount: 1
+    });
+    expect(launcher).toHaveBeenCalledOnce();
+    expect(navigations).toEqual([discoveryCalendarUrl, checkoutUrl]);
+    expect(closes).toBe(1);
+  });
+
+  it("reports calendar non-selection without entering the booking callback", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const navigations: string[] = [];
+    await page.route("**/*", async (route) => {
+      navigations.push(route.request().url());
+      await route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: calendarPageHtml({ startWeek: "2026-08-31" })
+      });
+    });
+    const bookingBrowser = createBookingBrowser(
+      expectedClass,
+      async () => context,
+      { readinessTimeoutMs: 400 }
+    );
+    let callbackCalled = false;
+
+    await expect(
+      bookingBrowser("/tmp/profile", discoveryInput, async () => {
+        callbackCalled = true;
+      })
+    ).rejects.toMatchObject({ code: "BOOKING_CHECKOUT_NOT_SELECTED" });
+    expect(callbackCalled).toBe(false);
+    expect(navigations).toEqual([discoveryCalendarUrl]);
+  });
+
+  it("wraps a redirected calendar final URL as a navigation failure", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const redirectedUrl =
+      "https://app.arketa.co/iframe/example/redirected-calendar";
+    await page.route(discoveryCalendarUrl, async (route) => {
+      await route.fulfill({
+        status: 302,
+        headers: { location: redirectedUrl },
+        body: ""
+      });
+    });
+    await page.route(redirectedUrl, async (route) => {
+      await route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: calendarPageHtml({ startWeek: "2026-08-31" })
+      });
+    });
+    const bookingBrowser = createBookingBrowser(
+      expectedClass,
+      async () => context,
+      { readinessTimeoutMs: 400 }
+    );
+
+    let error: unknown;
+    try {
+      await bookingBrowser("/tmp/profile", discoveryInput, async () => {
+        throw new Error("booking callback must not run");
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(String(error)).toContain("Booking browser navigation failed.");
+    expect(String(error)).not.toContain(redirectedUrl);
+  });
+
   it("recognizes current live metadata after one class-title wrapper", async () => {
     const page = await syntheticPage(wrappedLiveBookingPageHtml());
 
@@ -1476,7 +1624,7 @@ describe("BookingBrowser lifecycle", () => {
     let callbackCalled = false;
 
     try {
-      const running = browserBoundary("/tmp/profile", checkoutUrl, async () => {
+      const running = browserBoundary("/tmp/profile", directInput, async () => {
         callbackCalled = true;
         return "ready";
       });
@@ -1522,7 +1670,7 @@ describe("BookingBrowser lifecycle", () => {
 
     try {
       await expect(
-        browserBoundary("/tmp/profile", checkoutUrl, async () => "unexpected")
+        browserBoundary("/tmp/profile", directInput, async () => "unexpected")
       ).rejects.toThrow("Booking browser readiness failed.");
       expect(Date.now() - startedAt).toBeLessThan(280);
     } finally {
@@ -1558,7 +1706,7 @@ describe("BookingBrowser lifecycle", () => {
     let callbackCalled = false;
 
     try {
-      const running = browserBoundary("/tmp/profile", checkoutUrl, async () => {
+      const running = browserBoundary("/tmp/profile", directInput, async () => {
         callbackCalled = true;
         return "ready";
       });
@@ -1604,7 +1752,7 @@ describe("BookingBrowser lifecycle", () => {
     let callbackCalled = false;
 
     try {
-      const running = browserBoundary("/tmp/profile", checkoutUrl, async () => {
+      const running = browserBoundary("/tmp/profile", directInput, async () => {
         callbackCalled = true;
         return "ready";
       });
@@ -1649,7 +1797,7 @@ describe("BookingBrowser lifecycle", () => {
     let callbackCalled = false;
 
     try {
-      const running = browserBoundary("/tmp/profile", checkoutUrl, async () => {
+      const running = browserBoundary("/tmp/profile", directInput, async () => {
         callbackCalled = true;
         return "ready";
       });
@@ -1691,7 +1839,7 @@ describe("BookingBrowser lifecycle", () => {
 
     try {
       await expect(
-        browserBoundary("/tmp/profile", checkoutUrl, async (booking) => {
+        browserBoundary("/tmp/profile", directInput, async (booking) => {
           callbackCalled = true;
           try {
             await booking.read();
@@ -1737,7 +1885,7 @@ describe("BookingBrowser lifecycle", () => {
     try {
       const running = browserBoundary(
         "/tmp/profile",
-        checkoutUrl,
+        directInput,
         async (booking) => {
           callbackCalled = true;
           return booking.read();
@@ -1786,7 +1934,7 @@ describe("BookingBrowser lifecycle", () => {
 
     try {
       await expect(
-        browserBoundary("/tmp/profile", checkoutUrl, async () => "ready")
+        browserBoundary("/tmp/profile", directInput, async () => "ready")
       ).resolves.toBe("ready");
       expect(closes).toBe(1);
     } finally {
@@ -1811,7 +1959,7 @@ describe("BookingBrowser lifecycle", () => {
       harness.launcher
     );
 
-    const running = browserBoundary("/tmp/profile", checkoutUrl, async () => {
+    const running = browserBoundary("/tmp/profile", directInput, async () => {
       callbackCalled = true;
       return "hydrated";
     });
@@ -1841,7 +1989,7 @@ describe("BookingBrowser lifecycle", () => {
 
     let error: unknown;
     try {
-      await browserBoundary("/tmp/profile", checkoutUrl, async (page) => {
+      await browserBoundary("/tmp/profile", directInput, async (page) => {
         harness.callbacks.push(page);
       });
     } catch (caught) {
@@ -1866,14 +2014,17 @@ describe("BookingBrowser lifecycle", () => {
 
     const result = await browserBoundary(
       "/tmp/Pilates Profile",
-      checkoutUrl,
-      async (page) => {
+      directInput,
+      async (page, resolved) => {
         harness.callbacks.push(page);
-        return "callback-result";
+        return { value: "callback-result", resolved };
       }
     );
 
-    expect(result).toBe("callback-result");
+    expect(result).toEqual({
+      value: "callback-result",
+      resolved: { checkoutUrl }
+    });
     expect(harness.launches).toEqual(["/tmp/Pilates Profile"]);
     expect(harness.navigations).toEqual([
       [checkoutUrl, { waitUntil: "domcontentloaded" }]
@@ -1890,7 +2041,7 @@ describe("BookingBrowser lifecycle", () => {
     );
 
     await expect(
-      browserBoundary("/tmp/profile", checkoutUrl, async () => {
+      browserBoundary("/tmp/profile", directInput, async () => {
         throw new Error("trusted callback failure");
       })
     ).rejects.toThrow("trusted callback failure");
@@ -1907,7 +2058,7 @@ describe("BookingBrowser lifecycle", () => {
 
     let error: unknown;
     try {
-      await browserBoundary("/tmp/profile", checkoutUrl, async () => undefined);
+      await browserBoundary("/tmp/profile", directInput, async () => undefined);
     } catch (caught) {
       error = caught;
     }
@@ -1930,7 +2081,10 @@ describe("BookingBrowser lifecycle", () => {
     await expect(
       browserBoundary(
         "/tmp/profile",
-        "https://evil.example/private-identifier",
+        {
+          ...directInput,
+          booking_url: "https://evil.example/private-identifier"
+        },
         async () => undefined
       )
     ).rejects.toThrow("Invalid Arketa checkout URL.");
