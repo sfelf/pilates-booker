@@ -67,7 +67,10 @@ type BuiltCommandObservation = Readonly<{
   package_selections?: number;
   cancellation_acceptances?: number;
 }>;
-type DiscoveryFixtureFailure = "pre_submission" | "post_submit";
+type DiscoveryFixtureFailure =
+  | "pre_submission"
+  | "post_submit"
+  | "checkout_redirect";
 type DiscoveryScenario = Readonly<{
   name: string;
   action: Scenario["action"];
@@ -180,6 +183,8 @@ const scenarios: readonly Scenario[] = [
       observed_class: observedClass,
       package_selected: "Studio / 10-Class Pack",
       packages_before: packagesBefore,
+      google_calendar_url:
+        "https://app.arketa.co/api/calendar/google?classId=e2e",
       safety_checks: completeSafetyChecks,
       details: RESULT_DETAILS.BOOKED
     },
@@ -346,6 +351,8 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
       observed_class: observedClass,
       package_selected: "Studio / 10-Class Pack",
       packages_before: packagesBefore,
+      google_calendar_url:
+        "https://app.arketa.co/api/calendar/google?classId=discovery-e2e",
       safety_checks: completeSafetyChecks,
       details: RESULT_DETAILS.BOOKED
     },
@@ -464,8 +471,26 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     },
     observation: {
       ...discoveryUntouchedObservation,
-      checkout_navigations: 0
+      checkout_navigations: 1
     }
+  },
+  {
+    name: "redirected checkout navigation",
+    action: "book",
+    dryRun: false,
+    startWeek: "2026-08-24",
+    classes: discoveryClasses,
+    failure: "checkout_redirect",
+    expected: {
+      schema_version: 2,
+      outcome: "TECHNICAL_FAILURE",
+      exit_code: 30,
+      action_submitted: false,
+      confirmation_verified: false,
+      safety_checks: incompleteSafetyChecks,
+      details: RESULT_DETAILS.TECHNICAL_FAILURE
+    },
+    observation: discoveryUntouchedObservation
   },
   {
     name: "post-submit confirmation failure",

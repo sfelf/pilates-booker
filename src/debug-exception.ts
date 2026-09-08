@@ -1,6 +1,7 @@
 import type { DebugException } from "./debug-log.js";
 
 const diagnosticBoundaries = new Set([
+  "BookingBrowserError",
   "BookingPageError",
   "BookingPageControlError"
 ]);

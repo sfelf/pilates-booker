@@ -103,16 +103,16 @@ By default both booking and waitlisting are allowed. Add `--book-only` to stop s
 
 Every reportable outcome writes one compact schema-version-2 JSON object followed by one newline.
 
-| Outcome                  | Meaning                                                                   | Exit |
-| ------------------------ | ------------------------------------------------------------------------- | ---: |
-| `BOOKED`                 | Exact booking confirmation observed                                       |    0 |
-| `WAITLISTED`             | Exact waitlist confirmation observed                                      |    0 |
-| `ALREADY_BOOKED`         | Arketa showed an existing booking; no submission                          |    0 |
-| `ALREADY_WAITLISTED`     | Arketa showed existing waitlist enrollment; no submission                 |    0 |
-| `DRY_RUN`                | Inspection completed without form mutation or submission                  |    0 |
-| `SAFE_STOP`              | No unique class/checkout or another safety condition prevented submission |   20 |
-| `TECHNICAL_FAILURE`      | Browser, calendar, checkout, or other failure occurred before submission  |   30 |
-| `CONFIRMATION_UNCERTAIN` | Submission began but confirmation is not dependable                       |   40 |
+| Outcome                  | Meaning                                                                     | Exit |
+| ------------------------ | --------------------------------------------------------------------------- | ---: |
+| `BOOKED`                 | Exact booking confirmation observed                                         |    0 |
+| `WAITLISTED`             | Exact waitlist confirmation observed                                        |    0 |
+| `ALREADY_BOOKED`         | Arketa showed an existing booking; no submission                            |    0 |
+| `ALREADY_WAITLISTED`     | Arketa showed existing waitlist enrollment; no submission                   |    0 |
+| `DRY_RUN`                | Inspection completed without form mutation or submission                    |    0 |
+| `SAFE_STOP`              | No unique class/checkout or another safety condition prevented submission   |   20 |
+| `TECHNICAL_FAILURE`      | Launch, navigation, readiness, or another failure escaped before submission |   30 |
+| `CONFIRMATION_UNCERTAIN` | Submission began but confirmation is not dependable                         |   40 |
 
 The result includes `observed_class` when the page could be inspected and includes package evidence where relevant. A missing JSON response cannot be recovered locally. Invoke the command again with the same validated entry arguments; Arketa's existing-enrollment page is the supported reconciliation mechanism and prevents another enrollment submission.
 
@@ -167,7 +167,7 @@ The log may contain the validated mode-specific command arguments, complete book
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Booking command failed.` with no JSON | Argument parsing, runtime-path resolution, or stdout transport failed. Check argument spelling and the runtime path. When stdout remains available, a debug logger initialization failure produces a schema-version-2 `TECHNICAL_FAILURE` result with exit 30.                                                                              |
 | Exit 20                                | Discovery found zero or multiple exact matches, exceeded its horizon, rejected a checkout link or identity, or the checkout was unsupported, ambiguous, ineligible, or disallowed by `--book-only`; no submission occurred.                                                                                                                 |
-| Exit 30                                | A browser launch, calendar or checkout navigation/readiness failure, or another technical failure occurred before submission; no submission occurred.                                                                                                                                                                                       |
+| Exit 30                                | A browser launch, calendar or checkout navigation/readiness failure, or another failure escaped the workflow before submission; no submission occurred. Checkout inspection and preparation safety failures produce exit 20 instead.                                                                                                        |
 | Exit 40                                | Do not infer failure. Run the utility again and let Arketa report existing enrollment or offer an action.                                                                                                                                                                                                                                   |
 | Lock contention                        | Pilates Booker removes a valid current `run.lock` only when its recorded PID is conclusively absent. It revalidates the PID and device/inode immediately before removal, then retries exclusive acquisition once.                                                                                                                           |
 | Lock remains after the process ended   | A legacy, malformed, unreadable, active, or indeterminate lock is preserved for manual recovery. PID reuse, an unreaped zombie, permission restrictions, or another ambiguous PID probe can make a stale lock appear active. Confirm no Pilates Booker or profile Chromium process is active before removing that exact lock file manually. |
