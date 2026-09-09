@@ -10,7 +10,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
-    "node": "^22.13.0 || >=24.0.0"
+    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
     "format": "prettier --write README.md .github schemas src tests package.json tsconfig.json tsconfig.build.json eslint.config.js .prettierrc.json",
@@ -32,12 +32,12 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.18.0",
-    "@vitest/coverage-v8": "^3.2.7",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^10.9.1",
     "prettier": "^3.6.2",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.69.0",
-    "vitest": "^3.2.7",
+    "vitest": "^5.0.0",
     "yaml": "^2.9.0"
   }
 }
