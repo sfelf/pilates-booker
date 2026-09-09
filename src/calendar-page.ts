@@ -31,6 +31,10 @@ type CalendarWeek = Readonly<{
   targetClasses: readonly CalendarClass[];
 }>;
 
+type CalendarPageOptions = Readonly<{ now?: Date }>;
+
+const calendarSettleTimeoutMs = 10_000;
+
 class CalendarPageError extends Error {
   readonly code = "CALENDAR_PAGE_UNAVAILABLE";
 
@@ -42,12 +46,14 @@ class CalendarPageError extends Error {
 
 export function createCalendarPage(
   page: Page,
-  calendarUrl: URL
+  calendarUrl: URL,
+  options: CalendarPageOptions = {}
 ): Readonly<{
   select(request: DiscoveryBookingInput): Promise<CalendarSelection>;
 }> {
   return {
     select: async (request) => {
+      const now = options.now ?? new Date();
       const validatedCalendarUrl = assertCalendarIdentity(page, calendarUrl);
       if (
         validateCalendarPageUrl(request.calendar_url).href !==
@@ -55,7 +61,12 @@ export function createCalendarPage(
       ) {
         throw new CalendarPageError();
       }
-      let calendar = await readCalendarWeek(page, request.class_date);
+      let calendar = await readCalendarWeek(
+        page,
+        request.class_date,
+        undefined,
+        now
+      );
       assertCalendarIdentity(page, validatedCalendarUrl);
       const targetWeekOffset = calculateWeekOffset(
         calendar.startDate,
@@ -76,7 +87,9 @@ export function createCalendarPage(
         calendar = await readCalendarWeek(
           page,
           request.class_date,
-          expectedWeekStart
+          expectedWeekStart,
+          now,
+          offset === targetWeekOffset - 1 ? 750 : 100
         );
         assertCalendarIdentity(page, validatedCalendarUrl);
         if (calendar.startDate !== expectedWeekStart) {
@@ -147,19 +160,25 @@ async function advanceToNextWeek(
   expectedWeekStart: string
 ): Promise<void> {
   try {
-    const nextControl = page.getByRole("button", {
-      name: "Next week",
-      exact: true
-    });
+    const nextControl = page.locator(
+      "div.week-range__meta + div.week-range__arrow"
+    );
+    const duplicateNextControl = page.locator(
+      "div.week-range__meta + div.week-range__arrow + div.week-range__arrow"
+    );
     if (
       (await nextControl.count()) !== 1 ||
+      (await duplicateNextControl.count()) !== 0 ||
       !(await nextControl.isVisible()) ||
-      !(await nextControl.isEnabled())
+      !(await nextControl.isEnabled()) ||
+      (await nextControl.evaluate((element) =>
+        element.classList.contains("week-range--disabled")
+      ))
     ) {
       throw new CalendarPageError();
     }
     await nextControl.click();
-    await page.waitForFunction((expectedStart) => {
+    await page.waitForFunction((expectedRange) => {
       const isVisible = (element: Element): element is HTMLElement => {
         if (!(element instanceof HTMLElement)) return false;
         const style = getComputedStyle(element);
@@ -170,15 +189,15 @@ async function advanceToNextWeek(
           element.getClientRects().length > 0
         );
       };
-      const headings = [
-        ...document.querySelectorAll('h1[id="calendar-week-heading"]')
+      const ranges = [
+        ...document.querySelectorAll("div.week-range__meta")
       ].filter(isVisible);
       return (
-        headings.length === 1 &&
-        (headings[0]?.textContent ?? "").replace(/\s+/gu, " ").trim() ===
-          `Week of ${expectedStart}`
+        ranges.length === 1 &&
+        (ranges[0]?.textContent ?? "").replace(/\s+/gu, " ").trim() ===
+          expectedRange
       );
-    }, expectedWeekStart);
+    }, formatWeekRange(expectedWeekStart));
   } catch (error) {
     if (error instanceof CalendarPageError) throw error;
     throw new CalendarPageError();
@@ -188,56 +207,66 @@ async function advanceToNextWeek(
 async function readCalendarWeek(
   page: Page,
   targetDate: string,
-  expectedWeekStart?: string
+  expectedWeekStart: string | undefined,
+  now: Date = new Date(),
+  quietMs = 750
 ): Promise<CalendarWeek> {
   try {
-    await page.waitForFunction((expectedStart) => {
-      const isVisible = (element: Element): element is HTMLElement => {
-        if (!(element instanceof HTMLElement)) return false;
-        const style = getComputedStyle(element);
+    const expectedRange =
+      expectedWeekStart === undefined
+        ? undefined
+        : formatWeekRange(expectedWeekStart);
+    const expectedLabels =
+      expectedWeekStart === undefined
+        ? undefined
+        : Array.from({ length: 7 }, (_, index) =>
+            formatDateColumnLabel(addDays(expectedWeekStart, index))
+          );
+    await page.waitForFunction(
+      ({ range: expected, labels }) => {
+        const isVisible = (element: Element): element is HTMLElement => {
+          if (!(element instanceof HTMLElement)) return false;
+          const style = getComputedStyle(element);
+          return (
+            !element.hidden &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            element.getClientRects().length > 0
+          );
+        };
+        const ranges = [
+          ...document.querySelectorAll("div.week-range__meta")
+        ].filter(isVisible);
+        const columns = [
+          ...document.querySelectorAll(
+            "section.calendar-view__column[aria-label]"
+          )
+        ].filter(isVisible);
+        const loading = [
+          ...document.querySelectorAll(".spinner-border")
+        ].filter(isVisible);
+        const range =
+          ranges.length === 1
+            ? (ranges[0]?.textContent ?? "").replace(/\s+/gu, " ").trim()
+            : "";
         return (
-          !element.hidden &&
-          style.display !== "none" &&
-          style.visibility !== "hidden" &&
-          element.getClientRects().length > 0
+          columns.length === 7 &&
+          loading.length === 0 &&
+          (expected === undefined ? range.length > 0 : range === expected) &&
+          (labels === undefined ||
+            columns.every(
+              (column, index) =>
+                column.getAttribute("aria-label") === labels[index]
+            ))
         );
-      };
-      const headings = [
-        ...document.querySelectorAll('h1[id="calendar-week-heading"]')
-      ].filter(isVisible);
-      const headingMatch = /^Week of (\d{4}-\d{2}-\d{2})$/u.exec(
-        (headings[0]?.textContent ?? "").replace(/\s+/gu, " ").trim()
-      );
-      const regions = [
-        ...document.querySelectorAll('[role="region"][aria-label]')
-      ].filter(
-        (element) =>
-          isVisible(element) &&
-          /^\d{4}-\d{2}-\d{2}$/u.test(element.getAttribute("aria-label") ?? "")
-      );
-      if (
-        headings.length !== 1 ||
-        headingMatch === null ||
-        regions.length !== 7
-      ) {
-        return false;
-      }
-      const weekStart = expectedStart ?? headingMatch[1];
-      if (weekStart === undefined || headingMatch[1] !== weekStart)
-        return false;
-      const date = new Date(`${weekStart}T12:00:00.000Z`);
-      if (Number.isNaN(date.getTime())) return false;
-      return regions.every((region, offset) => {
-        const expectedDate = new Date(date);
-        expectedDate.setUTCDate(expectedDate.getUTCDate() + offset);
-        return (
-          region.getAttribute("aria-label") ===
-          expectedDate.toISOString().slice(0, 10)
-        );
-      });
-    }, expectedWeekStart);
+      },
+      { range: expectedRange, labels: expectedLabels }
+    );
+    if (!(await waitForCalendarSettled(page, quietMs))) {
+      throw new CalendarPageError();
+    }
 
-    const snapshot = await page.evaluate((requestedDate) => {
+    const snapshot = await page.evaluate((requestedLabel) => {
       const isVisible = (element: Element): element is HTMLElement => {
         if (!(element instanceof HTMLElement)) return false;
         const style = getComputedStyle(element);
@@ -250,91 +279,121 @@ async function readCalendarWeek(
       };
       const visibleText = (element: Element): string =>
         (element.textContent ?? "").replace(/\s+/gu, " ").trim();
-      const rawText = (element: Element): string => element.textContent ?? "";
-      const headings = [
-        ...document.querySelectorAll('h1[id="calendar-week-heading"]')
+      const ranges = [
+        ...document.querySelectorAll("div.week-range__meta")
       ].filter(isVisible);
-      const heading = headings[0];
-      const headingMatch = /^Week of (\d{4}-\d{2}-\d{2})$/u.exec(
-        heading === undefined ? "" : visibleText(heading)
-      );
-      const regions = [
-        ...document.querySelectorAll('[role="region"][aria-label]')
-      ].filter(
-        (element) =>
-          isVisible(element) &&
-          /^\d{4}-\d{2}-\d{2}$/u.test(element.getAttribute("aria-label") ?? "")
-      );
-      const dates = regions.map((region) => region.getAttribute("aria-label"));
-      const targetRegion = regions.find(
-        (region) => region.getAttribute("aria-label") === requestedDate
+      const columns = [
+        ...document.querySelectorAll(
+          "section.calendar-view__column[aria-label]"
+        )
+      ].filter(isVisible);
+      const labels = columns.map((column) => column.getAttribute("aria-label"));
+      const targetColumn = columns.find(
+        (column) => column.getAttribute("aria-label") === requestedLabel
       );
       const classes =
-        targetRegion === undefined
+        targetColumn === undefined
           ? []
-          : [...targetRegion.querySelectorAll('article[aria-label="Class"]')]
+          : [
+              ...targetColumn.querySelectorAll(
+                "article.calendar-view__cell[aria-label]"
+              )
+            ]
               .filter(isVisible)
               .map((article) => {
-                const names = [
-                  ...article.querySelectorAll(":scope > h2")
-                ].filter(isVisible);
-                const times = [
-                  ...article.querySelectorAll(":scope > time")
-                ].filter(isVisible);
-                const links = [
-                  ...article.querySelectorAll(":scope > a[href]")
-                ].filter(isVisible);
+                const links = [...article.querySelectorAll("a[href]")];
                 return {
-                  className:
-                    names.length === 1 && names[0] !== undefined
-                      ? rawText(names[0])
-                      : undefined,
-                  time:
-                    times.length === 1 && times[0] !== undefined
-                      ? visibleText(times[0])
-                      : undefined,
+                  label: article.getAttribute("aria-label") ?? "",
                   hrefs: links.flatMap((link) => {
                     const href = link.getAttribute("href");
                     return href === null ? [] : [href];
                   })
                 };
               });
-      return { headingStart: headingMatch?.[1], dates, classes };
-    }, targetDate);
+      return {
+        range: ranges.length === 1 ? visibleText(ranges[0]!) : undefined,
+        labels,
+        classes
+      };
+    }, formatDateColumnLabel(targetDate));
 
-    const dates = snapshot.dates.filter(
-      (date): date is string => date !== null && isIsoDate(date)
+    const startDate =
+      expectedWeekStart ??
+      (snapshot.range === undefined
+        ? undefined
+        : parseWeekRange(snapshot.range, now));
+    const labels = snapshot.labels.filter(
+      (label): label is string => label !== null
     );
     if (
-      snapshot.headingStart === undefined ||
-      !isIsoDate(snapshot.headingStart) ||
-      dates.length !== 7 ||
-      new Set(dates).size !== 7 ||
-      !hasConsecutiveDates(snapshot.headingStart, dates)
+      startDate === undefined ||
+      snapshot.range !== formatWeekRange(startDate) ||
+      labels.length !== 7 ||
+      new Set(labels).size !== 7 ||
+      !hasConsecutiveDateLabels(startDate, labels)
     ) {
       throw new CalendarPageError();
     }
 
     const targetClasses = snapshot.classes.map((candidate) => {
-      if (candidate.className === undefined || candidate.time === undefined) {
+      const separator = candidate.label.lastIndexOf(" — ");
+      if (separator <= 0) {
         throw new CalendarPageError();
       }
-      if (projectSafeText(candidate.className) !== candidate.className) {
+      const className = candidate.label.slice(0, separator);
+      const renderedTime = candidate.label.slice(separator + 3);
+      if (projectSafeText(className) !== className) {
         throw new CalendarPageError();
       }
-      const classTime = parseCalendarTime(candidate.time);
+      const classTime = parseCalendarTime(renderedTime);
       if (classTime === undefined) throw new CalendarPageError();
       return {
-        className: candidate.className,
+        className,
         classTime,
         hrefs: candidate.hrefs
       };
     });
-    return { startDate: snapshot.headingStart, dates, targetClasses };
+    const dates = Array.from({ length: 7 }, (_, index) =>
+      addDays(startDate, index)
+    );
+    return { startDate, dates, targetClasses };
   } catch (error) {
     if (error instanceof CalendarPageError) throw error;
     throw new CalendarPageError();
   }
+}
+
+async function waitForCalendarSettled(
+  page: Page,
+  quietMs = 750
+): Promise<boolean> {
+  return page.evaluate(
+    ({ quietMs, timeoutMs }) =>
+      new Promise<boolean>((resolve) => {
+        const root = document.body;
+        if (root === null) {
+          resolve(false);
+          return;
+        }
+        let quietTimer: ReturnType<typeof setTimeout> | undefined;
+        const finish = (settled: boolean) => {
+          observer.disconnect();
+          if (quietTimer !== undefined) clearTimeout(quietTimer);
+          clearTimeout(deadline);
+          resolve(settled);
+        };
+        const check = () => {
+          if (quietTimer !== undefined) clearTimeout(quietTimer);
+          if (document.querySelector(".spinner-border") !== null) return;
+          quietTimer = setTimeout(() => finish(true), quietMs);
+        };
+        const observer = new MutationObserver(check);
+        const deadline = setTimeout(() => finish(false), timeoutMs);
+        observer.observe(root, { childList: true, subtree: true });
+        check();
+      }),
+    { quietMs, timeoutMs: calendarSettleTimeoutMs }
+  );
 }
 
 function isIsoDate(value: string): boolean {
@@ -349,11 +408,97 @@ function isIsoDate(value: string): boolean {
   );
 }
 
-function hasConsecutiveDates(
+function hasConsecutiveDateLabels(
   startDate: string,
-  dates: readonly string[]
+  labels: readonly string[]
 ): boolean {
-  return dates.every((date, index) => date === addDays(startDate, index));
+  return labels.every(
+    (label, index) => label === formatDateColumnLabel(addDays(startDate, index))
+  );
+}
+
+const months = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December"
+] as const;
+
+function formatWeekRange(startDate: string): string {
+  const start = new Date(`${startDate}T12:00:00.000Z`);
+  const end = new Date(`${addDays(startDate, 6)}T12:00:00.000Z`);
+  return `${months[start.getUTCMonth()]} ${start.getUTCDate()} — ${months[end.getUTCMonth()]} ${end.getUTCDate()}`;
+}
+
+function formatDateColumnLabel(isoDate: string): string {
+  const date = new Date(`${isoDate}T12:00:00.000Z`);
+  const weekday = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday"
+  ][date.getUTCDay()];
+  const day = date.getUTCDate();
+  const suffix =
+    day % 100 >= 11 && day % 100 <= 13
+      ? "th"
+      : (({ 1: "st", 2: "nd", 3: "rd" } as const)[(day % 10) as 1 | 2 | 3] ??
+        "th");
+  return `${weekday} ${months[date.getUTCMonth()]?.slice(0, 3)} ${day}${suffix}`;
+}
+
+function parseWeekRange(value: string, now: Date): string | undefined {
+  const match =
+    /^(January|February|March|April|May|June|July|August|September|October|November|December) ([1-9]|[12][0-9]|3[01]) — (January|February|March|April|May|June|July|August|September|October|November|December) ([1-9]|[12][0-9]|3[01])$/u.exec(
+      value
+    );
+  if (match === null) return undefined;
+  const startMonth = months.indexOf(match[1] as (typeof months)[number]);
+  const endMonth = months.indexOf(match[3] as (typeof months)[number]);
+  const nowTime = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    12
+  );
+  const candidates = [-1, 0, 1].flatMap((yearOffset) => {
+    const year = now.getUTCFullYear() + yearOffset;
+    const start = new Date(Date.UTC(year, startMonth, Number(match[2]), 12));
+    if (
+      start.getUTCMonth() !== startMonth ||
+      start.getUTCDate() !== Number(match[2])
+    ) {
+      return [];
+    }
+    const isoStart = start.toISOString().slice(0, 10);
+    const end = new Date(`${addDays(isoStart, 6)}T12:00:00.000Z`);
+    if (
+      end.getUTCMonth() !== endMonth ||
+      end.getUTCDate() !== Number(match[4])
+    ) {
+      return [];
+    }
+    return [
+      {
+        isoStart,
+        distance: Math.abs(start.getTime() - nowTime)
+      }
+    ];
+  });
+  candidates.sort((left, right) => left.distance - right.distance);
+  const nearest = candidates[0];
+  return nearest?.isoStart;
 }
 
 function addDays(isoDate: string, days: number): string {

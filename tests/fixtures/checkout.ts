@@ -18,6 +18,7 @@ export type BookingPageFixtureOptions = Readonly<{
   bookedConfirmations?: number;
   waitlistedConfirmations?: number;
   confirmationsHidden?: boolean;
+  classDate?: string;
 }>;
 
 const SYNTHETIC_PACKAGES = [
@@ -144,7 +145,7 @@ export function bookingPageHtml(
         <section data-testid="class">
           <span data-testid="class-name">Reformer – Début ✨</span>
           <span data-testid="instructor">Ana O’Neil</span>
-          <span data-testid="class-date">2026-09-01</span>
+          <span data-testid="class-date">${escapeHtml(options.classDate ?? "2026-09-01")}</span>
           <span data-testid="start-time">09:30</span>
           <span data-testid="end-time">10:20</span>
           <span data-testid="timezone">America/Los_Angeles</span>

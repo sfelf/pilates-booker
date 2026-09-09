@@ -1422,7 +1422,7 @@ describe("BookingBrowser lifecycle", () => {
         await route.fulfill({
           contentType: "text/html; charset=utf-8",
           body: calendarPageHtml({
-            startWeek: "2026-08-31",
+            startWeek: "2026-08-30",
             classes: [
               {
                 name: expectedClass.name,
@@ -1480,7 +1480,7 @@ describe("BookingBrowser lifecycle", () => {
       navigations.push(route.request().url());
       await route.fulfill({
         contentType: "text/html; charset=utf-8",
-        body: calendarPageHtml({ startWeek: "2026-08-31" })
+        body: calendarPageHtml({ startWeek: "2026-08-30" })
       });
     });
     const bookingBrowser = createBookingBrowser(
@@ -1514,7 +1514,7 @@ describe("BookingBrowser lifecycle", () => {
     await page.route(redirectedUrl, async (route) => {
       await route.fulfill({
         contentType: "text/html; charset=utf-8",
-        body: calendarPageHtml({ startWeek: "2026-08-31" })
+        body: calendarPageHtml({ startWeek: "2026-08-30" })
       });
     });
     const bookingBrowser = createBookingBrowser(

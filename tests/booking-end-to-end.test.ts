@@ -43,6 +43,10 @@ const observedClass = {
   end_time: "10:20",
   timezone: "America/Los_Angeles"
 } as const;
+const discoveryObservedClass = {
+  ...observedClass,
+  date: "2026-12-02"
+} as const;
 type Scenario = Readonly<{
   name: string;
   action: "book" | "waitlist" | "already_booked" | "already_waitlisted";
@@ -133,7 +137,7 @@ const discoveryUntouchedObservation = {
   pages: 1,
   calendar_navigations: 1,
   checkout_navigations: 1,
-  calendar_week_clicks: 1,
+  calendar_week_clicks: 12,
   calendar_checkout_clicks: 0,
   myself_selections: 0,
   injury_fills: 0,
@@ -163,8 +167,8 @@ const evidenceFreeSafeStop: BookingResult = {
 };
 const discoveryClasses = [
   {
-    name: observedClass.name,
-    date: observedClass.date,
+    name: discoveryObservedClass.name,
+    date: discoveryObservedClass.date,
     time: "9:30 AM",
     href: discoveryCheckoutUrl
   }
@@ -293,7 +297,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "actionable dry run at the twelfth following week",
     action: "book",
     dryRun: true,
-    startWeek: "2026-06-08",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -302,7 +306,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
       action_submitted: false,
       confirmation_verified: false,
       availability: "BOOKING_AVAILABLE",
-      observed_class: observedClass,
+      observed_class: discoveryObservedClass,
       package_selected: "Studio / 10-Class Pack",
       packages_before: packagesBefore,
       safety_checks: {
@@ -321,7 +325,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "existing-enrollment dry run",
     action: "already_booked",
     dryRun: true,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -330,7 +334,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
       action_submitted: false,
       confirmation_verified: true,
       availability: "ALREADY_BOOKED",
-      observed_class: observedClass,
+      observed_class: discoveryObservedClass,
       safety_checks: incompleteSafetyChecks,
       details: RESULT_DETAILS.DRY_RUN
     },
@@ -340,7 +344,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "confirmed booking",
     action: "book",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -348,7 +352,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
       exit_code: 0,
       action_submitted: true,
       confirmation_verified: true,
-      observed_class: observedClass,
+      observed_class: discoveryObservedClass,
       package_selected: "Studio / 10-Class Pack",
       packages_before: packagesBefore,
       google_calendar_url:
@@ -362,7 +366,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "confirmed waitlist",
     action: "waitlist",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -370,7 +374,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
       exit_code: 0,
       action_submitted: true,
       confirmation_verified: true,
-      observed_class: observedClass,
+      observed_class: discoveryObservedClass,
       package_selected: "Studio / 10-Class Pack",
       packages_before: packagesBefore,
       safety_checks: completeSafetyChecks,
@@ -382,7 +386,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "authoritative existing booking",
     action: "already_booked",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -390,7 +394,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
       exit_code: 0,
       action_submitted: false,
       confirmation_verified: true,
-      observed_class: observedClass,
+      observed_class: discoveryObservedClass,
       safety_checks: incompleteSafetyChecks,
       details: RESULT_DETAILS.ALREADY_BOOKED
     },
@@ -400,7 +404,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "authoritative existing waitlist",
     action: "already_waitlisted",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -408,7 +412,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
       exit_code: 0,
       action_submitted: false,
       confirmation_verified: true,
-      observed_class: observedClass,
+      observed_class: discoveryObservedClass,
       safety_checks: incompleteSafetyChecks,
       details: RESULT_DETAILS.ALREADY_WAITLISTED
     },
@@ -418,7 +422,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "no exact calendar match",
     action: "book",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: [
       {
         ...discoveryClasses[0],
@@ -435,7 +439,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "ambiguous exact calendar match",
     action: "book",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: [...discoveryClasses, ...discoveryClasses],
     expected: evidenceFreeSafeStop,
     observation: {
@@ -447,7 +451,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "checkout identity mismatch",
     action: "book",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     checkoutClassName: "Synthetic Mat Fundamentals",
     expected: evidenceFreeSafeStop,
@@ -457,7 +461,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "pre-submission browser failure",
     action: "book",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     failure: "pre_submission",
     expected: {
@@ -478,7 +482,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "redirected checkout navigation",
     action: "book",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     failure: "checkout_redirect",
     expected: {
@@ -496,7 +500,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "post-submit confirmation failure",
     action: "book",
     dryRun: false,
-    startWeek: "2026-08-24",
+    startWeek: "2026-09-06",
     classes: discoveryClasses,
     failure: "post_submit",
     expected: {
@@ -604,11 +608,11 @@ describe.each(discoveryScenarios)(
         "--calendar-url",
         discoveryCalendarUrl,
         "--class-name",
-        observedClass.name,
+        discoveryObservedClass.name,
         "--class-date",
-        observedClass.date,
+        discoveryObservedClass.date,
         "--class-time",
-        observedClass.start_time,
+        discoveryObservedClass.start_time,
         "--allow-package",
         "Studio / 10-Class Pack",
         "--runtime",
@@ -619,10 +623,11 @@ describe.each(discoveryScenarios)(
         action: scenario.action,
         myselfSelected: false,
         injuries: [""],
-        selectedPackageRows: []
+        selectedPackageRows: [],
+        classDate: discoveryObservedClass.date
       }).replaceAll(
-        observedClass.name,
-        scenario.checkoutClassName ?? observedClass.name
+        discoveryObservedClass.name,
+        scenario.checkoutClassName ?? discoveryObservedClass.name
       );
       const invocation = await runBuiltCommand(argv, scenario.action, {
         calendarHtml: calendarPageHtml({
