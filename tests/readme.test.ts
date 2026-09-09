@@ -30,7 +30,7 @@ test("documents only the executable CLI-only operating model", async () => {
     license: "AGPL-3.0-or-later",
     private: true,
     version: APPLICATION_VERSION,
-    engines: { node: "^22.13.0 || >=24.0.0" }
+    engines: { node: "^22.13.0 || ^24.0.0 || >=26.0.0" }
   });
   expect(JSON.parse(packageLock)).toMatchObject({
     version: APPLICATION_VERSION,
@@ -112,8 +112,8 @@ test("documents only the executable CLI-only operating model", async () => {
     "--book-only",
     "--dry-run",
     "--debug",
-    "Node.js 22.13–22.x or >=24",
-    "Install Node.js `^22.13.0 || >=24.0.0`",
+    "Node.js 22.13–22.x, 24.x, or >=26",
+    "Install Node.js `^22.13.0 || ^24.0.0 || >=26.0.0`",
     "pilates-booker.log.1",
     "outside the repository checkout",
     "Windows inherited ACLs restrict the runtime to the current account",

@@ -1,6 +1,6 @@
 # pilates-booker
 
-[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Codecov coverage](https://codecov.io/gh/sfelf/pilates-booker/branch/main/graph/badge.svg)](https://app.codecov.io/gh/sfelf/pilates-booker) [![Latest release](https://img.shields.io/github/v/release/sfelf/pilates-booker?display_name=tag&label=release)](https://github.com/sfelf/pilates-booker/releases/latest) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js 22.13–22.x or >=24](https://img.shields.io/badge/Node.js-22.13%E2%80%9322.x_or_%3E%3D24-339933)](package.json)
+[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Codecov coverage](https://codecov.io/gh/sfelf/pilates-booker/branch/main/graph/badge.svg)](https://app.codecov.io/gh/sfelf/pilates-booker) [![Latest release](https://img.shields.io/github/v/release/sfelf/pilates-booker?display_name=tag&label=release)](https://github.com/sfelf/pilates-booker/releases/latest) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js 22.13–22.x, 24.x, or >=26](https://img.shields.io/badge/Node.js-22.13%E2%80%9322.x%2C_24.x%2C_or_%3E%3D26-339933)](package.json)
 
 Pilates Booker inspects or submits one Arketa booking or waitlist attempt from command-line arguments. It supports direct checkout and exact calendar discovery. Arketa is authoritative for enrollment state. The utility does not schedule runs, automate login, or retry automatically.
 
@@ -8,7 +8,7 @@ Pilates Booker is an independent project and is not affiliated with or endorsed 
 
 ## Install
 
-Install Node.js `^22.13.0 || >=24.0.0`, clone this repository into a private location, and run:
+Install Node.js `^22.13.0 || ^24.0.0 || >=26.0.0`, clone this repository into a private location, and run:
 
 ```sh
 npm ci

@@ -10,7 +10,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
-    "node": "^22.13.0 || >=24.0.0"
+    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
     "format": "prettier --write README.md .github schemas src tests package.json tsconfig.json tsconfig.build.json eslint.config.js .prettierrc.json",
