@@ -33,8 +33,17 @@ const VERSION_COMMENT = /^#\s+v\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.-]+)?$/u;
 
 type Job = {
   if?: unknown;
+  name?: unknown;
+  needs?: unknown;
   permissions?: unknown;
-  steps?: { name?: unknown; run?: unknown; uses?: unknown; with?: unknown }[];
+  steps?: {
+    if?: unknown;
+    name?: unknown;
+    run?: unknown;
+    uses?: unknown;
+    with?: unknown;
+  }[];
+  strategy?: unknown;
 };
 
 type Workflow = {
@@ -381,17 +390,17 @@ test("limits CI permissions to source reads and Codecov OIDC", async () => {
   ]);
   expect(actionOccurrences(source)).toEqual([
     {
-      line: 17,
+      line: 21,
       reference: CHECKOUT_ACTION,
       versionComment: "# v7"
     },
     {
-      line: 18,
+      line: 22,
       reference: SETUP_NODE_ACTION,
       versionComment: "# v7"
     },
     {
-      line: 30,
+      line: 35,
       reference: CODECOV_ACTION,
       versionComment: "# v7.0.0"
     }
@@ -408,7 +417,7 @@ test("runs explicit V8 coverage and fails CI when the public Codecov upload fail
     devDependencies?: Record<string, unknown>;
     scripts?: Record<string, unknown>;
   };
-  const steps = ci.jobs?.validate?.steps ?? [];
+  const steps = ci.jobs?.["validate-node"]?.steps ?? [];
 
   expect(packageJson.scripts?.["pretest:coverage"]).toBe("npm run build");
   expect(packageJson.scripts?.["test:coverage"]).toBe(
@@ -420,6 +429,7 @@ test("runs explicit V8 coverage and fails CI when the public Codecov upload fail
     "npm run test:coverage"
   );
   expect(steps.find(({ uses }) => uses === CODECOV_ACTION)).toEqual({
+    if: "matrix.node-version == '22.13.0'",
     name: "Upload coverage to Codecov",
     uses: CODECOV_ACTION,
     with: {
@@ -428,6 +438,35 @@ test("runs explicit V8 coverage and fails CI when the public Codecov upload fail
       files: "./coverage/lcov.info",
       use_oidc: true
     }
+  });
+});
+
+test("validates supported Node releases and preserves the required aggregate gate", async () => {
+  const ci = parse(await readFile(ciFile, "utf8")) as Workflow;
+  const validateNode = ci.jobs?.["validate-node"];
+  const steps = validateNode?.steps ?? [];
+
+  expect(validateNode?.name).toBe("validate-node (${{ matrix.node-version }})");
+  expect(validateNode?.strategy).toEqual({
+    matrix: { "node-version": ["22.13.0", "24"] }
+  });
+  expect(steps.find(({ uses }) => uses === SETUP_NODE_ACTION)?.with).toEqual({
+    cache: "npm",
+    "node-version": "${{ matrix.node-version }}"
+  });
+  expect(steps.find(({ uses }) => uses === CODECOV_ACTION)?.if).toBe(
+    "matrix.node-version == '22.13.0'"
+  );
+  expect(ci.jobs?.validate).toEqual({
+    if: "always()",
+    needs: "validate-node",
+    "runs-on": "ubuntu-latest",
+    steps: [
+      {
+        name: "Require supported Node validation",
+        run: 'test "${{ needs.validate-node.result }}" = success'
+      }
+    ]
   });
 });
 
