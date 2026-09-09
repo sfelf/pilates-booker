@@ -19,6 +19,8 @@ export type CalendarFixtureOptions = Readonly<{
   navigationRegionDelayMs?: number;
   malformedRange?: boolean;
   hiddenSpinner?: boolean;
+  spinnerHiddenAfterMs?: number;
+  spinnerVisibleAfterMs?: number;
 }>;
 
 export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
@@ -32,12 +34,15 @@ export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
   const navigationRegionDelayMs = options.navigationRegionDelayMs ?? 0;
   const malformedRange = options.malformedRange ?? false;
   const hiddenSpinner = options.hiddenSpinner ?? false;
+  const spinnerHiddenAfterMs = options.spinnerHiddenAfterMs;
+  const spinnerVisibleAfterMs = options.spinnerVisibleAfterMs;
   const encodedClasses = JSON.stringify(classes).replaceAll("<", "\\u003c");
 
   return `<!doctype html>
     <html>
       <body data-calendar-navigation-clicks="0" data-calendar-checkout-clicks="0">
         ${hiddenSpinner ? '<div class="spinner-border" style="display:none"></div>' : ""}
+        ${spinnerHiddenAfterMs === undefined ? "" : `<div id="attribute-spinner" class="spinner-border"${spinnerVisibleAfterMs === undefined ? "" : " hidden"}></div>`}
         <main id="calendar"></main>
         <script>
           const classes = ${encodedClasses};
@@ -48,7 +53,19 @@ export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
           const extraRegion = ${JSON.stringify(extraRegion)};
           const navigationRegionDelayMs = ${JSON.stringify(navigationRegionDelayMs)};
           const malformedRange = ${JSON.stringify(malformedRange)};
+          const spinnerHiddenAfterMs = ${JSON.stringify(spinnerHiddenAfterMs)};
+          const spinnerVisibleAfterMs = ${JSON.stringify(spinnerVisibleAfterMs)};
           let offset = 0;
+          if (spinnerVisibleAfterMs !== undefined) {
+            setTimeout(() => {
+              document.querySelector("#attribute-spinner").hidden = false;
+            }, spinnerVisibleAfterMs);
+          }
+          if (spinnerHiddenAfterMs !== undefined) {
+            setTimeout(() => {
+              document.querySelector("#attribute-spinner").hidden = true;
+            }, spinnerHiddenAfterMs);
+          }
 
           const escapeHtml = (value) => value
             .replaceAll("&", "&amp;")

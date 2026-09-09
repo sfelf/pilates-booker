@@ -157,6 +157,28 @@ describe("CalendarPage read-only discovery boundary", () => {
     await page.close();
   });
 
+  it("observes a spinner becoming hidden through an attribute mutation", async () => {
+    const page = await syntheticPage({
+      spinnerVisibleAfterMs: 400,
+      spinnerHiddenAfterMs: 800,
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+
+    const startedAt = performance.now();
+    await expect(testCalendar(page).select(request)).resolves.toMatchObject({
+      status: "selected"
+    });
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(1_450);
+    await page.close();
+  });
+
   it("rejects a malformed displayed week range", async () => {
     const page = await syntheticPage({ malformedRange: true });
 

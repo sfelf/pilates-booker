@@ -400,7 +400,13 @@ async function waitForCalendarSettled(
         };
         const observer = new MutationObserver(check);
         const deadline = setTimeout(() => finish(false), timeoutMs);
-        observer.observe(root, { childList: true, subtree: true });
+        observer.observe(root, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["aria-label", "class", "hidden", "style"],
+          characterData: true
+        });
         check();
       }),
     { quietMs, timeoutMs: calendarSettleTimeoutMs }
