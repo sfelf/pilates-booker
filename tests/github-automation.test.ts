@@ -449,7 +449,7 @@ test("validates supported Node releases and preserves the required aggregate gat
   expect(validateNode?.name).toBe("validate-node (${{ matrix.node-version }})");
   expect(validateNode?.strategy).toEqual({
     "fail-fast": false,
-    matrix: { "node-version": ["22.13.0", "24"] }
+    matrix: { "node-version": ["22.13.0", "24", "26"] }
   });
   expect(steps.find(({ uses }) => uses === SETUP_NODE_ACTION)?.with).toEqual({
     cache: "npm",
