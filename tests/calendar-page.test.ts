@@ -47,6 +47,12 @@ async function syntheticPage(options: CalendarFixtureOptions): Promise<Page> {
   return page;
 }
 
+function testCalendar(page: Page) {
+  return createCalendarPage(page, calendarUrl, {
+    now: new Date("2026-09-08T12:00:00.000Z")
+  });
+}
+
 async function counters(page: Page) {
   return page.locator("body").evaluate((body) => ({
     navigation: Number(body.dataset.calendarNavigationClicks),
@@ -79,7 +85,7 @@ describe("CalendarPage read-only discovery boundary", () => {
     });
 
     await expect(
-      createCalendarPage(page, calendarUrl).select({
+      testCalendar(page).select({
         ...request,
         calendar_url:
           "https://app.arketa.co/iframe/another-synthetic-studio/calendar"
@@ -99,9 +105,7 @@ describe("CalendarPage read-only discovery boundary", () => {
         }
       ]
     });
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).resolves.toEqual({
+    await expect(testCalendar(page).select(request)).resolves.toEqual({
       status: "selected",
       target: {
         checkoutUrl,
@@ -110,6 +114,77 @@ describe("CalendarPage read-only discovery boundary", () => {
         classTime: "09:30"
       }
     });
+    expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
+    await page.close();
+  });
+
+  it("selects a visible class card whose validated checkout anchor is hidden", async () => {
+    const page = await syntheticPage({
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS",
+          hiddenLink: true
+        }
+      ]
+    });
+
+    await expect(testCalendar(page).select(request)).resolves.toMatchObject({
+      status: "selected"
+    });
+    expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
+    await page.close();
+  });
+
+  it("ignores a hidden spinner when determining whether the calendar settled", async () => {
+    const page = await syntheticPage({
+      hiddenSpinner: true,
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+
+    await expect(testCalendar(page).select(request)).resolves.toMatchObject({
+      status: "selected"
+    });
+    await page.close();
+  });
+
+  it("observes a spinner becoming hidden through an attribute mutation", async () => {
+    const page = await syntheticPage({
+      spinnerVisibleAfterMs: 400,
+      spinnerHiddenAfterMs: 800,
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+
+    const startedAt = performance.now();
+    await expect(testCalendar(page).select(request)).resolves.toMatchObject({
+      status: "selected"
+    });
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(1_450);
+    await page.close();
+  });
+
+  it("rejects a malformed displayed week range", async () => {
+    const page = await syntheticPage({ malformedRange: true });
+
+    await expect(testCalendar(page).select(request)).rejects.toThrow(
+      "Calendar page could not be read."
+    );
     expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
     await page.close();
   });
@@ -126,9 +201,7 @@ describe("CalendarPage read-only discovery boundary", () => {
       ]
     });
 
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).resolves.toEqual({
+    await expect(testCalendar(page).select(request)).resolves.toEqual({
       status: "selected",
       target: {
         checkoutUrl,
@@ -153,9 +226,9 @@ describe("CalendarPage read-only discovery boundary", () => {
       ]
     });
 
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).rejects.toThrow("Calendar page could not be read.");
+    await expect(testCalendar(page).select(request)).rejects.toThrow(
+      "Calendar page could not be read."
+    );
     await page.close();
   });
 
@@ -178,7 +251,7 @@ describe("CalendarPage read-only discovery boundary", () => {
       });
 
       await expect(
-        createCalendarPage(page, calendarUrl).select({
+        testCalendar(page).select({
           ...request,
           class_time: canonicalTime
         })
@@ -219,9 +292,9 @@ describe("CalendarPage read-only discovery boundary", () => {
     await page.goto(redirectedUrl);
 
     expect(page.url()).toBe(redirectedUrl);
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).rejects.toThrow("Calendar page could not be read.");
+    await expect(testCalendar(page).select(request)).rejects.toThrow(
+      "Calendar page could not be read."
+    );
     expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
     await page.close();
   });
@@ -244,9 +317,9 @@ describe("CalendarPage read-only discovery boundary", () => {
       }, 10);
     });
 
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).rejects.toThrow("Calendar page could not be read.");
+    await expect(testCalendar(page).select(request)).rejects.toThrow(
+      "Calendar page could not be read."
+    );
     await page.close();
   });
 
@@ -263,9 +336,9 @@ describe("CalendarPage read-only discovery boundary", () => {
       ]
     });
 
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).resolves.toMatchObject({ status: "selected" });
+    await expect(testCalendar(page).select(request)).resolves.toMatchObject({
+      status: "selected"
+    });
     await page.close();
   });
 
@@ -283,9 +356,9 @@ describe("CalendarPage read-only discovery boundary", () => {
     });
     page.setDefaultTimeout(250);
 
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).resolves.toMatchObject({ status: "selected" });
+    await expect(testCalendar(page).select(request)).resolves.toMatchObject({
+      status: "selected"
+    });
     await page.close();
   });
 
@@ -326,9 +399,7 @@ describe("CalendarPage read-only discovery boundary", () => {
   ])("returns evidence-free non-selection for $label", async ({ classes }) => {
     const page = await syntheticPage({ classes });
 
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).resolves.toEqual({
+    await expect(testCalendar(page).select(request)).resolves.toEqual({
       status: "not_selected"
     });
     expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
@@ -353,9 +424,7 @@ describe("CalendarPage read-only discovery boundary", () => {
       ]
     });
 
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).resolves.toEqual({
+    await expect(testCalendar(page).select(request)).resolves.toEqual({
       status: "not_selected"
     });
     expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
@@ -389,9 +458,7 @@ describe("CalendarPage read-only discovery boundary", () => {
         ]
       });
 
-      await expect(
-        createCalendarPage(page, calendarUrl).select(request)
-      ).resolves.toEqual({
+      await expect(testCalendar(page).select(request)).resolves.toEqual({
         status: "not_selected"
       });
       expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
@@ -415,7 +482,7 @@ describe("CalendarPage bounded weekly navigation", () => {
     });
 
     await expect(
-      createCalendarPage(page, calendarUrl).select({
+      testCalendar(page).select({
         ...request,
         class_date: "2026-09-16"
       })
@@ -424,12 +491,12 @@ describe("CalendarPage bounded weekly navigation", () => {
   });
 
   it.each([
-    [1, "2026-09-16", "2026-09-14"],
-    [4, "2026-10-07", "2026-10-05"],
-    [12, "2026-12-02", "2026-11-30"]
+    [1, "2026-09-16", "September 13 — September 19"],
+    [4, "2026-10-07", "October 4 — October 10"],
+    [12, "2026-12-02", "November 29 — December 5"]
   ])(
     "moves forward exactly %i week(s) to select an in-horizon class",
-    async (offset, date, expectedWeekStart) => {
+    async (offset, date, expectedWeekRange) => {
       const page = await syntheticPage({
         classes: [
           {
@@ -442,7 +509,7 @@ describe("CalendarPage bounded weekly navigation", () => {
       });
 
       await expect(
-        createCalendarPage(page, calendarUrl).select({
+        testCalendar(page).select({
           ...request,
           class_date: date
         })
@@ -458,10 +525,8 @@ describe("CalendarPage bounded weekly navigation", () => {
       expect(await counters(page)).toEqual({ navigation: offset, checkout: 0 });
       expect(
         await page
-          .getByRole("heading", {
-            name: `Week of ${expectedWeekStart}`,
-            exact: true
-          })
+          .locator("div.week-range__meta")
+          .filter({ hasText: expectedWeekRange })
           .count()
       ).toBe(1);
       await page.close();
@@ -470,7 +535,7 @@ describe("CalendarPage bounded weekly navigation", () => {
 
   it("navigates across a year boundary using displayed calendar weeks", async () => {
     const page = await syntheticPage({
-      startWeek: "2026-12-28",
+      startWeek: "2026-12-27",
       classes: [
         {
           name: "Reformer – Début ✨",
@@ -482,18 +547,15 @@ describe("CalendarPage bounded weekly navigation", () => {
     });
 
     await expect(
-      createCalendarPage(page, calendarUrl).select({
-        ...request,
-        class_date: "2027-01-06"
-      })
+      createCalendarPage(page, calendarUrl, {
+        now: new Date("2026-12-30T12:00:00.000Z")
+      }).select({ ...request, class_date: "2027-01-06" })
     ).resolves.toMatchObject({ status: "selected" });
     expect(await counters(page)).toEqual({ navigation: 1, checkout: 0 });
     expect(
       await page
-        .getByRole("heading", {
-          name: "Week of 2027-01-04",
-          exact: true
-        })
+        .locator("div.week-range__meta")
+        .filter({ hasText: "January 3 — January 9" })
         .count()
     ).toBe(1);
     await page.close();
@@ -515,7 +577,7 @@ describe("CalendarPage bounded weekly navigation", () => {
     });
 
     await expect(
-      createCalendarPage(page, calendarUrl).select({
+      testCalendar(page).select({
         ...request,
         class_date: classDate
       })
@@ -523,7 +585,8 @@ describe("CalendarPage bounded weekly navigation", () => {
     expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
     expect(
       await page
-        .getByRole("heading", { name: "Week of 2026-09-07", exact: true })
+        .locator("div.week-range__meta")
+        .filter({ hasText: "September 6 — September 12" })
         .count()
     ).toBe(1);
     await page.close();
@@ -546,7 +609,7 @@ describe("CalendarPage bounded weekly navigation", () => {
       page.setDefaultTimeout(250);
 
       await expect(
-        createCalendarPage(page, calendarUrl).select({
+        testCalendar(page).select({
           ...request,
           class_date: "2026-09-16"
         })
@@ -568,9 +631,9 @@ describe("CalendarPage bounded weekly navigation", () => {
     const page = await syntheticPage({ hydrateAfterMs: 500 });
     page.setDefaultTimeout(100);
 
-    await expect(
-      createCalendarPage(page, calendarUrl).select(request)
-    ).rejects.toThrow("Calendar page could not be read.");
+    await expect(testCalendar(page).select(request)).rejects.toThrow(
+      "Calendar page could not be read."
+    );
     expect(await counters(page)).toEqual({ navigation: 0, checkout: 0 });
     await page.close();
   });
