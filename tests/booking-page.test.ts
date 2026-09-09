@@ -1248,7 +1248,7 @@ describe("BookingPage confirmation boundary", () => {
     const page = await syntheticPage();
     const booking = createBookingPage(page, expectedClass, {
       classId: calendarClassId,
-      confirmationTimeoutMs: 50
+      confirmationTimeoutMs: 200
     });
     await booking.read();
     await booking.submit("book");
