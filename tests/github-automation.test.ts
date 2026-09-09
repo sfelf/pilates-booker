@@ -390,17 +390,17 @@ test("limits CI permissions to source reads and Codecov OIDC", async () => {
   ]);
   expect(actionOccurrences(source)).toEqual([
     {
-      line: 21,
+      line: 22,
       reference: CHECKOUT_ACTION,
       versionComment: "# v7"
     },
     {
-      line: 22,
+      line: 23,
       reference: SETUP_NODE_ACTION,
       versionComment: "# v7"
     },
     {
-      line: 35,
+      line: 36,
       reference: CODECOV_ACTION,
       versionComment: "# v7.0.0"
     }
@@ -448,6 +448,7 @@ test("validates supported Node releases and preserves the required aggregate gat
 
   expect(validateNode?.name).toBe("validate-node (${{ matrix.node-version }})");
   expect(validateNode?.strategy).toEqual({
+    "fail-fast": false,
     matrix: { "node-version": ["22.13.0", "24"] }
   });
   expect(steps.find(({ uses }) => uses === SETUP_NODE_ACTION)?.with).toEqual({
