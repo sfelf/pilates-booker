@@ -35,6 +35,14 @@ const discoveryCalendarUrl =
   "https://app.arketa.co/iframe/synthetic-studio/calendar";
 const discoveryCheckoutUrl =
   "https://app.arketa.co/iframe/synthetic-studio/calendar/checkout/discovery-e2e";
+const discoveryStart = new Date();
+discoveryStart.setUTCHours(12, 0, 0, 0);
+discoveryStart.setUTCDate(
+  discoveryStart.getUTCDate() - discoveryStart.getUTCDay()
+);
+const discoveryStartWeek = discoveryStart.toISOString().slice(0, 10);
+const discoveryClassDate = new Date(discoveryStart);
+discoveryClassDate.setUTCDate(discoveryClassDate.getUTCDate() + 12 * 7 + 3);
 const observedClass = {
   name: "Reformer – Début ✨",
   instructor: "Ana O’Neil",
@@ -45,7 +53,7 @@ const observedClass = {
 } as const;
 const discoveryObservedClass = {
   ...observedClass,
-  date: "2026-12-02"
+  date: discoveryClassDate.toISOString().slice(0, 10)
 } as const;
 type Scenario = Readonly<{
   name: string;
@@ -297,7 +305,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "actionable dry run at the twelfth following week",
     action: "book",
     dryRun: true,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -325,7 +333,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "existing-enrollment dry run",
     action: "already_booked",
     dryRun: true,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -344,7 +352,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "confirmed booking",
     action: "book",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -366,7 +374,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "confirmed waitlist",
     action: "waitlist",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -386,7 +394,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "authoritative existing booking",
     action: "already_booked",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -404,7 +412,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "authoritative existing waitlist",
     action: "already_waitlisted",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     expected: {
       schema_version: 2,
@@ -422,7 +430,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "no exact calendar match",
     action: "book",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: [
       {
         ...discoveryClasses[0],
@@ -439,7 +447,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "ambiguous exact calendar match",
     action: "book",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: [...discoveryClasses, ...discoveryClasses],
     expected: evidenceFreeSafeStop,
     observation: {
@@ -451,7 +459,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "checkout identity mismatch",
     action: "book",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     checkoutClassName: "Synthetic Mat Fundamentals",
     expected: evidenceFreeSafeStop,
@@ -461,7 +469,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "pre-submission browser failure",
     action: "book",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     failure: "pre_submission",
     expected: {
@@ -482,7 +490,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "redirected checkout navigation",
     action: "book",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     failure: "checkout_redirect",
     expected: {
@@ -500,7 +508,7 @@ const discoveryScenarios: readonly DiscoveryScenario[] = [
     name: "post-submit confirmation failure",
     action: "book",
     dryRun: false,
-    startWeek: "2026-09-06",
+    startWeek: discoveryStartWeek,
     classes: discoveryClasses,
     failure: "post_submit",
     expected: {

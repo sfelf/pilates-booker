@@ -376,6 +376,17 @@ async function waitForCalendarSettled(
           return;
         }
         let quietTimer: ReturnType<typeof setTimeout> | undefined;
+        const hasVisibleSpinner = () =>
+          [...root.querySelectorAll(".spinner-border")].some((element) => {
+            if (!(element instanceof HTMLElement)) return false;
+            const style = getComputedStyle(element);
+            return (
+              !element.hidden &&
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              element.getClientRects().length > 0
+            );
+          });
         const finish = (settled: boolean) => {
           observer.disconnect();
           if (quietTimer !== undefined) clearTimeout(quietTimer);
@@ -384,7 +395,7 @@ async function waitForCalendarSettled(
         };
         const check = () => {
           if (quietTimer !== undefined) clearTimeout(quietTimer);
-          if (document.querySelector(".spinner-border") !== null) return;
+          if (hasVisibleSpinner()) return;
           quietTimer = setTimeout(() => finish(true), quietMs);
         };
         const observer = new MutationObserver(check);

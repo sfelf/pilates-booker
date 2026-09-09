@@ -18,6 +18,7 @@ export type CalendarFixtureOptions = Readonly<{
   extraRegion?: boolean;
   navigationRegionDelayMs?: number;
   malformedRange?: boolean;
+  hiddenSpinner?: boolean;
 }>;
 
 export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
@@ -30,11 +31,13 @@ export function calendarPageHtml(options: CalendarFixtureOptions = {}): string {
   const extraRegion = options.extraRegion ?? false;
   const navigationRegionDelayMs = options.navigationRegionDelayMs ?? 0;
   const malformedRange = options.malformedRange ?? false;
+  const hiddenSpinner = options.hiddenSpinner ?? false;
   const encodedClasses = JSON.stringify(classes).replaceAll("<", "\\u003c");
 
   return `<!doctype html>
     <html>
       <body data-calendar-navigation-clicks="0" data-calendar-checkout-clicks="0">
+        ${hiddenSpinner ? '<div class="spinner-border" style="display:none"></div>' : ""}
         <main id="calendar"></main>
         <script>
           const classes = ${encodedClasses};

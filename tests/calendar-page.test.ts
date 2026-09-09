@@ -138,6 +138,25 @@ describe("CalendarPage read-only discovery boundary", () => {
     await page.close();
   });
 
+  it("ignores a hidden spinner when determining whether the calendar settled", async () => {
+    const page = await syntheticPage({
+      hiddenSpinner: true,
+      classes: [
+        {
+          name: "Reformer – Début ✨",
+          date: "2026-09-09",
+          time: "9:30 AM",
+          href: "calendar/checkout/SYNTHETIC_CLASS"
+        }
+      ]
+    });
+
+    await expect(testCalendar(page).select(request)).resolves.toMatchObject({
+      status: "selected"
+    });
+    await page.close();
+  });
+
   it("rejects a malformed displayed week range", async () => {
     const page = await syntheticPage({ malformedRange: true });
 
