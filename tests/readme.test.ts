@@ -103,6 +103,9 @@ test("documents only the executable CLI-only operating model", async () => {
     expect(safetyBoundaries).toContain(required);
   }
   for (const required of [
+    "node dist/main.js --version",
+    "pilates-booker <semver>",
+    "if they differ, run `npm run build`",
     "--booking-url",
     "--calendar-url",
     "--class-name",
@@ -154,6 +157,15 @@ test("documents only the executable CLI-only operating model", async () => {
     "[LICENSE](LICENSE)"
   ]) {
     expect(readme).toContain(required);
+  }
+  for (const required of [
+    "exact standalone `--version` informational path",
+    "dist/version.json",
+    "changing source package metadata without rebuilding cannot change",
+    "before booking argument parsing",
+    "Duplicate, combined, and extra-value forms remain invalid"
+  ]) {
+    expect(architecture).toContain(required);
   }
   expect(readme).not.toMatch(
     /request_id|--policy|booking-request\.json|booking-policy\.json|journal|result file|22\.12\.0|Node\.js >=22\.13\.0|img\.shields\.io\/badge\/release-|releases\/tag\/v\d|logo=nodedotjs|logoColor=|does not discover classes/iu

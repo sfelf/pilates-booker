@@ -63,6 +63,16 @@ node dist/main.js --runtime "/absolute/private/path" --booking-url "https://app.
 
 Choose exactly one entry mode and start with a dry run. Shared options such as `--allow-package`, `--book-only`, `--dry-run`, `--runtime`, and `--debug` work in both modes.
 
+### Version
+
+Print the version captured by the most recent build without starting a booking workflow:
+
+```sh
+node dist/main.js --version
+```
+
+The command writes `pilates-booker <semver>` followed by one newline. Compare that semantic version with the `version` field in `package.json`; if they differ, run `npm run build` before using the compiled application.
+
 ### Direct checkout mode
 
 Use direct checkout mode when you already have the exact supported Arketa checkout URL:

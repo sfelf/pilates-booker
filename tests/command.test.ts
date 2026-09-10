@@ -36,6 +36,71 @@ it("builds the public executable before the test suite", async () => {
   expect(packageJson.scripts?.pretest).toBe("npm run build");
 });
 
+it("reports the authoritative version for the exact standalone command", async () => {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8")
+  ) as { version: string };
+  const emitVersion = vi.fn();
+  const acquireLock = vi.fn();
+  const execute = vi.fn();
+
+  expect(
+    await runCommand(["--version"], { emitVersion, acquireLock, execute })
+  ).toBe(0);
+  expect(emitVersion).toHaveBeenCalledOnce();
+  expect(emitVersion).toHaveBeenCalledWith(
+    `pilates-booker ${packageJson.version}\n`
+  );
+  expect(runCli).not.toHaveBeenCalled();
+  expect(acquireLock).not.toHaveBeenCalled();
+  expect(execute).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["duplicate", ["--version", "--version"]],
+  ["booking options", ["--version", ...validArguments]],
+  [
+    "discovery options",
+    [
+      "--version",
+      "--calendar-url",
+      "https://app.arketa.co/iframe/synthetic/calendar",
+      "--class-name",
+      "Synthetic Reformer",
+      "--class-date",
+      "2026-09-30",
+      "--class-time",
+      "16:30",
+      "--allow-package",
+      "Synthetic Pack"
+    ]
+  ],
+  ["extra value", ["--version", "synthetic-extra"]]
+])(
+  "rejects the %s version form before workflow execution",
+  async (_description, argv) => {
+    const emitVersion = vi.fn();
+    const acquireLock = vi.fn();
+    const execute = vi.fn();
+    const reportDiagnostic = vi.fn();
+
+    expect(
+      await runCommand(argv, {
+        emitVersion,
+        acquireLock,
+        execute,
+        reportDiagnostic
+      })
+    ).toBe(30);
+    expect(emitVersion).not.toHaveBeenCalled();
+    expect(runCli).not.toHaveBeenCalled();
+    expect(acquireLock).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(reportDiagnostic).toHaveBeenCalledOnce();
+    expect(reportDiagnostic).toHaveBeenCalledWith(COMMAND_FAILURE_DIAGNOSTIC);
+  }
+);
+
 it("passes the validated public arguments to one workflow invocation", async () => {
   const execute = vi.fn(
     async (context: { advance(stage: "VALIDATED"): Promise<void> }) => {

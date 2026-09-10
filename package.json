@@ -13,9 +13,9 @@
     "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
-    "format": "prettier --write README.md .github schemas src tests package.json tsconfig.json tsconfig.build.json eslint.config.js .prettierrc.json",
-    "format:check": "prettier --check README.md .github schemas src tests package.json tsconfig.json tsconfig.build.json eslint.config.js .prettierrc.json",
-    "build": "tsc -p tsconfig.build.json",
+    "format": "prettier --write README.md .github schemas scripts src tests package.json tsconfig.json tsconfig.build.json eslint.config.js .prettierrc.json",
+    "format:check": "prettier --check README.md .github schemas scripts src tests package.json tsconfig.json tsconfig.build.json eslint.config.js .prettierrc.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/write-version-snapshot.mjs",
     "start": "node dist/main.js",
     "lint": "eslint .",
     "pretest": "npm run build",
