@@ -5,8 +5,11 @@ import {
   type CliDependencies,
   type CliDiagnostic
 } from "./cli.js";
+import { writeResultToStdout, type ResultEmitter } from "./result-output.js";
+import { APPLICATION_VERSION } from "./version.js";
 
-export type CommandDependencies = CliDependencies;
+export type CommandDependencies = CliDependencies &
+  Readonly<{ emitVersion?: ResultEmitter }>;
 export const COMMAND_FAILURE_DIAGNOSTIC = CLI_FAILURE_DIAGNOSTIC;
 
 export function reportCommandDiagnostic(diagnostic: CliDiagnostic): void {
@@ -15,6 +18,7 @@ export function reportCommandDiagnostic(diagnostic: CliDiagnostic): void {
 
 export const productionCommandDependencies: CommandDependencies = Object.freeze(
   {
+    emitVersion: writeResultToStdout,
     reportDiagnostic: reportCommandDiagnostic
   }
 );
@@ -36,6 +40,16 @@ export async function runCommand(
 ): Promise<number> {
   const reportDiagnostic =
     dependencies.reportDiagnostic ?? reportCommandDiagnostic;
+  if (argv.length === 1 && argv[0] === "--version") {
+    try {
+      await (dependencies.emitVersion ?? writeResultToStdout)(
+        `pilates-booker ${APPLICATION_VERSION}\n`
+      );
+      return 0;
+    } catch {
+      return reportCommandFailure(reportDiagnostic);
+    }
+  }
   const args = parseCommandArguments(argv);
   if (args === undefined) return reportCommandFailure(reportDiagnostic);
   try {

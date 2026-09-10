@@ -1,13 +1,15 @@
 # Architecture
 
-Pilates Booker is one independent command invocation. It parses validated CLI values for direct checkout and calendar discovery modes, resolves one private runtime, acquires the exclusive profile lock, optionally initializes debug logging, resolves one Arketa checkout, optionally submits once, emits one schema-v2 result, and releases the lock.
+Pilates Booker is one independent command invocation. The exact standalone `--version` informational path emits its build snapshot and exits without booking side effects. Otherwise, the application parses validated CLI values for direct checkout and calendar discovery modes, resolves one private runtime, acquires the exclusive profile lock, optionally initializes debug logging, resolves one Arketa checkout, optionally submits once, emits one schema-v2 result, and releases the lock.
 
 ## Component ownership
 
 | Component | Owns |
 | --- | --- |
 | `command-arguments.ts` | Exact two-mode public options, strict entry validation, package order, and platform runtime defaults |
-| `command.ts` | Parse-failure boundary and fixed fallback diagnostic |
+| `command.ts` | Exact standalone version dispatch, parse-failure boundary, and fixed fallback diagnostic |
+| `version.ts` | Authoritative source-package version access and compiled build-snapshot access |
+| `scripts/write-version-snapshot.mjs` | Minimal `dist/version.json` snapshot emitted from `package.json` after compilation |
 | `cli.ts` | Runtime paths, optional logger, lock lifecycle, in-memory execution stage, result validation, and stdout |
 | `lock.ts` | Exclusive version-2 PID lock, conservative stale-owner recovery, single acquisition retry, and replacement-safe release checks |
 | `calendar-page.ts` | Read-only visible-week inspection, bounded forward navigation, exact class selection, and same-studio checkout-link validation |
@@ -17,6 +19,10 @@ Pilates Booker is one independent command invocation. It parses validated CLI va
 | `debug-log.ts` | Explicit field projection, serialized NDJSON append, restrictive modes, and one-generation rotation |
 
 ## Execution sequence
+
+`npm run build` compiles the TypeScript application and then snapshots the authoritative `package.json` version into ignored `dist/version.json`. The compiled `version.js` reads only that adjacent snapshot, so changing source package metadata without rebuilding cannot change an existing compiled command's reported version.
+
+The command recognizes only the exact argument vector `['--version']` as informational, writes `pilates-booker <semver>` plus one newline to stdout, and exits 0 before booking argument parsing, runtime-path resolution, lock acquisition, debug-log initialization, browser launch, Arketa access, or workflow execution. Duplicate, combined, and extra-value forms remain invalid and use the fixed command diagnostic with exit 30.
 
 The command validates all caller input before browser work. It acquires the exclusive runtime lock before requested debug logging is initialized, so browser entry resolution plus shared log initialization, append, and rotation remain serialized across invocations.
 

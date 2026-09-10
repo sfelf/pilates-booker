@@ -1,4 +1,11 @@
-import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile
+} from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -659,6 +666,62 @@ test("built command requires observation unless explicitly allowed", async () =>
       allowMissingObservation: true
     })
   ).resolves.toEqual({ exitCode: 0, stdout: "", stderr: "" });
+});
+
+test("copied built command retains its build-time version snapshot", async () => {
+  const projectDirectory = fileURLToPath(new URL("..", import.meta.url));
+  const sourcePackage = JSON.parse(
+    await readFile(join(projectDirectory, "package.json"), "utf8")
+  ) as Record<string, unknown> & { version: string };
+  const fixtureDirectory = await mkdtemp(
+    join(projectDirectory, ".pilates-version-e2e-")
+  );
+  try {
+    await cp(join(projectDirectory, "dist"), join(fixtureDirectory, "dist"), {
+      recursive: true
+    });
+    await cp(
+      join(projectDirectory, "schemas"),
+      join(fixtureDirectory, "schemas"),
+      { recursive: true }
+    );
+    await writeFile(
+      join(fixtureDirectory, "package.json"),
+      `${JSON.stringify({ ...sourcePackage, version: "9.8.7" })}\n`,
+      "utf8"
+    );
+
+    const child = spawn(
+      process.execPath,
+      [join(fixtureDirectory, "dist", "main.js"), "--version"],
+      {
+        cwd: fixtureDirectory,
+        stdio: ["ignore", "pipe", "pipe"]
+      }
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+
+    expect({ exitCode, stdout, stderr }).toEqual({
+      exitCode: 0,
+      stdout: `pilates-booker ${sourcePackage.version}\n`,
+      stderr: ""
+    });
+  } finally {
+    await rm(fixtureDirectory, { recursive: true, force: true });
+  }
 });
 
 describe.each(scenarios)("public command: $name", (scenario) => {
