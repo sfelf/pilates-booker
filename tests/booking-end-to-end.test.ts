@@ -579,28 +579,86 @@ test("public command reports a fixed diagnostic when bootstrap import fails", as
   expect(await readFile(markerPath, "utf8")).toBe("injected\n");
 });
 
-test("built command preserves child diagnostics when observation is missing", async () => {
-  const markerDirectory = await mkdtemp(
-    join(tmpdir(), "pilates-bootstrap-diagnostics-e2e-")
+test("built command projects child diagnostics when observation is missing", async () => {
+  const fixtureDirectory = await mkdtemp(
+    join(tmpdir(), "pilates-diagnostics-e2e-")
   );
-  const markerPath = join(markerDirectory, "loader-fired");
-  const registerPath = fileURLToPath(
-    new URL(
-      "./fixtures/built-command-bootstrap-failure-register.mjs",
-      import.meta.url
-    )
+  const registerPath = join(fixtureDirectory, "child-failure.mjs");
+  const rawMarker =
+    "synthetic-private-secret /private/synthetic/observation-path";
+  const escapedMarker =
+    "synthetic-private-secret \\u002fprivate\\u002fsynthetic\\u002fobservation-path";
+  const encodedMarker =
+    "synthetic-private-secret%20%2Fprivate%2Fsynthetic%2Fobservation-path";
+  const repeatedEncodedMarker =
+    "synthetic-private-secret%2520%252Fprivate%252Fsynthetic%252Fobservation-path";
+  await writeFile(
+    registerPath,
+    [
+      `process.stdout.write(${JSON.stringify(`${rawMarker}\n${escapedMarker}\n`)});`,
+      `process.stderr.write(${JSON.stringify(`${encodedMarker}\n${repeatedEncodedMarker}\n`)});`,
+      "process.exit(17);"
+    ].join("\n"),
+    "utf8"
   );
 
+  const failure = await runBuiltCommand([], "book", {
+    calendarHtml: "",
+    checkoutHtml: "",
+    registerPath
+  }).then(
+    () => {
+      throw new Error("built command unexpectedly succeeded");
+    },
+    (error: unknown) => error
+  );
+  expect(failure).toBeInstanceOf(Error);
+  const message = (failure as Error).message;
+  expect(message).toBe(
+    "Built command failed before observation (exit code 17; stdout <captured>; stderr <captured>)"
+  );
+  for (const marker of [
+    rawMarker,
+    escapedMarker,
+    encodedMarker,
+    repeatedEncodedMarker,
+    "ENOENT",
+    fixtureDirectory
+  ]) {
+    expect(message).not.toContain(marker);
+  }
+  expect(failure).not.toHaveProperty("cause");
+});
+
+test("built command requires observation unless explicitly allowed", async () => {
+  const fixtureDirectory = await mkdtemp(
+    join(tmpdir(), "pilates-observation-required-e2e-")
+  );
+  const registerPath = join(fixtureDirectory, "observation-free.mjs");
+  await writeFile(registerPath, "process.exit(0);\n", "utf8");
+
+  const defaultFailure = await runBuiltCommand([], "book", {
+    calendarHtml: "",
+    checkoutHtml: "",
+    registerPath
+  }).then(
+    () => {
+      throw new Error("built command unexpectedly succeeded");
+    },
+    (error: unknown) => error
+  );
+  expect(defaultFailure).toBeInstanceOf(Error);
+  expect((defaultFailure as Error).message).toBe(
+    "Built command failed before observation (exit code 0; stdout <empty>; stderr <empty>)"
+  );
   await expect(
     runBuiltCommand([], "book", {
       calendarHtml: "",
       checkoutHtml: "",
       registerPath,
-      environment: { PILATES_BOOKER_BOOTSTRAP_FAILURE_MARKER: markerPath }
+      allowMissingObservation: true
     })
-  ).rejects.toThrow(
-    'Built command failed before observation (exit code 30; stdout ""; stderr "Booking command failed.\\n")'
-  );
+  ).resolves.toEqual({ exitCode: 0, stdout: "", stderr: "" });
 });
 
 describe.each(scenarios)("public command: $name", (scenario) => {
@@ -701,7 +759,12 @@ test("a repeated built command reconciles through authoritative Arketa evidence"
   const second = await runBuiltCommand(argv, "already_booked");
 
   expect(JSON.parse(first.stdout)).toEqual(scenarios[0]?.expected);
-  expect(first.observation?.submissions).toBe(1);
+  expect(first.observation).toBeDefined();
+  const firstObservation = first.observation;
+  if (firstObservation === undefined) {
+    throw new Error("built booking observation unexpectedly missing");
+  }
+  expect(firstObservation.submissions).toBe(1);
   expect(JSON.parse(second.stdout)).toEqual(scenarios[4]?.expected);
   expect(second.observation).toEqual(untouchedObservation);
   expect(first.stderr).toBe("");
@@ -719,7 +782,7 @@ async function runBuiltCommand(
     checkoutHtml: string;
     failure?: DiscoveryFixtureFailure;
     registerPath?: string;
-    environment?: Readonly<Record<string, string>>;
+    allowMissingObservation?: boolean;
   }>
 ): Promise<{
   exitCode: number | null;
@@ -767,8 +830,7 @@ async function runBuiltCommand(
       cwd: fileURLToPath(new URL("..", import.meta.url)),
       env: {
         ...process.env,
-        PILATES_BOOKER_E2E_FIXTURE: fixturePath,
-        ...discoveryFixture?.environment
+        PILATES_BOOKER_E2E_FIXTURE: fixturePath
       },
       stdio: ["ignore", "pipe", "pipe"]
     }
@@ -788,16 +850,23 @@ async function runBuiltCommand(
     child.once("close", resolve);
   });
   let observation: BuiltCommandObservation | undefined;
+  let observationReadError: unknown;
   try {
     observation = JSON.parse(
       await readFile(observationPath, "utf8")
     ) as BuiltCommandObservation;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    if (exitCode !== 0) {
+    observationReadError = error;
+  }
+  if (observationReadError !== undefined) {
+    if ((observationReadError as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw observationReadError;
+    }
+    const missingObservationAllowed =
+      discoveryFixture?.allowMissingObservation === true && exitCode === 0;
+    if (!missingObservationAllowed) {
       throw new Error(
-        `Built command failed before observation (exit code ${String(exitCode)}; stdout ${JSON.stringify(stdout)}; stderr ${JSON.stringify(stderr)})`,
-        { cause: error }
+        `Built command failed before observation (exit code ${String(exitCode)}; stdout ${projectBuiltCommandDiagnostic(stdout)}; stderr ${projectBuiltCommandDiagnostic(stderr)})`
       );
     }
   }
@@ -807,6 +876,12 @@ async function runBuiltCommand(
     stderr,
     ...(observation === undefined ? {} : { observation })
   };
+}
+
+function projectBuiltCommandDiagnostic(
+  value: string
+): "<empty>" | "<captured>" {
+  return value.length === 0 ? "<empty>" : "<captured>";
 }
 
 test("debug is opt-in and writes only the bounded runtime log", async () => {
