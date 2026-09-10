@@ -186,7 +186,7 @@ test("documents only the executable CLI-only operating model", async () => {
   );
 });
 
-test("uses one accessible theme-aware brand heading while preserving badges", async () => {
+test("uses one semantic brand heading while preserving badges", async () => {
   const readme = await readFile(
     new URL("../README.md", import.meta.url),
     "utf8"
@@ -196,7 +196,8 @@ test("uses one accessible theme-aware brand heading while preserving badges", as
   expect(headingMatches).toHaveLength(1);
   const headingMarkup = headingMatches[0]?.[0] ?? "";
   const heading = headingMatches[0]?.[1] ?? "";
-  expect(headingMarkup).toMatch(/^<h1\b[^>]*align="center"[^>]*>/iu);
+  expect(headingMarkup).toMatch(/^<h1\b[^>]*>/iu);
+  expect(headingMarkup).not.toMatch(/align="center"/iu);
   const images = [...heading.matchAll(/<img\b([^>]*)>/giu)].map((match) =>
     Object.fromEntries(
       [...(match[1] ?? "").matchAll(/([a-z-]+)="([^"]*)"/giu)].map(
@@ -204,11 +205,13 @@ test("uses one accessible theme-aware brand heading while preserving badges", as
       )
     )
   );
-  expect(images).toHaveLength(2);
-  expect(images.map(({ src }) => src).sort()).toEqual([
-    "assets/brand/logo-lockup-dark.png#gh-dark-mode-only",
-    "assets/brand/logo-lockup.png#gh-light-mode-only"
-  ]);
+  expect(images).toHaveLength(1);
+  expect(images[0]).toMatchObject({
+    src: "assets/brand/logo-lockup-dark.png",
+    alt: "Pilates Booker",
+    width: "420"
+  });
+  expect(readme).not.toMatch(/#gh-dark-mode-only|#gh-light-mode-only/iu);
   for (const image of images) {
     expect(image).toMatchObject({ alt: "Pilates Booker", width: "420" });
   }

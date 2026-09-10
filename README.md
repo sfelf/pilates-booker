@@ -1,6 +1,5 @@
-<h1 align="center">
-  <img src="assets/brand/logo-lockup.png#gh-light-mode-only" alt="Pilates Booker" width="420">
-  <img src="assets/brand/logo-lockup-dark.png#gh-dark-mode-only" alt="Pilates Booker" width="420">
+<h1>
+  <img src="assets/brand/logo-lockup-dark.png" alt="Pilates Booker" width="420">
 </h1>
 
 [![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml) [![Codecov coverage](https://codecov.io/gh/sfelf/pilates-booker/branch/main/graph/badge.svg)](https://app.codecov.io/gh/sfelf/pilates-booker) [![Latest release](https://img.shields.io/github/v/release/sfelf/pilates-booker?display_name=tag&label=release)](https://github.com/sfelf/pilates-booker/releases/latest) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE) [![Node.js 22.13–22.x, 24.x, or >=26](https://img.shields.io/badge/Node.js-22.13%E2%80%9322.x%2C_24.x%2C_or_%3E%3D26-339933)](package.json)
