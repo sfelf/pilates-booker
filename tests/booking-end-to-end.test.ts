@@ -579,6 +579,30 @@ test("public command reports a fixed diagnostic when bootstrap import fails", as
   expect(await readFile(markerPath, "utf8")).toBe("injected\n");
 });
 
+test("built command preserves child diagnostics when observation is missing", async () => {
+  const markerDirectory = await mkdtemp(
+    join(tmpdir(), "pilates-bootstrap-diagnostics-e2e-")
+  );
+  const markerPath = join(markerDirectory, "loader-fired");
+  const registerPath = fileURLToPath(
+    new URL(
+      "./fixtures/built-command-bootstrap-failure-register.mjs",
+      import.meta.url
+    )
+  );
+
+  await expect(
+    runBuiltCommand([], "book", {
+      calendarHtml: "",
+      checkoutHtml: "",
+      registerPath,
+      environment: { PILATES_BOOKER_BOOTSTRAP_FAILURE_MARKER: markerPath }
+    })
+  ).rejects.toThrow(
+    'Built command failed before observation (exit code 30; stdout ""; stderr "Booking command failed.\\n")'
+  );
+});
+
 describe.each(scenarios)("public command: $name", (scenario) => {
   test("executes dist/main.js and emits one exact result with bounded mutation", async () => {
     const runtime = await mkdtemp(join(tmpdir(), "pilates-e2e-"));
@@ -677,7 +701,7 @@ test("a repeated built command reconciles through authoritative Arketa evidence"
   const second = await runBuiltCommand(argv, "already_booked");
 
   expect(JSON.parse(first.stdout)).toEqual(scenarios[0]?.expected);
-  expect(first.observation.submissions).toBe(1);
+  expect(first.observation?.submissions).toBe(1);
   expect(JSON.parse(second.stdout)).toEqual(scenarios[4]?.expected);
   expect(second.observation).toEqual(untouchedObservation);
   expect(first.stderr).toBe("");
@@ -694,12 +718,14 @@ async function runBuiltCommand(
     calendarHtml: string;
     checkoutHtml: string;
     failure?: DiscoveryFixtureFailure;
+    registerPath?: string;
+    environment?: Readonly<Record<string, string>>;
   }>
 ): Promise<{
   exitCode: number | null;
   stdout: string;
   stderr: string;
-  observation: BuiltCommandObservation;
+  observation?: BuiltCommandObservation;
 }> {
   const fixtureDirectory = await mkdtemp(join(tmpdir(), "pilates-built-e2e-"));
   const fixturePath = join(fixtureDirectory, "fixture.json");
@@ -728,16 +754,22 @@ async function runBuiltCommand(
     }),
     "utf8"
   );
-  const registerPath = fileURLToPath(
-    new URL("./fixtures/built-command-register.mjs", import.meta.url)
-  );
+  const registerPath =
+    discoveryFixture?.registerPath ??
+    fileURLToPath(
+      new URL("./fixtures/built-command-register.mjs", import.meta.url)
+    );
   const mainPath = fileURLToPath(new URL("../dist/main.js", import.meta.url));
   const child = spawn(
     process.execPath,
     ["--import", registerPath, mainPath, ...argv],
     {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
-      env: { ...process.env, PILATES_BOOKER_E2E_FIXTURE: fixturePath },
+      env: {
+        ...process.env,
+        PILATES_BOOKER_E2E_FIXTURE: fixturePath,
+        ...discoveryFixture?.environment
+      },
       stdio: ["ignore", "pipe", "pipe"]
     }
   );
@@ -755,10 +787,26 @@ async function runBuiltCommand(
     child.once("error", reject);
     child.once("close", resolve);
   });
-  const observation = JSON.parse(
-    await readFile(observationPath, "utf8")
-  ) as BuiltCommandObservation;
-  return { exitCode, stdout, stderr, observation };
+  let observation: BuiltCommandObservation | undefined;
+  try {
+    observation = JSON.parse(
+      await readFile(observationPath, "utf8")
+    ) as BuiltCommandObservation;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (exitCode !== 0) {
+      throw new Error(
+        `Built command failed before observation (exit code ${String(exitCode)}; stdout ${JSON.stringify(stdout)}; stderr ${JSON.stringify(stderr)})`,
+        { cause: error }
+      );
+    }
+  }
+  return {
+    exitCode,
+    stdout,
+    stderr,
+    ...(observation === undefined ? {} : { observation })
+  };
 }
 
 test("debug is opt-in and writes only the bounded runtime log", async () => {
