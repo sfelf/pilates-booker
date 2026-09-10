@@ -1,8 +1,7 @@
 export type PermittedAction = "book" | "waitlist";
 
 export type PermittedActions =
-  | readonly ["book"]
-  | readonly ["book", "waitlist"];
+  readonly ["book"] | readonly ["book", "waitlist"];
 
 type SharedBookingInput = Readonly<{
   allowed_packages: readonly [string, ...string[]];
@@ -273,11 +272,7 @@ export type BookingResult =
   | ConfirmationUncertainBookingResult;
 
 export type CheckoutAction =
-  | "book"
-  | "waitlist"
-  | "sold_out"
-  | "already_booked"
-  | "already_waitlisted";
+  "book" | "waitlist" | "sold_out" | "already_booked" | "already_waitlisted";
 
 export type CheckoutObservation =
   | Readonly<{ status: "login_required" }>
