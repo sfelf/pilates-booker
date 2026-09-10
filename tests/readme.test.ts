@@ -185,3 +185,37 @@ test("documents only the executable CLI-only operating model", async () => {
     /## License\n\nPilates Booker is licensed under the \[GNU Affero General Public License v3\.0 or later\]\(LICENSE\) \(`AGPL-3\.0-or-later`\); see \[LICENSE\]\(LICENSE\)\.$/u
   );
 });
+
+test("uses one accessible theme-aware brand heading while preserving badges", async () => {
+  const readme = await readFile(
+    new URL("../README.md", import.meta.url),
+    "utf8"
+  );
+  const headingMatches = [...readme.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/giu)];
+
+  expect(headingMatches).toHaveLength(1);
+  const headingMarkup = headingMatches[0]?.[0] ?? "";
+  const heading = headingMatches[0]?.[1] ?? "";
+  expect(headingMarkup).toMatch(/^<h1\b[^>]*align="center"[^>]*>/iu);
+  const images = [...heading.matchAll(/<img\b([^>]*)>/giu)].map((match) =>
+    Object.fromEntries(
+      [...(match[1] ?? "").matchAll(/([a-z-]+)="([^"]*)"/giu)].map(
+        ([, name, value]) => [name?.toLowerCase(), value]
+      )
+    )
+  );
+  expect(images).toHaveLength(2);
+  expect(images.map(({ src }) => src).sort()).toEqual([
+    "assets/brand/logo-lockup-dark.png#gh-dark-mode-only",
+    "assets/brand/logo-lockup.png#gh-light-mode-only"
+  ]);
+  for (const image of images) {
+    expect(image).toMatchObject({ alt: "Pilates Booker", width: "420" });
+  }
+  expect(readme).toContain(
+    "[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)]"
+  );
+  expect(readme).toContain(
+    "[![Codecov coverage](https://codecov.io/gh/sfelf/pilates-booker/branch/main/graph/badge.svg)]"
+  );
+});
