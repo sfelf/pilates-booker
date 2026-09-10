@@ -87,9 +87,7 @@ type BuiltCommandObservation = Readonly<{
   cancellation_acceptances?: number;
 }>;
 type DiscoveryFixtureFailure =
-  | "pre_submission"
-  | "post_submit"
-  | "checkout_redirect";
+  "pre_submission" | "post_submit" | "checkout_redirect";
 type DiscoveryScenario = Readonly<{
   name: string;
   action: Scenario["action"];

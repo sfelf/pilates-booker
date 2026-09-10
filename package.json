@@ -27,14 +27,14 @@
   "dependencies": {
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "playwright": "1.62.1"
+    "playwright": "1.63.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.18.0",
     "@vitest/coverage-v8": "^5.0.0",
-    "eslint": "^10.9.1",
-    "prettier": "^3.6.2",
+    "eslint": "^10.10.0",
+    "prettier": "^3.9.6",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.69.0",
     "vitest": "^5.0.0",
