@@ -191,30 +191,17 @@ test("uses one semantic brand heading while preserving badges", async () => {
     new URL("../README.md", import.meta.url),
     "utf8"
   );
-  const headingMatches = [...readme.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/giu)];
+  expect(() => new ReadmeBrandImageContract(readme).assert()).not.toThrow();
+  expect(() =>
+    new ReadmeBrandImageContract(readme).withCenteredHeading().assert()
+  ).toThrow();
+  expect(() =>
+    new ReadmeBrandImageContract(readme).withThemeSourceFragment().assert()
+  ).toThrow();
+  expect(() =>
+    new ReadmeBrandImageContract(readme).withSecondDarkLogo().assert()
+  ).toThrow();
 
-  expect(headingMatches).toHaveLength(1);
-  const headingMarkup = headingMatches[0]?.[0] ?? "";
-  const heading = headingMatches[0]?.[1] ?? "";
-  expect(headingMarkup).toMatch(/^<h1\b[^>]*>/iu);
-  expect(headingMarkup).not.toMatch(/align="center"/iu);
-  const images = [...heading.matchAll(/<img\b([^>]*)>/giu)].map((match) =>
-    Object.fromEntries(
-      [...(match[1] ?? "").matchAll(/([a-z-]+)="([^"]*)"/giu)].map(
-        ([, name, value]) => [name?.toLowerCase(), value]
-      )
-    )
-  );
-  expect(images).toHaveLength(1);
-  expect(images[0]).toMatchObject({
-    src: "assets/brand/logo-lockup-dark.png",
-    alt: "Pilates Booker",
-    width: "420"
-  });
-  expect(readme).not.toMatch(/#gh-dark-mode-only|#gh-light-mode-only/iu);
-  for (const image of images) {
-    expect(image).toMatchObject({ alt: "Pilates Booker", width: "420" });
-  }
   expect(readme).toContain(
     "[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)]"
   );
@@ -222,3 +209,64 @@ test("uses one semantic brand heading while preserving badges", async () => {
     "[![Codecov coverage](https://codecov.io/gh/sfelf/pilates-booker/branch/main/graph/badge.svg)]"
   );
 });
+
+class ReadmeBrandImageContract {
+  private readme: string;
+
+  constructor(readme: string) {
+    this.readme = readme;
+  }
+
+  withCenteredHeading(): this {
+    this.readme = this.readme.replace("<h1>", '<h1 align="center">');
+    return this;
+  }
+
+  withThemeSourceFragment(): this {
+    this.readme = `${this.readme}
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-lockup-dark.png" />
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/logo-lockup.png" />
+</picture>`;
+    return this;
+  }
+
+  withSecondDarkLogo(): this {
+    this.readme = `${this.readme}
+<img src="assets/brand/logo-lockup-dark.png" alt="Pilates Booker" width="420">`;
+    return this;
+  }
+
+  assert(): void {
+    const headingMatches = [
+      ...this.readme.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/giu)
+    ];
+    expect(headingMatches).toHaveLength(1);
+    const headingMarkup = headingMatches[0]?.[0] ?? "";
+    const heading = headingMatches[0]?.[1] ?? "";
+    expect(headingMarkup).toMatch(/^<h1\b[^>]*>/iu);
+    expect(headingMarkup).not.toMatch(/\balign\s*=\s*["'][^"']*["']/iu);
+    const images = [...heading.matchAll(/<img\b([^>]*)>/giu)].map((match) =>
+      Object.fromEntries(
+        [...(match[1] ?? "").matchAll(/([a-z-]+)="([^"]*)"/giu)].map(
+          ([, name, value]) => [name?.toLowerCase(), value]
+        )
+      )
+    );
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatchObject({
+      src: "assets/brand/logo-lockup-dark.png",
+      alt: "Pilates Booker",
+      width: "420"
+    });
+    expect(this.readme).not.toMatch(/#gh-dark-mode-only|#gh-light-mode-only/iu);
+    expect(this.readme).not.toMatch(
+      /<picture\b|<source\b|srcset=|media=["'][^"']*prefers-color-scheme[^"']*["']/iu
+    );
+    expect(
+      this.readme.match(
+        /<img\b[^>]*\bsrc="assets\/brand\/logo-lockup-dark\.png"[^>]*>/giu
+      )
+    ).toHaveLength(1);
+  }
+}
