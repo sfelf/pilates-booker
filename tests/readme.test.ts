@@ -185,3 +185,34 @@ test("documents only the executable CLI-only operating model", async () => {
     /## License\n\nPilates Booker is licensed under the \[GNU Affero General Public License v3\.0 or later\]\(LICENSE\) \(`AGPL-3\.0-or-later`\); see \[LICENSE\]\(LICENSE\)\.$/u
   );
 });
+
+test("uses one semantic brand heading while preserving badges", async () => {
+  const readme = await readFile(
+    new URL("../README.md", import.meta.url),
+    "utf8"
+  );
+  const expectedHeading = [
+    "<h1>",
+    '  <img src="assets/brand/logo-lockup-dark.png" alt="Pilates Booker" width="420">',
+    "</h1>"
+  ].join("\n");
+  expect(readme.startsWith(`${expectedHeading}\n`)).toBe(true);
+  expect([
+    ...readme.matchAll(/assets\/brand\/logo-lockup-dark\.png/giu)
+  ]).toHaveLength(1);
+  expect([
+    ...readme.matchAll(/assets\/brand\/logo-lockup\.png/giu)
+  ]).toHaveLength(0);
+  expect(readme).not.toMatch(/#gh-(?:light|dark)-mode-only/iu);
+  expect(readme).not.toMatch(/<picture\b/iu);
+  expect(readme).not.toMatch(/<source\b/iu);
+  expect(readme).not.toMatch(/prefers-color-scheme/iu);
+  expect(readme).not.toMatch(/\bsrcset\s*=/iu);
+
+  expect(readme).toContain(
+    "[![CI status](https://github.com/sfelf/pilates-booker/actions/workflows/ci.yml/badge.svg?branch=main)]"
+  );
+  expect(readme).toContain(
+    "[![Codecov coverage](https://codecov.io/gh/sfelf/pilates-booker/branch/main/graph/badge.svg)]"
+  );
+});
